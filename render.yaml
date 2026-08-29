@@ -1,0 +1,20 @@
+# Render 一键部署配置（Render Blueprint）
+# 用法：https://render.com → New → Blueprint → 选择本仓库
+# 部署完成后得到 https://xxxx.onrender.com，把该链接发给别人即可打开同一个页面。
+services:
+  - type: web
+    name: back-translate-studio
+    runtime: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: node server/index.mjs
+    healthCheckPath: /api/health
+    envVars:
+      - key: PORT
+        value: 8787
+      - key: AI_BASE_URL
+        sync: false
+      - key: AI_MODEL
+        value: deepseek-chat
+      - key: AI_API_KEY
+        sync: false

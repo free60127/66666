@@ -82,6 +82,43 @@
 
 打开作业结果页 → 工具栏「导出 PDF」（浏览器打印）→ 选择「另存为 PDF」。打印样式自动分页：滚动容器不再裁剪、卡片不跨页、详细解析从新页开始。
 
+## 部署到公网（让别人也能打开这个页面）
+
+仓库里的代码在 GitHub 上「只能看、不能运行」。要让别人在浏览器里打开跟你现在一样的界面，需要把项目部署到一台公网服务器。推荐以下方式：
+
+### 方式一：Render 一键部署（免费，最快）
+
+仓库已附带 `render.yaml`（Render Blueprint 配置）：
+
+1. 打开 https://render.com 注册/登录（GitHub 授权）
+2. New → **Blueprint** → 选择 `free60127/66666` 这个仓库
+3. 部署时填环境变量（可选）：
+   - `AI_BASE_URL`（默认 https://api.deepseek.com/v1）、`AI_MODEL`（默认 deepseek-chat）
+   - `AI_API_KEY`：**你的** DeepSeek Key；留空就表示让每个使用者在前端「AI 设置」里填自己的 Key
+4. 点 Deploy，几分钟后得到类似 `https://back-translate-studio.onrender.com` 的地址
+
+把这个地址发给任何人，打开就是你现在截图里的完整页面（包含两册语料、DOCX 导入、逐句解析）。
+
+> 注意：免费版容器闲置后会休眠，别人第一次打开可能要等 30~60 秒唤醒。
+
+### 方式二：自己的服务器（国内访问更稳）
+
+    git clone https://github.com/free60127/66666.git && cd 66666
+    npm install && npm run build
+    PORT=8787 AI_API_KEY=sk-xxx node server/index.mjs   # 或写入 .env 后 npm run server
+
+然后用 PM2 保活、防火墙开放 8787 端口；正式域名建议 Nginx 反代 + HTTPS 证书。
+
+### 方式三：GitHub Pages（只能静态预览，不能生成 AI）
+
+GitHub Pages 只能托管前端静态文件，没有任何后端，因此「AI 生成/课文匹配」功能不可用，仅可看界面与「离线示例」。适合做演示页，不推荐作为正式使用方式。
+
+### 公开部署的安全提醒
+
+- **绝对不要把 API Key 写进前端或提交到仓库**（仓库 .gitignore 已排除 .env）。
+- 若在 Render 环境变量里填了 `AI_API_KEY`，Key 只存在你的服务器上，别人无需 Key 即可使用；请留意调用量。
+- 若留空让使用者自填 Key，该 Key 会随请求先发到你的后端再转发给模型服务商——请只把链接分享给信任的人。
+
 ## 说明与声明
 
 - API Key 默认只放服务端 .env；前端设置面板的 Key 仅适合个人本地使用。
