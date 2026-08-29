@@ -53,13 +53,26 @@ def repair_english(text: str, lesson: int) -> str:
     text = text.replace("hirn", "him")
     text = text.replace("particuiar", "particular")
     text = text.replace("forcsecn", "foreseen")
+    text = text.replace("induige", "indulge")
+    text = text.replace("calied", "called")
+    text = text.replace("t00", "too")
+    text = text.replace("2o,000", "20,000")
+    text = text.replace("0r someone like him", "Or someone like him")
     text = re.sub(r"\bf\s*(?=\d)", "£", text)
     text = text.replace("£3,0o0", "£3,000").replace("£3o", "£30")
     text = re.sub(r"(?<=[a-z])-\s+(?=[a-z])", "", text)
     text = re.sub(r"(?<=\d)o(?=\d)", "0", text)
     text = re.sub(r"\b\d{2,3}[S5]\s+(?=[A-Za-z])", "", text)
+    text = text.replace("1,084 15a steps", "1,084 steps")
 
     lesson_repairs = {
+        5: {
+            "The article began: *Hundreds of steps lead to the high find out the exact number of steps and the height of the wall.": "The article began: 'Hundreds of steps lead to the high wall which surrounds the president's palace.' The editor at once sent the journalist a fax instructing him to find out the exact number of steps and the height of the wall.",
+        },
+        7: {
+            "the washing machine and then remembered there was a large bank note in your back pocket?": "Has it ever happened to you? Have you ever put your trousers into the washing machine and then remembered there was a large bank note in your back pocket?",
+            "remains of wallet and the ined the remains and John got all his money back.": "remains of wallet and the money to the special department of the Bank of England in Newcastle: the Mutilated Ladies. They examined the remains and John got all his money back.",
+        },
         21: {
             "answered Bil.": "answered Bill.",
             "*That's the trouble": "'That's the trouble",
@@ -73,6 +86,32 @@ def repair_english(text: str, lesson: int) -> str:
             "meal gets burmt": "meal gets burnt",
             "cars Happened to be": "cars happened to be",
             "had to sweer un hundreds": "had to sweep up hundreds",
+        },
+        31: {
+            "requested to see the tant severely.": "requested to see the manager. Recognizing who the customer was, the manager was most apologetic and reprimanded the assistant severely.",
+        },
+        36: {
+            "In the nineteenth century, a novelist would bring his story to a conclusion by presenting his most of them wildlv readers with a series of coincidences -- most of them wildly readers_with. a series of coincidences improbable.": "In the nineteenth century, a novelist would bring his story to a conclusion by presenting his readers with a series of coincidences -- most of them wildly improbable.",
+        },
+        40: {
+            "Students often create When a student recently saw two workmen using a pneumatic drill outside his university": "Students often create amusing situations which are funny to everyone except the victims. When a student recently saw two workmen using a pneumatic drill outside his university",
+        },
+        47: {
+            "Car alarms constantly scream at us in the street and are a incessantly in the night rated the highest form of noise pollution on a scale ranging from 1 to 7.": "Car alarms constantly scream at us in the street and are a source of profound irritation. A recent survey of the effects of noise revealed (surprisingly?) that dogs barking incessantly in the night rated the highest form of noise pollution on a scale ranging from 1 to 7.",
+        },
+        52: {
+            "success. Harry 25C then asked": "success. Harry then asked",
+        },
+        53: {
+            "A parliamentary refer to him as the *J. O.' or 'Ombudsman'.": "A parliamentary committee representing all political parties appoints a person who is suitably qualified to investigate private grievances against the State. The official title of the person is 'Justiteombudsman', but the Swedes commonly refer to him as the 'J. O.' or 'Ombudsman'.",
+        },
+        54: {
+            "We regard them as wage war on them": "We regard them as unnecessary creatures that do more harm than good. We continually wage war on them",
+            "tree,. with sticky tape": "tree with sticky tape",
+        },
+        57: {
+            "which I found most helpful actually remembered anything at all.": "which I found most helpful on the cross-country journey, but which I did not think I should need on the last stage. It was not that I actually remembered anything at all.",
+            "So I drove back to the curious thing was that the lake was not marked on the map.": "So I drove back to the town and began to retrace the route, taking frequent glances at the map. I landed up at the same corner. The curious thing was that the lake was not marked on the map.",
         },
         42: {
             "After entering the narrow gap on the pla-": "After entering the narrow gap on the plateau, they climbed down the steep sides of the cave until they came to a narrow corridor. They had to edge their way along this, sometimes wading across shallow streams, or swimming across deep pools. Suddenly they came to a waterfall which dropped into an underground lake at the bottom of the cave. They plunged into the lake, and after loading their gear on an inflatable rubber dinghy, let the current carry them to the other side. To protect themselves from the icy water, they had to wear special rubber suits. At the far end of the lake, they came to huge piles of rubble which had been washed up by the water. In this part of the cave, they could hear an insistent booming sound which they found was caused by a small waterspout shooting down into a pool from the roof of the cave. Squeezing through a cleft in the rocks, the pot-holers arrived at an enormous cavern, the size of a huge concert hall. After switching on powerful arc lights, they saw great stalagmites - some of them over forty feet high --- rising up like tree-trunks to meet the stalactites suspended from the roof. Round about, piles of limestone glistened in all the colours of the rainbow. In the eerie silence of the cavern, the only sound that could be heard was made by water which dripped continuously from the high dome above them.",

@@ -246,6 +246,8 @@ function App() {
         String(i + 1) + '. ' + s.cn, '原稿：' + s.draft, 'AI 修正版：' + s.ai,
         '原文：' + s.original, ...(s.findings || []).map((f) => '· [' + f.category + '] ' + f.from + ' → ' + f.to + '：' + f.explanation), '',
       ]),
+      '【可学习的高级句式】', ...(result.advancedSentences || []).map((a) => '· ' + a), '',
+      '【加分表达】', ...(result.bonusExpressions || []).map((b) => '· ' + b), '',
     ].join('\n');
     await navigator.clipboard.writeText(text);
   };
@@ -260,7 +262,7 @@ function App() {
         <div className="side-section">
           <div className="side-title">课文库</div>
           <div className="book-tabs">
-            {[2, 3].map((n) => <button key={n} className={book === n ? 'active' : ''} onClick={() => handleBookChange(n)}>新概念 {n}</button>)}
+            {[1, 2, 3, 4].map((n) => <button key={n} className={book === n ? 'active' : ''} onClick={() => handleBookChange(n)}>新概念 {n}</button>)}
           </div>
           <div className="lesson-list">
             {visibleLessons.length === 0 && <div className="muted">正在加载语料…</div>}
@@ -377,6 +379,11 @@ function ResultSheet({ result, onBack, onCopy }) {
           </div>
           {sentences.map((sentence, i) => <SentenceCard key={'s' + i} index={i} sentence={sentence} />)}
         </section>
+        <section className="sheet-section summary">
+          <div className="section-heading"><span className="label-dot" /><h2>学习总结 · 可学习的高级句式与加分表达</h2></div>
+          <SummaryBlock title="高级句式" tone="teal" items={result.advancedSentences} />
+          <SummaryBlock title="加分表达" tone="gold" items={result.bonusExpressions} />
+        </section>
       </article>
     </div>
   );
@@ -410,6 +417,26 @@ function SentenceCard({ index, sentence }) {
 
 function VersionRow({ label, tone, text }) {
   return <div className={'v-row ' + tone}><span className="v-label">{label}</span><p>{text}</p></div>;
+}
+
+function SummaryBlock({ title, tone, items }) {
+  const arr = Array.isArray(items) ? items : [];
+  if (!arr.length) return null;
+  return (
+    <div className="summary-block">
+      <h3 className={'summary-title ' + tone}>{title}</h3>
+      {arr.map((item, i) => {
+        const s = typeof item === 'string' ? item : JSON.stringify(item);
+        const parts = s.split(/[·•]\s*中文[点说]/i);
+        return (
+          <div className={'summary-card ' + tone} key={'sm' + tone + i}>
+            <p className="summary-quote">{parts[0].trim()}</p>
+            {parts[1] ? <p className="summary-tip">中文点拨：{parts[1].trim()}</p> : null}
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 export default App;

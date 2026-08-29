@@ -16,14 +16,15 @@
 - 逐句级解析：每条错误含 from → to 与中文解释，分 error / improve / study 三级
 - 初稿黄色高亮：批改后自动在原稿与逐句行中标出错误 / 不地道表达，屏幕与打印均保留
 - 打印排版优化：句子卡片可跨页拆分，不再留大片空白
-- 多册语料：支持任意册 JSON 语料（默认新概念第 2 册 / 第 3 册，见「语料」）
+- 多册语料：支持任意册 JSON 语料（新概念 1 / 2 / 3 / 4 册，见「语料」）
+- 高级句式与加分表达：每次作业末尾额外总结可学习的高级句式（倒装/虚拟/非谓语等）与地道加分表达
 - 导出 PDF：浏览器打印自动分页（打印样式已针对滚动容器裁剪问题重写）
 
 ## 技术栈与架构
 
 - 前端：React + Vite（src/）
 - 后端：轻量 Node 服务（server/index.mjs，零依赖，OpenAI 兼容接口代理）
-- 语料：public/corpus/new-concept-2-full.json、public/corpus/new-concept-3.json
+- 语料：public/corpus/new-concept-1-full.json、new-concept-2-full.json、new-concept-3.json、new-concept-4.json
 - DOCX：前端使用 Mammoth 读取 Word 正文；旧作业中 AI 修正版、原文、解析等内容会被自动截断
 
 > 纯前端能完成界面、比对、展示与导出；实时 AI 生成必须走后端（API Key 安全 + CORS + 限流），本项目采用轻量本地代理方案。

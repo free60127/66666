@@ -37,9 +37,18 @@ function normalizeLesson(raw, book, source) {
     source,
   };
 }
+const BOOK_META = {
+  1: { source: '新概念英语 第1册.pdf', file: 'new-concept-1-full.json' },
+  2: { source: '新概念英语 第2册.pdf', file: 'new-concept-2-full.json' },
+  3: { source: '新概念英语 第3册.pdf', file: 'new-concept-3.json' },
+  4: { source: '新概念英语 第4册.pdf', file: 'new-concept-4.json' },
+};
+const isValidBook = (n) => [1, 2, 3, 4].includes(Number(n));
 function loadBook(book) {
-  const source = book === 3 ? '新概念英语 第3册.pdf' : '新概念英语 第2册.pdf';
-  const full = path.join(ROOT, 'public', 'corpus', book === 3 ? 'new-concept-3.json' : 'new-concept-2-full.json');
+  const meta = BOOK_META[Number(book)];
+  if (!meta) return { book: Number(book), source: '', lessons: [] };
+  const source = meta.source;
+  const full = path.join(ROOT, 'public', 'corpus', meta.file);
   if (fs.existsSync(full)) {
     try {
       const raw = JSON.parse(fs.readFileSync(full, 'utf8'));
@@ -56,7 +65,7 @@ function loadBook(book) {
   return { book, source, lessons: lessons.sort((a, b) => a.lesson - b.lesson) };
 }
 function getCorpora() {
-  if (!corpora) corpora = new Map([[2, loadBook(2)], [3, loadBook(3)]]);
+  if (!corpora) corpora = new Map([1, 2, 3, 4].map((b) => [b, loadBook(b)]));
   return corpora;
 }
 function getCorpus(book = 2) {
@@ -78,11 +87,11 @@ function lessonNumber(text) {
   return m ? Number(m[1]) : null;
 }
 function titleBook(text) {
-  const m = String(text || '').match(/(?:新概念\s*)?(?:book|册|volume)?\s*([23])(?:\s*册)?/i);
+  const m = String(text || '').match(/(?:新概念\s*)?(?:book|册|volume)?\s*([1-4])(?:\s*册)?/i);
   return m ? Number(m[1]) : null;
 }
 function matchLesson({ title, chinese, book }) {
-  const requestedBook = Number(book) === 2 || Number(book) === 3 ? Number(book) : titleBook(title);
+  const requestedBook = isValidBook(book) ? Number(book) : titleBook(title);
   const candidates = allLessons(requestedBook || null);
   const titleKey = compact(title);
   const cnKey = compact(chinese);
@@ -108,7 +117,7 @@ function matchLesson({ title, chinese, book }) {
 }
 function resolveLesson({ book, lessonId, title, chinese }) {
   const n = Number(lessonId);
-  if (Number.isFinite(n) && n > 0) return findLesson(Number(book) === 3 ? 3 : 2, n);
+  if (Number.isFinite(n) && n > 0) return findLesson(isValidBook(book) ? Number(book) : 2, n);
   return matchLesson({ title, chinese, book });
 }
 
@@ -206,14 +215,14 @@ const server = http.createServer(async (req, res) => {
     }
     if (p === '/api/lessons' && req.method === 'GET') {
       const requestedBook = Number(url.searchParams.get('book'));
-      const book = requestedBook === 2 || requestedBook === 3 ? requestedBook : null;
+      const book = isValidBook(requestedBook) ? requestedBook : null;
       const lessons = allLessons(book).map((l) => ({
         book: l.book, lesson: l.lesson, title_en: l.title_en, title_cn: l.title_cn,
         pdf_page: l.pdf_page, englishLen: l.english.length, chineseLen: l.chinese.length,
       }));
       return json(res, 200, { book, lessons });
     }
-    const lessonMatch = p.match(/^\/api\/lessons\/(?:(2|3)\/)?(\d+)$/);
+    const lessonMatch = p.match(/^\/api\/lessons\/(?:(1|2|3|4)\/)?(\d+)$/);
     if (lessonMatch && req.method === 'GET') {
       const book = Number(lessonMatch[1] || 2);
       const n = Number(lessonMatch[2]);
@@ -267,6 +276,8 @@ const server = http.createServer(async (req, res) => {
         original: parsed.original || (lesson ? lesson.english : ''),
         overall: parsed.overall || {},
         sentences: Array.isArray(parsed.sentences) ? parsed.sentences : [],
+        advancedSentences: Array.isArray(parsed.advancedSentences) ? parsed.advancedSentences : [],
+        bonusExpressions: Array.isArray(parsed.bonusExpressions) ? parsed.bonusExpressions : [],
       };
       return json(res, 200, { ok: true, data: parsed, meta: { book: lesson?.book || null, lessonId: lesson?.lesson || lessonNo, baseUrl, model } });
     }

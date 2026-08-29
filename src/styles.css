@@ -24,7 +24,7 @@ textarea, input { font: inherit; }
 .sidebar .ghost-btn { background: transparent; border-color: #3a4f5e; color: #b9cad6; width: 100%; justify-content: center; }
 .side-section { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .side-title { font-size: 11px; letter-spacing: .12em; color: #7f99aa; padding: 8px 6px; }
-.book-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; margin: 0 4px 8px; }
+.book-tabs { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 5px; margin: 0 4px 8px; }
 .book-tabs button { border: 1px solid #3a4f5e; border-radius: 7px; color: #a9bdc9; padding: 6px 4px; font-size: 12px; }
 .book-tabs button.active { background: #2d81d7; border-color: #2d81d7; color: #fff; }
 .lesson-list { overflow-y: auto; display: flex; flex-direction: column; gap: 3px; }
@@ -94,6 +94,15 @@ textarea, input { font: inherit; }
 .chip { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; background: #e7f5ec; color: #18743c; border-radius: 999px; padding: 4px 10px; }
 .advice { font-size: 13px; }
 .advice ul { margin: 6px 0 0; padding-left: 18px; line-height: 1.7; }
+.summary { border-top: 1px dashed var(--line); padding-top: 18px; }
+.summary-block { margin-bottom: 16px; }
+.summary-title { margin: 0 0 8px; font-size: 14px; }
+.summary-title.teal { color: var(--teal); }
+.summary-title.gold { color: var(--gold); }
+.summary-card { border: 1px solid var(--line); border-left: 4px solid var(--teal); border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; background: #fbfcfd; }
+.summary-card.gold { border-left-color: var(--gold); }
+.summary-quote { margin: 0; font-size: 14px; line-height: 1.7; color: var(--text); }
+.summary-tip { margin: 4px 0 0; font-size: 13px; line-height: 1.7; color: var(--muted); }
 .sentence-card { border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; margin-bottom: 14px; }
 .sentence-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
 .sentence-index { background: #e8f0fb; color: var(--brand); font-weight: 700; border-radius: 7px; padding: 3px 8px; font-size: 12px; }
@@ -155,9 +164,9 @@ mark.hl { background: #ffe9a8; color: inherit; padding: 0 1px; border-radius: 2p
   .sheet-section { break-inside: auto !important; page-break-inside: auto !important; }
   * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
   .analysis { break-before: page; page-break-before: always; border-top: none !important; }
+  .summary { break-before: page; page-break-before: always; border-top: none !important; }
   .overall-card { break-inside: auto; page-break-inside: auto; }
   .sentence-card { break-inside: auto; page-break-inside: auto; }
-  .sentence-card p, .v-row p { orphans: 2; widows: 2; }
-  .sentence-head, .finding { break-inside: avoid; page-break-inside: avoid; }
-  .v-row { break-inside: avoid; page-break-inside: avoid; }
+  .sentence-card p, .v-row p, .summary-quote, .summary-tip { orphans: 2; widows: 2; }
+  .sentence-head, .finding, .v-row, .summary-card { break-inside: avoid; page-break-inside: avoid; }
 }

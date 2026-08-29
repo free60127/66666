@@ -1,0 +1,1158 @@
+{
+ "book": 1,
+ "source": "新概念英语 第1册.pdf",
+ "lessons": [
+  {
+   "lesson": 1,
+   "title_en": "Excuse me!",
+   "title_cn": "对不起!",
+   "pdf_page": 4,
+   "english": "Excuse me!\nYes?\nIs this your handbag?\nPardon?\nIs this your handbag?\nYes, it is.\nThank you very much.",
+   "chinese": "对不起。\n什么事？\n这是您的手提包吗？\n对不起，请再说一遍。\n这是您的手提包吗？\n是的，是我的。\n非常感谢！"
+  },
+  {
+   "lesson": 2,
+   "title_en": "Is this your...?",
+   "title_cn": "这是你的……吗？",
+   "pdf_page": 6,
+   "english": "Is this your pen?\nIs this your pencil?\nIs this your book?\nIs this your watch?\nIs this your coat?\nIs this your dress?\nIs this your skirt?\nIs this your shirt?\nIs this your car?\nIs this your house?",
+   "chinese": "这是你的钢笔吗？\n这是你的铅笔吗？\n这是你的书吗？\n这是你的手表吗？\n这是你的大衣吗？\n这是你的连衣裙吗？\n这是你的裙子吗？\n这是你的衬衫吗？\n这是你的小汽车吗？\n这是你的房子吗？"
+  },
+  {
+   "lesson": 3,
+   "title_en": "Sorry, sir.",
+   "title_cn": "对不起，先生。",
+   "pdf_page": 8,
+   "english": "My coat and my umbrella please.\nHere is my ticket.\nThank you, sir.\nNumber five.\nHere's your umbrella and your coat.\nThis is not my umbrella.\nSorry, sir.\nIs this your umbrella?\nNo, it isn't.\nIs this it?\nYes, it is.\nThank you very much.",
+   "chinese": "请把我的大衣和伞拿给我。\n这是我（寄存东西）的牌子。\n谢谢，先生。\n是5号。\n这是您的伞和大衣。\n这不是我的伞。\n对不起，先生。\n这把伞是您的吗？\n不，不是！\n这（把）是吗？\n是，是这把。\n非常感谢。"
+  },
+  {
+   "lesson": 4,
+   "title_en": "Is this your...?",
+   "title_cn": "这是你的……吗？",
+   "pdf_page": 10,
+   "english": "Is this your pen?\nIs this your pencil?\nIs this your book?\nIs this your watch?\nIs this your coat?\nIs this your dress?\nIs this your skirt?\nIs this your shirt?\nIs this your car?\nIs this your house?\nIs this your suit?\nIs this your school?\nIs this your teacher?\nIs this your son?\nIs this your daughter?",
+   "chinese": "这是你的钢笔吗？\n这是你的铅笔吗？\n这是你的书吗？\n这是你的手表吗？\n这是你的大衣吗？\n这是你的连衣裙吗？\n这是你的裙子吗？\n这是你的衬衫吗？\n这是你的小汽车吗？\n这是你的房子吗？\n这是你的西服吗？\n这是你的学校吗？\n这是你的老师吗？\n这是你的儿子吗？\n这是你的女儿吗？"
+  },
+  {
+   "lesson": 5,
+   "title_en": "Nice to meet you.",
+   "title_cn": "很高兴见到你。",
+   "pdf_page": 12,
+   "english": "MR. BLAKE: Good morning.\nSTUDENTS: Good morning, Mr. Blake.\nMR. BLAKE: This is Miss Sophie Dupont.\nSophie is a new student.\nShe is French.\nMR. BLAKE: Sophie, this is Hans.\nHe is German.\nHANS: Nice to meet you.\nMR. BLAKE: And this is Naoko.\nShe's Japanese.\nNAOKO: Nice to meet you.\nMR. BLAKE: And this is Chang-woo.\nHe's Korean.\nCHANG-WOO: Nice to meet you.\nMR. BLAKE: And this is Luming.\nHe's Chinese.\nLUMING: Nice to meet you.\nMR. BLAKE: And this is Xiaohui.\nShe's Chinese, too.\nXIAOHUI: Nice to meet you.",
+   "chinese": "布莱克先生：早上好。\n学　生：早上好，布莱克先生。\n布莱克先生：这位是索菲娅·杜邦小姐。索菲娅是个新学生。她是法国人。\n布莱克先生：索菲娅，这位是汉斯。他是德国人。\n汉　斯：很高兴见到你。\n布莱克先生：这位是直子。她是日本人。\n直　子：很高兴见到你。\n布莱克先生：这位是昌宇。他是韩国人。\n昌　宇：很高兴见到你。\n布莱克先生：这位是鲁明。他是中国人。\n鲁　明：很高兴见到你。\n布莱克先生：这位是晓惠。她也是中国人。\n晓　惠：很高兴见到你。"
+  },
+  {
+   "lesson": 6,
+   "title_en": "What make is it?",
+   "title_cn": "它是什么牌子的？",
+   "pdf_page": 14,
+   "english": "It's a Volvo. (Swedish)\nIt's a Peugeot. (French)\nIt's a Mercedes. (German)\nIt's a Toyota. (Japanese)\nIt's a Daewoo. (Korean)\nIt's a Mini. (English)\nIt's a Ford. (American)\nIt's a Fiat. (Italian)",
+   "chinese": "是沃尔沃。（瑞典的）\n是标致。（法国的）\n是梅赛德斯。（德国的）\n是丰田。（日本的）\n是大宇。（韩国的）\n是迷你。（英国的）\n是福特。（美国的）\n是菲亚特。（意大利的）"
+  },
+  {
+   "lesson": 7,
+   "title_en": "Are you a teacher?",
+   "title_cn": "你是教师吗？",
+   "pdf_page": 16,
+   "english": "ROBERT: I am a new student.\nMy name's Robert.\nSOPHIE: Nice to meet you.\nMy name's Sophie.\nROBERT: Are you French?\nSOPHIE: Yes, I am.\nSOPHIE: Are you French, too?\nROBERT: No, I am not.\nSOPHIE: What nationality are you?\nROBERT: I'm Italian.\nROBERT: Are you a teacher?\nSOPHIE: No, I'm not.\nROBERT: What's your job?\nSOPHIE: I'm a keyboard operator.\nSOPHIE: What's your job?\nROBERT: I'm an engineer.",
+   "chinese": "罗伯特：我是个新学生。我的名字叫罗伯特。\n索菲娅：很高兴见到你。我的名字叫索菲娅。\n罗伯特：你是法国人吗？\n索菲娅：是的，我是法国人。\n索菲娅：你也是法国人吗？\n罗伯特：不，我不是。\n索菲娅：你是哪国人？\n罗伯特：我是意大利人。\n罗伯特：你是教师吗？\n索菲娅：不，我不是。\n罗伯特：你是做什么工作的？\n索菲娅：我是电脑录入员。\n索菲娅：你是做什么工作的？\n罗伯特：我是工程师。"
+  },
+  {
+   "lesson": 8,
+   "title_en": "What's your job?",
+   "title_cn": "你是做什么工作的？",
+   "pdf_page": 18,
+   "english": "I'm a policeman.\nI'm a policewoman.\nI'm a taxi driver.\nI'm an air hostess.\nI'm a postman.\nI'm a nurse.\nI'm a mechanic.\nI'm a hairdresser.\nI'm a housewife.\nI'm a milkman.",
+   "chinese": "我是警察。\n我是女警察。\n我是出租汽车司机。\n我是空中小姐。\n我是邮递员。\n我是护士。\n我是机械师。\n我是理发师。\n我是家庭妇女。\n我是送牛奶的人。"
+  },
+  {
+   "lesson": 9,
+   "title_en": "How are you today?",
+   "title_cn": "你今天好吗？",
+   "pdf_page": 20,
+   "english": "Hello, Helen.\nHi, Steven.\nHow are you today?\nI'm very well, thank you.\nAnd you?\nI'm fine, thanks.\nHow is Tony?\nHe's fine, thanks.\nHow's Emma?\nShe's very well, too, Helen.\nGoodbye, Helen.\nNice to see you.\nNice to see you, too, Steven.\nGoodbye.",
+   "chinese": "你好，海伦。\n你好，史蒂文。\n你今天好吗？\n很好，谢谢你。\n你好吗？\n很好，谢谢。\n托尼好吗？\n他很好，谢谢。\n埃玛好吗？\n她也很好，海伦。\n再见，海伦。\n见到你真高兴。\n我见到你也很高兴，史蒂文。\n再见。"
+  },
+  {
+   "lesson": 10,
+   "title_en": "Look at . . .",
+   "title_cn": "看……",
+   "pdf_page": 22,
+   "english": "Look at that man! He's fat.\nLook at that woman! She's thin.\nLook at that policeman! He's tall.\nLook at that policewoman! She's short.\nLook at that mechanic! He's dirty.\nLook at that nurse! She's clean.\nLook at Steven! He's hot.\nLook at Emma! She's cold.\nLook at that milkman! He's old.\nLook at that air hostess! She's young.\nLook at that hairdresser! He's busy.\nLook at that housewife! She's lazy.",
+   "chinese": "看那个男人！他很胖。\n看那个女人！她很瘦。\n看那个警察！他个子很高。\n看那个女警察！她个子很矮。\n看那个机械师！他很脏。\n看那个护士！她很干净。\n看史蒂文！他很热。\n看埃玛！她很冷。\n看那个送牛奶的人！他很老。\n看那个空中小姐！她年轻。\n看那个理发师！他很忙。\n看那个家庭主妇！她很懒。"
+  },
+  {
+   "lesson": 11,
+   "title_en": "Is this your shirt?",
+   "title_cn": "这是你的衬衫吗？",
+   "pdf_page": 24,
+   "english": "Whose shirt is that?\nIs this your shirt, Dave?\nNo, sir.\nIt's not my shirt.\nThis is my shirt.\nMy shirt's blue.\nIs this shirt Tim's?\nPerhaps it is, sir.\nTim's shirt's white.\nTim!\nYes, sir?\nIs this your shirt?\nYes, sir.\nHere you are.\nCatch!\nThank you, sir.",
+   "chinese": "那是谁的衬衫？\n戴夫，这是你的衬衫吗？\n不，先生。\n这不是我的衬衫。\n这是我的衬衫，\n我的衬衫是蓝色的。\n这件衬衫是蒂姆的吗？\n也许是，先生。\n蒂姆的衬衫是白色的。\n蒂姆！\n什么事，先生？\n这是你的衬衫吗？\n是的，先生。\n给你。\n接着！\n谢谢您，先生。"
+  },
+  {
+   "lesson": 12,
+   "title_en": "Whose is this . . . ? This is my/your/his/her . . .",
+   "title_cn": "这……是谁的？这是我的/你的/他的/她的……",
+   "pdf_page": 26,
+   "english": "Whose is this handbag? It's Stella's.\nWhose is this car? It's Paul's.\nWhose is this coat? It's Sophie's.\nWhose is this umbrella? It's Steven's.\nWhose is this pen? It's my son's.\nWhose is this dress? It's my daughter's.\nWhose is this suit? It's my father's.\nWhose is this skirt? It's my mother's.\nWhose is this blouse? It's my sister's.\nWhose is this tie? It's my brother's.",
+   "chinese": "这是谁的手提包？是斯特拉的。\n这是谁的汽车？是保罗的。\n这是谁的上衣？是索菲的。\n这是谁的伞？是史蒂文的。\n这是谁的钢笔？是我儿子的。\n这是谁的连衣裙？是我女儿的。\n这是谁的衣服？是我父亲的。\n这是谁的短裙？是我母亲的。\n这是谁的女衬衫？是我姐妹的。\n这是谁的领带？是我兄弟的。"
+  },
+  {
+   "lesson": 13,
+   "title_en": "A new dress",
+   "title_cn": "一件新连衣裙",
+   "pdf_page": 28,
+   "english": "What colour's your new dress?\nIt's green.\nCome upstairs and see it.\nThank you.\nLook!\nHere it is!\nThat's a nice dress.\nIt's very smart.\nMy hat's new, too.\nWhat colour is it?\nIt's the same colour.\nIt's green, too.\nThat is a lovely hat!",
+   "chinese": "你的新连衣裙是什么颜色的？\n是绿色的。\n到楼上来看看吧。\n谢谢。\n瞧，\n就是这件。\n这件连衣裙真好，\n真漂亮。\n我的帽子也是新的。\n是什么颜色的？\n一样的颜色，\n也是绿的。\n真是一顶可爱的帽子！"
+  },
+  {
+   "lesson": 14,
+   "title_en": "What colour's your . . . ?",
+   "title_cn": "你的……是什么颜色的？",
+   "pdf_page": 30,
+   "english": "What colour's your umbrella? It's black.\nWhat colour's your car? It's blue.\nWhat colour's your shirt? It's white.\nWhat colour's your coat? It's grey.\nWhat colour's your case? It's brown.\nWhat colour's your carpet? It's red.\nWhat colour's your blouse? It's yellow.\nWhat colour's your tie? It's orange.\nWhat colour's your hat? It's grey and black.\nWhat colour's your dog? It's brown and white.",
+   "chinese": "你的伞是什么颜色的？是黑色的。\n你的汽车是什么颜色的？是蓝色的。\n你的衬衫是什么颜色的？是白色的。\n你的外套是什么颜色的？是灰色的。\n你的箱子是什么颜色的？是棕色的。\n你的地毯是什么颜色的？是红色的。\n你的女衬衫是什么颜色的？是黄色的。\n你的领带是什么颜色的？是橙色的。\n你的帽子是什么颜色的？是灰黑相间的。\n你的狗是什么颜色的？是棕白相间的。"
+  },
+  {
+   "lesson": 15,
+   "title_en": "Your passports, please.",
+   "title_cn": "请出示你们的护照。",
+   "pdf_page": 32,
+   "english": "Are you Swedish?\nNo, we are not.\nWe are Danish.\nAre your friends Danish, too?\nNo, they aren't.\nThey are Norwegian.\nYour passports, please.\nHere they are.\nAre these your cases?\nNo, they aren't.\nOur cases are brown.\nHere they are.\nAre you tourists?\nYes, we are.\nAre your friends tourists too?\nYes, they are.\nThat's fine.\nThank you very much.",
+   "chinese": "你们是瑞典人吗？\n不，我们不是瑞典人。\n我们是丹麦人。\n你们的朋友也是丹麦人吗？\n不，他们不是丹麦人。\n他们是挪威人。\n请出示你们的护照。\n给您。\n这些是你们的箱子吗？\n不，不是。\n我们的箱子是棕色的。\n在这儿呢。\n你们是来旅游的吗？\n是的。我们是来旅游的。\n你们的朋友也是来旅游的吗？\n是的。他们也是。\n好了。\n非常感谢。"
+  },
+  {
+   "lesson": 16,
+   "title_en": "Are you . . . ?",
+   "title_cn": "你是……吗？",
+   "pdf_page": 34,
+   "english": "Are you Russian?\nAre you English?\nAre you American?\nAre you Dutch?\nAre these your books? Yes, they are. What colour are your books? They're red.\nAre these your shirts? Yes, they are. What colour are your shirts? They're white.\nAre these your coats? Yes, they are. What colour are your coats? They're grey.\nAre these your tickets? Yes, they are. What colour are your tickets? They're yellow.\nAre these your suits? Yes, they are. What colour are your suits? They're blue.\nAre these your hats? Yes, they are. What colour are your hats? They're black and grey.\nAre these your passports? Yes, they are. What colour are your passports? They're green.\nAre these your umbrellas? Yes, they are. What colour are your umbrellas? They're black.\nAre these your handbags? Yes, they are. What colour are your handbags? They're white.\nAre these your ties? Yes, they are. What colour are your ties? They're orange.\nAre these your dogs? Yes, they are. What colour are your dogs? They're brown and white.\nAre these your pens? Yes, they are. What colour are your pens? They're blue.\nAre these your cars? Yes, they are. What colour are your cars? They're red.\nAre these your dresses? Yes, they are. What colour are your dresses? They're green.\nAre these your blouses? Yes, they are. What colour are your blouses? They're yellow.",
+   "chinese": "你是俄国人吗？\n你是英国人吗？\n你是美国人吗？\n你是荷兰人吗？\n这些是你的书吗？是的，它们是。你的书是什么颜色的？它们是红色的。\n这些是你的衬衫吗？是的，它们是。你的衬衫是什么颜色的？它们是白色的。\n这些是你的外套吗？是的，它们是。你的外套是什么颜色的？它们是灰色的。\n这些是你的票吗？是的，它们是。你的票是什么颜色的？它们是黄色的。\n这些是你的西装吗？是的，它们是。你的西装是什么颜色的？它们是蓝色的。\n这些是你的帽子吗？是的，它们是。你的帽子是什么颜色的？它们是灰黑相间的。\n这些是你的护照吗？是的，它们是。你的护照是什么颜色的？它们是绿色的。\n这些是你的伞吗？是的，它们是。你的伞是什么颜色的？它们是黑色的。\n这些是你的手提包吗？是的，它们是。你的手提包是什么颜色的？它们是白色的。\n这些是你的领带吗？是的，它们是。你的领带是什么颜色的？它们是橙色的。\n这些是你的狗吗？是的，它们是。你的狗是什么颜色的？它们是棕白相间的。\n这些是你的钢笔吗？是的，它们是。你的钢笔是什么颜色的？它们是蓝色的。\n这些是你的汽车吗？是的，它们是。你的汽车是什么颜色的？它们是红色的。\n这些是你的连衣裙吗？是的，它们是。你的连衣裙是什么颜色的？它们是绿色的。\n这些是你的女衬衫吗？是的，它们是。你的女衬衫是什么颜色的？它们是黄色的。"
+  },
+  {
+   "lesson": 17,
+   "title_en": "How do you do?",
+   "title_cn": "你好!",
+   "pdf_page": 36,
+   "english": "MR. JACKSON: Come and meet our employees,\nMr. Richards.\nMR. RICHARDS: Thank you, Mr. Jackson.\nMR. JACKSON: This is Nicola Grey,\nand this is Claire Taylor.\nMR. RICHARDS: How do you do?\nMR. RICHARDS: Those women are very hard-working.\nWhat are their jobs?\nMR. JACKSON: They're keyboard operators.\nMR. JACKSON: This is Michael Baker,\nand this is Jeremy Short.\nMR. RICHARDS: How do you do?\nMR. RICHARDS: They aren't very busy!\nWhat are their jobs?\nMR. JACKSON: They're sales reps.\nThey're very lazy.\nMR. RICHARDS: Who is this young man?\nMR. JACKSON: This is Jim.\nHe's our office assistant.",
+   "chinese": "杰克逊先生：来见见我们的雇员，理查兹先生。\n理查兹先生：谢谢，杰克逊先生。\n\n杰克逊先生：这位是尼古拉·格雷，这位是克莱尔·泰勒。\n理查兹先生：你们好！\n\n理查兹先生：那些姑娘很勤快。她们是做什么工作的？\n杰克逊先生：她们是电脑录入人员。\n\n杰克逊先生：这位是迈克尔·贝克，这位是杰里米·肖特。\n理查兹先生：你们好！\n\n理查兹先生：他们不很忙吧！他们是做什么工作的？\n杰克逊先生：他们是推销员，他们非常懒。\n\n理查兹先生：这个年轻人是谁？\n杰克逊先生：他是吉姆，是我们办公室的勤杂人员。"
+  },
+  {
+   "lesson": 18,
+   "title_en": "What are their jobs?",
+   "title_cn": "他们是做什么工作的？",
+   "pdf_page": 38,
+   "english": "sales reps\nkeyboard operators\nmechanics\nengineers\nhairdressers\nteachers\nCustoms officers\ntaxi drivers\nnurses\nair hostesses\nhousewives\nmilkmen\npostmen\npolicemen\npolicewomen",
+   "chinese": "推销员\n电脑录入员\n机械师\n工程师\n理发师\n教师\n海关官员\n出租汽车司机\n护士\n空中小姐\n家庭妇女\n送奶员\n邮递员\n警察\n女警察"
+  },
+  {
+   "lesson": 19,
+   "title_en": "Tired and thirsty",
+   "title_cn": "又累又渴",
+   "pdf_page": 40,
+   "english": "MOTHER: What's the matter, children?\nGIRL: We're tired...\nBOY: ...and thirsty, Mum.\nMOTHER: Sit down here.\nMOTHER: Are you all right now?\nBOY: No, we aren't.\nMOTHER: Look!\nThere's an ice cream man.\nMOTHER: Two ice creams please.\nMOTHER: Here you are, children.\nCHILDREN: Thanks, Mum.\nGIRL: These ice creams are nice.\nMOTHER: Are you all right now?\nCHILDREN: Yes, we are, thank you!",
+   "chinese": "母 亲：怎么啦，孩子们？\n女 孩：我们累了……\n男 孩：……口也渴，妈妈。\n\n母 亲：坐在这儿吧。\n\n母 亲：你们现在好些了吗？\n男 孩：不，还没有。\n\n母 亲：瞧！有个卖冰淇淋的。\n\n母 亲：请拿两份冰淇淋。\n\n母 亲：拿着，孩子们。\n孩子们：谢谢，妈妈。\n\n女 孩：这些冰淇淋真好吃。\n\n母 亲：你们现在好了吗？\n孩子们：是的，现在好了，谢谢您！"
+  },
+  {
+   "lesson": 20,
+   "title_en": "Look at them!",
+   "title_cn": "看看他/它们!",
+   "pdf_page": 42,
+   "english": "They're clean.\nThey're dirty.\nThey're hot.\nThey're cold.\nThey're fat.\nThey're thin.\nThey're big.\nThey're small.\nThey're open.\nThey're shut.\nThey're light.\nThey're heavy.\nThey're old.\nThey're young.\nThey're old.\nThey're new.\nThey're short.\nThey're tall.\nThey're short.\nThey're long.",
+   "chinese": "他们很干净。\n他们很脏。\n他们很热。\n他们很冷。\n他们很胖。\n他们很瘦。\n他们很大。\n他们很小。\n它们开着。\n它们关着。\n它们很轻。\n它们很重。\n他们很老。\n他们很年轻。\n它们很旧。\n它们是新的。\n他们很矮。\n他们很高。\n它们很短。\n它们很长。"
+  },
+  {
+   "lesson": 21,
+   "title_en": "Which book?",
+   "title_cn": "哪一本书?",
+   "pdf_page": 44,
+   "english": "MAN: Give me a book please, Jane.\nWOMAN: Which book?\nWOMAN: This one?\nMAN: No, not that one. The red one.\nWOMAN: This one?\nMAN: Yes, please.\nWOMAN: Here you are.\nMAN: Thank you.",
+   "chinese": "丈夫：请拿本书给我，简。\n妻子：哪一本？\n妻子：是这本吗？\n丈夫：不，不是那本。是那本红皮的。\n妻子：这本吗？\n丈夫：是的，请给我。\n妻子：给你。\n丈夫：谢谢。"
+  },
+  {
+   "lesson": 22,
+   "title_en": "Give me/him/her/us/them a ... Which one?",
+   "title_cn": "给我/他/她/我们/他们一……哪一……？",
+   "pdf_page": 46,
+   "english": "dirty\nclean\nempty\nfull\nlarge\nsmall\nbig\nlittle\nnew\nold\nsharp\nblunt\nnew\nold\nlarge\nsmall",
+   "chinese": "脏的\n干净的\n空的\n满的\n大的\n小的\n大的\n小的\n新的\n旧的\n尖的\n钝的\n新的\n旧的\n大的\n小的"
+  },
+  {
+   "lesson": 23,
+   "title_en": "Which glasses?",
+   "title_cn": "哪几只杯子?",
+   "pdf_page": 48,
+   "english": "MAN: Give me some glasses please, Jane.\nWOMAN: Which glasses?\nWOMAN: These glasses?\nMAN: No, not those.\nThe ones on the shelf.\nWOMAN: These?\nMAN: Yes, please.\nWOMAN: Here you are.\nMAN: Thanks.",
+   "chinese": "丈夫：请拿给我几只玻璃杯，简。\n妻子：哪几只？\n妻子：是这几只吗？\n丈夫：不，不是那几只。是架子上的那几只。\n妻子：这几只？\n丈夫：是的，请拿给我。\n妻子：给你。\n丈夫：谢谢。"
+  },
+  {
+   "lesson": 24,
+   "title_en": "Give me/him/her/us/them some ... Which ones?",
+   "title_cn": "给我/他/她/我们/他们一些……哪些？",
+   "pdf_page": 50,
+   "english": "pens/on the desk\nties/on the chair\nspoons/on the table\nplates/on the cupboard\ncigarettes/on the television\nboxes/on the floor\nbottles/on the dressing table\nbooks/on the shelf\nmagazines/on the bed\nnewspapers/on the stereo",
+   "chinese": "桌子上的钢笔\n椅子上的领带\n桌子上的勺子\n碗橱上的盘子\n电视机上的香烟\n地板上的盒子\n梳妆台上的瓶子\n书架上的书\n床上的杂志\n立体声音响上的报纸"
+  },
+  {
+   "lesson": 25,
+   "title_en": "Mrs. Smith's kitchen",
+   "title_cn": "史密斯太太的厨房",
+   "pdf_page": 52,
+   "english": "Mrs. Smith's kitchen is small.\nThere is a refrigerator in the kitchen.\nThe refrigerator is white.\nIt is on the right.\nThere is an electric cooker in the kitchen.\nThe cooker is blue.\nIt is on the left.\nThere is a table in the middle of the room.\nThere is a bottle on the table.\nThe bottle is empty.\nThere is a cup on the table, too.\nThe cup is clean.",
+   "chinese": "史密斯太太的厨房很小。\n厨房里有个电冰箱。\n冰箱的颜色是白的。\n它位于房间右侧。\n厨房里有个电灶。\n电灶的颜色是蓝色的。\n它位于房间左侧。\n房间的中央有张桌子。\n桌上有个瓶子。\n瓶子是空的。\n桌上还有一只杯子。\n杯子很干净。"
+  },
+  {
+   "lesson": 26,
+   "title_en": "Where is it?",
+   "title_cn": "它在哪里?",
+   "pdf_page": 54,
+   "english": "There is a cup on the table.\nThe cup is clean.\nThere is a box on the floor.\nThe box is large.\nThere is a glass in the cupboard.\nThe glass is empty.\nThere is a knife on the plate.\nThe knife is sharp.\nThere is a fork on the tin.\nThe fork is dirty.\nThere is a bottle in the refrigerator.\nThe bottle is full.\nThere is a pencil on the desk.\nThe pencil is blunt.\nThere is a spoon in the cup.\nThe spoon is small.",
+   "chinese": "桌上有一个茶杯。\n茶杯是干净的。\n地板上有一个盒子。\n盒子是大的。\n橱柜里有一个玻璃杯。\n玻璃杯是空的。\n盘子上有一把刀。\n刀是锋利的。\n罐头上有一把叉子。\n叉子是脏的。\n冰箱里有一个瓶子。\n瓶子是满的。\n书桌上有一支铅笔。\n铅笔是钝的。\n茶杯里有一把勺子。\n勺子是小号的。"
+  },
+  {
+   "lesson": 27,
+   "title_en": "Mrs. Smith's living room",
+   "title_cn": "史密斯太太的客厅",
+   "pdf_page": 56,
+   "english": "Mrs. Smith's living room is large.\nThere is a television in the room.\nThe television is near the window.\nThere are some magazines on the television.\nThere is a table in the room.\nThere are some newspapers on the table.\nThere are some armchairs in the room.\nThe armchairs are near the table.\nThere is a stereo in the room.\nThe stereo is near the door.\nThere are some books on the stereo.\nThere are some pictures in the room.\nThe pictures are on the wall.",
+   "chinese": "史密斯夫人的客厅很大。\n客厅里有台电视机。\n电视机靠近窗子。\n电视机上放着几本杂志。\n客厅里有张桌子。\n桌上放着几份报纸。\n客厅里有几把扶手椅。\n这些扶手椅靠近桌子。\n客厅里有台立体声音响。\n音响靠近门。\n音响上面有几本书。\n客厅里有几幅画。\n画挂在墙上。"
+  },
+  {
+   "lesson": 28,
+   "title_en": "Where are they?",
+   "title_cn": "它们在哪里?",
+   "pdf_page": 58,
+   "english": "There are some cigarettes on the dressing table.\nThey are near that box.\nThere are some plates on the cooker.\nThey are clean.\nThere are some trousers on the bed.\nThey are near that shirt.\nThere are some bottles in the refrigerator.\nThey are empty.\nThere are some shoes on the floor.\nThey're near the bed.\nThere are some knives on the table.\nThey're in that box.\nThere are some forks on the shelf.\nThey're near those spoons.\nThere are some bottles on the cupboard.\nThey're near those tins.\nThere are some tickets on the shelf.\nThey're in that handbag.\nThere are some glasses on the television.\nThey're near those bottles.",
+   "chinese": "化妆台上放着一些香烟。\n它们在那只盒子附近。\n炉子上放着一些盘子。\n它们是干净的。\n床上放着一些裤子。\n它们在那件衬衫附近。\n冰箱里有一些瓶子。\n它们是空的。\n地板上放着一些鞋子。\n它们在床附近。\n桌子上有一些刀子。\n它们在那只盒子里。\n架子上有一些叉子。\n它们在那几把勺子附近。\n碗橱上放着一些瓶子。\n它们在那几个罐头附近。\n架子上有一些票。\n它们在那只提包里。\n电视机上放着一些玻璃杯。\n它们在那几个瓶子附近。"
+  },
+  {
+   "lesson": 29,
+   "title_en": "Come in, Amy.",
+   "title_cn": "进来，艾米。",
+   "pdf_page": 60,
+   "english": "MRS. JONES : Come in, Amy.\nMRS. JONES : Shut the door, please.\nMRS. JONES : This bedroom's very untidy.\nAMY : What must I do, Mrs. Jones?\nMRS. JONES : Open the window and air the room.\nMRS. JONES : Then put these clothes in the wardrobe.\nMRS. JONES : Then make the bed.\nMRS. JONES : Dust the dressing table.\nMRS. JONES : Then sweep the floor.",
+   "chinese": "琼斯夫人：进来，艾米。\n琼斯夫人：请把门关上。\n琼斯夫人：这卧室太不整洁了。\n艾米：我应该做些什么呢，琼斯夫人？\n琼斯夫人：打开窗子，给房间通通风。\n琼斯夫人：然后把这些衣服放进衣橱里去。\n琼斯夫人：再把床整理一下。\n琼斯夫人：掸掉梳妆台上的灰尘。\n琼斯夫人：然后打扫地。"
+  },
+  {
+   "lesson": 30,
+   "title_en": "What must I do?",
+   "title_cn": "我应该做什么?",
+   "pdf_page": 62,
+   "english": "Open your\nShut your\nPut on your\nTake off your\nTurn on the\nTurn off the\nSweep the\nClean the\nDust the\nEmpty the\nRead this\nSharpen these",
+   "chinese": "打开你的\n关上你的\n穿上你的\n脱下你的\n打开\n关上\n打扫\n擦干净\n掸掉灰尘\n倒空\n读这个\n削尖这些"
+  },
+  {
+   "lesson": 31,
+   "title_en": "Where's Sally?",
+   "title_cn": "萨莉在哪里?",
+   "pdf_page": 64,
+   "english": "JEAN : Where's Sally, Jack?\nJACK : She's in the garden, Jean.\nJEAN : What's she doing?\nJACK : She's sitting under the tree.\nJEAN : Is Tim in the garden, too?\nJACK : Yes, he is.\nHe's climbing the tree.\nJEAN : I beg your pardon?\nWho's climbing the tree?\nJACK : Tim is.\nJEAN : What about the dog?\nJACK : The dog's in the garden, too.\nIt's running across the grass.\nIt's running after a cat.",
+   "chinese": "琼：杰克，萨莉在哪儿？\n杰克：她在花园里，琼。\n琼：她在干什么？\n杰克：她正在树荫下坐着。\n琼：蒂姆也在花园里吗？\n杰克：是的，他也在花园里。他正在爬树。\n琼：你说什么？谁在爬树？\n杰克：蒂姆在爬树。\n琼：那么狗呢？\n杰克：狗也在花园里。它正在草地上跑，在追一只猫。"
+  },
+  {
+   "lesson": 32,
+   "title_en": "What's he/she/it doing?",
+   "title_cn": "他/她/它正在做什么?",
+   "pdf_page": 66,
+   "english": "Nicola is typing a letter.\nShe is emptying a basket.\nMr. Richards is opening the window.\nMy mother is making the bed.\nSally is shutting the door.\nIt is eating a bone.\nMy sister is looking at a picture.\nJack is reading a magazine.\nHe is cleaning his teeth.\nShe is dusting the dressing table.\nEmma is cooking a meal.\nThe cat is drinking its milk.\nAmy is sweeping the floor.\nTim is sharpening a pencil.\nHe is turning on the light.\nThe girl is turning off the tap.\nThe boy is putting on his shirt.\nMrs. Jones is taking off her coat.",
+   "chinese": "尼古拉正在打一封信。\n她正在倒空一只篮子。\n理查兹先生正在开窗。\n我母亲正在整理床铺。\n萨莉正在关门。\n它正在吃一根骨头。\n我妹妹正在看一张画。\n杰克正在看一本杂志。\n他正在刷牙。\n她正在掸掉梳妆台上的灰尘。\n埃玛正在做饭。\n猫正在喝它的牛奶。\n艾米正在扫地。\n蒂姆正在削铅笔。\n他正在开灯。\n那个女孩正在关水龙头。\n那个男孩正在穿衬衫。\n琼斯夫人正在脱外套。"
+  },
+  {
+   "lesson": 33,
+   "title_en": "A fine day",
+   "title_cn": "晴天",
+   "pdf_page": 68,
+   "english": "It is a fine day today.\nThere are some clouds in the sky, but the sun is shining.\nMr. Jones is with his family.\nThey are walking over the bridge.\nThere are some boats on the river.\nMr. Jones and his wife are looking at them.\nSally is looking at a big ship.\nThe ship is going under the bridge.\nTim is looking at an aeroplane.\nThe aeroplane is flying over the river.",
+   "chinese": "今天天气好。\n天空中飘着几朵云、但阳光灿烂。\n琼斯先生同他的家人在一起。\n他们正在过桥。\n河上有几艘船。\n琼斯先生和他的妻子正在看这些船。\n莎莉正在观看一艘大船。\n那船正从桥下驶过。\n蒂姆正望着一架飞机。\n飞机正从河上飞过。"
+  },
+  {
+   "lesson": 34,
+   "title_en": "What are they doing?",
+   "title_cn": "他们在做什么？",
+   "pdf_page": 70,
+   "english": "What are the men doing?\nThey're cooking a meal.\nWhat are they doing?\nThey're sleeping.\nWhat are the men doing?\nThey're shaving.\nWhat are the children doing?\nThey're crying.\nWhat are the dogs doing?\nThey're eating bones.\nWhat are the women doing?\nThey're typing letters.\nWhat are the children doing?\nThey're doing their homework.\nWhat are the women doing?\nThey're washing dishes.\nWhat are the birds doing?\nThey're flying over the river.\nWhat are they doing?\nThey're walking over the bridge.\nWhat are the man and the woman doing?\nThey're waiting for a bus.\nWhat are the children doing?\nThey're jumping off the wall.",
+   "chinese": "这些男人们在做什么？\n他们在做饭。\n他们在做什么？\n他们在睡觉。\n这些男人们在做什么？\n他们在刮胡子。\n这些孩子们在做什么？\n他们在哭。\n这些狗在做什么？\n它们在啃骨头。\n这些妇女们在做什么？\n她们在打字。\n这些孩子们在做什么？\n他们在做作业。\n这些妇女们在做什么？\n她们在洗碟子。\n这些鸟在做什么？\n它们在河上飞。\n他们在做什么？\n他们在过桥。\n这个男人和这个女人在做什么？\n他们在等公共汽车。\n这些孩子们在做什么？\n他们在从墙上跳下来。"
+  },
+  {
+   "lesson": 35,
+   "title_en": "Our village",
+   "title_cn": "我们的村庄",
+   "pdf_page": 72,
+   "english": "This is a photograph of our village.\nOur village is in a valley.\nIt is between two hills.\nThe village is on a river.\n\nHere is another photograph of the village.\nMy wife and I are walking along the banks of the river.\nWe are on the left.\nThere is a boy in the water.\nHe is swimming across the river.\n\nHere is another photograph.\nThis is the school building.\nIt is beside a park.\nThe park is on the right.\nSome children are coming out of the building.\nSome of them are going into the park.",
+   "chinese": "这是我们村庄的一张照片。\n我们的村庄坐落在一个山谷之中。\n它位于两座小山之间。\n它靠近一条小河。\n\n这是我们村庄的另一张照片。\n我和妻子正沿河岸走着。\n我们在河的左侧。\n河里面有个男孩。\n他正横渡小河。\n\n这是另一张照片。\n这是学校大楼。\n它位于公园的旁边。\n公园在右面。\n一些孩子正从楼里出来。\n他们中有几个正走进公园。"
+  },
+  {
+   "lesson": 36,
+   "title_en": "Where...?",
+   "title_cn": "……在哪里？",
+   "pdf_page": 74,
+   "english": "Where is the man going?\nHe's going into the shop.\nWhere is the woman going?\nShe's going out of the shop.\nWhere is he sitting?\nHe's sitting beside his mother.\nWhere are they walking?\nThey're walking across the street.\nWhere are the cats running?\nThey're running along the wall.\nWhere are the children jumping?\nThey're jumping off the branch.\nWhere is the man standing?\nHe's standing between two policemen.\nWhere is she sitting?\nShe's sitting near the tree.\nWhere is it flying?\nIt's flying under the bridge.\nWhere is the aeroplane flying?\nIt's flying over the bridge.\nWhere are they sitting?\nThey're sitting on the grass.\nWhere are the man and the woman reading?\nThey're reading in the living room.",
+   "chinese": "这个男人去哪儿？\n他正走进商店。\n这个女人去哪儿？\n她正走出商店。\n他坐在哪儿？\n他正坐在他母亲旁边。\n他们在哪儿走？\n他们正穿过街道。\n那些猫在哪儿跑？\n它们正沿着墙跑。\n那些孩子在哪儿跳？\n他们正从树枝上跳下来。\n这个男人站在哪儿？\n他正站在两个警察之间。\n她坐在哪儿？\n她正坐在树旁。\n它在哪儿飞？\n它正从桥下飞过。\n那架飞机在哪儿飞？\n它正从桥上飞过。\n他们坐在哪儿？\n他们正坐在草地上。\n这个男人和这个女人在哪儿看书？\n他们正在客厅里看书。"
+  },
+  {
+   "lesson": 37,
+   "title_en": "Making a bookcase",
+   "title_cn": "做书架",
+   "pdf_page": 76,
+   "english": "DAN: You're working hard, George.\nWhat are you doing?\nGEORGE: I'm making a bookcase.\n\nGEORGE: Give me that hammer please, Dan.\nDAN: Which hammer?\nThis one?\nGEORGE: No, not that one.\nThe big one.\n\nDAN: Here you are.\nGEORGE: Thanks, Dan.\n\nDAN: What are you going to do now, George?\nGEORGE: I'm going to paint it.\n\nDAN: What colour are you going to paint it?\nGEORGE: I'm going to paint it pink.\nDAN: Pink!\n\nGEORGE: This bookcase isn't for me.\nIt's for my daughter, Susan.\nPink's her favourite colour.",
+   "chinese": "丹：你干得真辛苦，乔治。你在干什么呢？\n乔治：我正在做书架。\n\n乔治：请把那把锤子拿给我，丹。\n丹：哪一把？是这把吗？\n乔治：不，不是那把。是那把大的。\n\n丹：给你。\n乔治：谢谢，丹。\n\n丹：你现在打算干什么，乔治？\n乔治：我打算把它漆一下。\n\n丹：你打算把它漆成什么颜色？\n乔治：我想漆成粉红色。\n丹：粉红色！\n\n乔治：这个书架不是为我做的，是为我的女儿苏珊做的。粉红色是她最喜欢的颜色。"
+  },
+  {
+   "lesson": 38,
+   "title_en": "What are you going to do?",
+   "title_cn": "你准备做什么？",
+   "pdf_page": 78,
+   "english": "I am going to shave.\nNow I am shaving.\nI'm going to wait for a bus.\nNow I'm waiting for a bus.\nWe're going to do our homework.\nNow we're doing our homework.\nI'm going to paint this bookcase.\nNow I'm painting this bookcase.\nWe're going to listen to the stereo.\nNow we're listening to the stereo.\nI'm going to wash the dishes.\nNow I'm washing the dishes.",
+   "chinese": "我准备刮胡子。\n现在我正在刮胡子。\n我准备等公共汽车。\n现在我正在等公共汽车。\n我们准备做作业。\n现在我们正在做作业。\n我准备漆这个书架。\n现在我正在漆这个书架。\n我们准备听音响。\n现在我们正在听音响。\n我准备洗盘子。\n现在我正在洗盘子。"
+  },
+  {
+   "lesson": 39,
+   "title_en": "Don't drop it!",
+   "title_cn": "别摔了！",
+   "pdf_page": 80,
+   "english": "SAM: What are you going to do with that vase, Penny?\nPENNY: I'm going to put it on this table, Sam.\nSAM: Don't do that.\nGive it to me.\nPENNY: What are you going to do with it?\nSAM: I'm going to put it here, in front of the window.\nPENNY: Be careful!\nDon't drop it!\nPENNY: Don't put it there, Sam.\nPut it here, on this shelf.\nSAM: There we are!\nIt's a lovely vase.\nPENNY: Those flowers are lovely, too.",
+   "chinese": "萨姆：你打算如何处理那花瓶？\n彭妮：我打算把它放在这张桌子上，萨姆。\n萨姆：不要放在那儿。把它给我。\n彭妮：你打算怎么办？\n萨姆：我准备把它放在这儿，放在窗前。\n彭妮：小心点！别摔了！\n彭妮：别放在那儿，萨姆。放在这儿，这个架子上。\n萨姆：这是只漂亮的花瓶。\n彭妮：那些花也很漂亮啊。"
+  },
+  {
+   "lesson": 40,
+   "title_en": "What are you going to do?",
+   "title_cn": "你准备做什么？",
+   "pdf_page": 82,
+   "english": "put it...?\ntake it...?\nturn it...?\nturn it...?\nWhat are you going to do with that/those...?\nI'm going to give/show/send/take...\nto my daughter\nto my grandmother\nto my father\nto my mother\nto the children\nto my wife\nto my grandfather\nto my sister",
+   "chinese": "把它放……？\n把它拿……？\n把它打开/关上……？\n把它打开/关上……？\n你准备把那个/那些……？\n我准备给/展示/送/拿……\n给我的女儿\n给我的祖母\n给我的父亲\n给我的母亲\n给孩子们\n给我的妻子\n给我的祖父\n给我的姐妹"
+  },
+  {
+   "lesson": 41,
+   "title_en": "Penny's bag",
+   "title_cn": "彭妮的提包",
+   "pdf_page": 84,
+   "english": "SAM: Is that bag heavy, Penny?\nPENNY: Not very.\nSAM: Here!\nPut it on this chair.\nWhat's in it?\nPENNY: A piece of cheese.\nA loaf of bread.\nA bar of soap.\nA bar of chocolate.\nA bottle of milk.\nA pound of sugar.\nHalf a pound of coffee.\nA quarter of a pound of tea.\nAnd a tin of tobacco.\nSAM: Is that tin of tobacco for me?\nPENNY: Well, it's certainly not for me!",
+   "chinese": "萨姆：那个提包重吗，彭妮？\n彭妮：不太重。\n萨姆：放这儿。把它放在这把椅子上。里面是什么东西？\n彭妮：一块乳酪、一个面包、一块肥皂、一块巧克力、一瓶牛奶、一磅糖、半磅咖啡、四分之一磅茶叶和一听烟丝。\n萨姆：那听烟丝是给我的吗？\n彭妮：噢，当然不会是给我的！"
+  },
+  {
+   "lesson": 42,
+   "title_en": "Is there a . . . in/on that . . . ?",
+   "title_cn": "在那个……里/上有一个……吗？",
+   "pdf_page": 86,
+   "english": "Is there a . . . in/on that . . . ?\nIs there any . . . in/on that . . . ?",
+   "chinese": "在那个……里/上有一个……吗？\n在那个……里/上有……吗？"
+  },
+  {
+   "lesson": 43,
+   "title_en": "Hurry up!",
+   "title_cn": "快点！",
+   "pdf_page": 88,
+   "english": "PENNY: Can you make the tea, Sam?\nSAM: Yes, of course I can, Penny.\nSAM: Is there any water in this kettle?\nPENNY: Yes, there is.\nSAM: Where's the tea?\nPENNY: It's over there,\nbehind the teapot.\nPENNY: Can you see it?\nSAM: I can see the teapot,\nbut I can't see the tea.\nPENNY: There it is!\nIt's in front of you!\nSAM: Ah yes, I can see it now.\nSAM: Where are the cups?\nPENNY: There are some in the cupboard.\nPENNY: Can you find them?\nSAM: Yes. Here they are.\nPENNY: Hurry up, Sam!\nThe kettle's boiling!",
+   "chinese": "彭妮：你会沏茶吗，萨姆？\n萨姆：会的，我当然会，彭妮。\n萨姆：这水壶里有水吗？\n彭妮：有水。\n萨姆：茶叶在哪儿？\n彭妮：就在那儿，茶壶后面。\n彭妮：你看见了吗？\n萨姆：茶壶我看见了，但茶叶没看到。\n彭妮：那不是么！就在你眼前。\n萨姆：噢，是啊，我现在看到了。\n萨姆：茶杯在哪儿呢？\n彭妮：碗橱里有几只。\n彭妮：你找得到吗？\n萨姆：找得到。就在这儿呢。\n彭妮：快，萨姆。水开了！"
+  },
+  {
+   "lesson": 44,
+   "title_en": "Are there any...?",
+   "title_cn": "有些……吗？",
+   "pdf_page": 90,
+   "english": "Are there any...?\nIs there any...?",
+   "chinese": "有些……吗？\n有些……吗？"
+  },
+  {
+   "lesson": 45,
+   "title_en": "The boss's letter",
+   "title_cn": "老板的信",
+   "pdf_page": 92,
+   "english": "THE BOSS: Can you come here a minute\nplease, Bob?\nBOB: Yes, sir?\nTHE BOSS: Where's Pamela?\nBOB: She's next door.\nShe's in her office, sir.\nTHE BOSS: Can she type\nthis letter for me?\nAsk her please.\nBOB: Yes, sir.\nBOB: Can you type this letter\nfor the boss please, Pamela?\nPAMELA: Yes, of course I can.\nBOB: Here you are.\nPAMELA: Thank you, Bob.\nPAMELA: Bob!\nBOB: Yes?\nBOB: What's the matter?\nPAMELA: I can't type this letter.\nPAMELA: I can't read it!\nThe boss's handwriting is terrible!",
+   "chinese": "老板：请你来一下好吗，鲍勃？\n鲍勃：什么事，先生？\n老板：帕梅拉在哪儿？\n鲍勃：她在隔壁，在她的办公室里，先生。\n老板：她能为我打一下这封信吗？请问问她。\n鲍勃：好的，先生。\n鲍勃：请你把这封信给老板打一下可以吗，帕梅拉？\n帕梅拉：可以，当然可以。\n鲍勃：给你这信。\n帕梅拉：谢谢你，鲍勃。\n帕梅拉：鲍勃！\n鲍勃：怎么了？怎么回事？\n帕梅拉：我打不了这封信。\n帕梅拉：我看不懂这封信，老板的书写太糟糕了！"
+  },
+  {
+   "lesson": 46,
+   "title_en": "Can you ... ?",
+   "title_cn": "你能……吗？",
+   "pdf_page": 94,
+   "english": "I can put my hat on.\nbut I can't put my coat on.\nI can see that aeroplane,\nbut I can't see a bird.\nI can paint this bookcase,\nbut I can't paint this room.\nI can lift that chair,\nbut I can't lift this table.\nI can read this book.\nbut I can't read that magazine.\nI can jump off this box,\nbut I can't jump off that wall.\nI can make cakes,\nbut I can't make biscuits.\nI can put the vase on this table,\nbut I can't put it on that shelf.",
+   "chinese": "我能把我的帽子戴上。\n但是我不能把我的外套穿上。\n我能看见那架飞机，\n但我看不见鸟。\n我能油漆这个书架，\n但我不能油漆这个房间。\n我能举起那把椅子，\n但我不能举起这张桌子。\n我能读这本书。\n但我不能读那本杂志。\n我能从这个箱子上跳下来，\n但我不能从那个墙上跳下来。\n我能做蛋糕，\n但我不能做饼干。\n我能把花瓶放在这张桌子上，\n但我不能把它放在那个架子上。"
+  },
+  {
+   "lesson": 47,
+   "title_en": "A cup of coffee",
+   "title_cn": "一杯咖啡",
+   "pdf_page": 96,
+   "english": "CHRISTINE: Do you like coffee, Ann?\nANN: Yes, I do.\nCHRISTINE: Do you want a cup?\nANN: Yes, please, Christine.\nCHRISTINE: Do you want any sugar?\nANN: Yes, please.\nCHRISTINE: Do you want any milk?\nANN: No, thank you.\nI don't like milk in my coffee.\nI like black coffee.\nCHRISTINE: Do you like biscuits?\nANN: Yes, I do.\nCHRISTINE: Do you want one?\nANN: Yes, please.",
+   "chinese": "克里斯廷：你喜欢咖啡吗，安？\n安：是的，我喜欢。\n克里斯廷：你想要一杯吗？\n安：好的，请来一杯，克里斯廷。\n克里斯廷：你要放些糖吗？\n安：好的，请放一些。\n克里斯廷：要放些牛奶吗？\n安：不了，谢谢。我不喜欢咖啡中放牛奶，我喜欢清咖啡。\n克里斯廷：你喜欢饼干吗？\n安：是的，我喜欢。\n克里斯廷：你想要一块吗？\n安：好的，请来一块。"
+  },
+  {
+   "lesson": 48,
+   "title_en": "Do you like...?",
+   "title_cn": "你喜欢……吗？",
+   "pdf_page": 98,
+   "english": "Do you like...?\nDo you want...?",
+   "chinese": "你喜欢……吗？\n你想要……吗？"
+  },
+  {
+   "lesson": 49,
+   "title_en": "At the butcher's",
+   "title_cn": "在肉店",
+   "pdf_page": 100,
+   "english": "BUTCHER: Do you want any meat today,\nMrs. Bird?\nMRS. BIRD: Yes, please.\nBUTCHER: Do you want beef or lamb?\nMRS. BIRD: Beef, please.\nBUTCHER: This lamb's very good.\nMRS. BIRD: I like lamb,\nbut my husband doesn't.\nBUTCHER: What about some steak?\nThis is a nice piece.\nMRS. BIRD: Give me that piece, please.\nMRS. BIRD: And a pound of mince, too.\nBUTCHER: Do you want a chicken, Mrs. Bird?\nThey're very nice.\nMRS. BIRD: No, thank you.\nMRS. BIRD: My husband likes steak,\nbut he doesn't like chicken.\nBUTCHER: To tell you the truth, Mrs. Bird,\nI don't like chicken either!",
+   "chinese": "肉 商：您今天要买点肉吗，伯德夫人？\n伯德夫人：是的，我买一点。\n肉 商：您要牛肉还是要羔羊肉？\n伯德夫人：请给我牛肉。\n肉 商：这羔羊肉很好。\n伯德夫人：我喜欢羔羊肉，可我丈夫不喜欢。\n肉 商：来点牛排吗？这块很好。\n伯德夫人：就请给我那块吧。\n伯德夫人：再来一磅绞肉。\n肉 商：您要买只鸡吗，伯德夫人？这些鸡很好。\n伯德夫人：不要了，谢谢。\n伯德夫人：我丈夫喜欢牛排，但他不喜欢鸡。\n肉 商：说老实话，伯德夫人，我也不喜欢鸡。"
+  },
+  {
+   "lesson": 50,
+   "title_en": "He likes... But he doesn't like...",
+   "title_cn": "他喜欢……但是他不喜欢……",
+   "pdf_page": 102,
+   "english": "He likes...\nBut he doesn't like...",
+   "chinese": "他喜欢……\n但是他不喜欢……"
+  },
+  {
+   "lesson": 51,
+   "title_en": "A pleasant climate",
+   "title_cn": "宜人的气候",
+   "pdf_page": 104,
+   "english": "HANS: Where do you come from?\nDIMITRI: I come from Greece.\nHANS: What's the climate like\nin your country?\nDIMITRI: It's very pleasant.\nHANS: What's the weather like in spring?\nDIMITRI: It's often windy in March.\nIt's always warm in April and May,\nbut it rains sometimes.\nHANS: What's it like in summer?\nDIMITRI: It's always hot\nin June, July and August.\nThe sun shines every day.\nHANS: Is it cold or warm in autumn?\nDIMITRI: It's always warm\nin September and October.\nIt's often cold in November\nand it rains sometimes.\nHANS: Is it very cold in winter?\nDIMITRI: It's often cold\nin December, January and February.\nIt snows sometimes.",
+   "chinese": "汉 斯：你是哪国人？\n迪米特里：我是希腊人。\n汉 斯：你们国家的气候怎么样？\n迪米特里：气候非常宜人。\n汉 斯：春季的天气怎么样？\n迪米特里：3月里常常刮风。4月和5月的天气总是暖洋洋的，但有时下雨。\n汉 斯：夏季的天气如何呢？\n迪米特里：6月、7月和8月的天气总是炎热的，每天都出太阳。\n汉 斯：秋季的天气是冷还是暖呢？\n迪米特里：9月和10月总是很暖和，11月常常就冷了，而且有时下雨。\n汉 斯：冬季的天气很冷吗？\n迪米特里：12月、1月和2月常常很冷，有时还下雪。"
+  },
+  {
+   "lesson": 52,
+   "title_en": "What nationality are they? Where do they come from?",
+   "title_cn": "他们是哪国人？他们来自哪个国家？",
+   "pdf_page": 106,
+   "english": "I'm American.\nI come from the U.S.\nHe's Brazilian.\nHe comes from Brazil.\nShe's Dutch.\nShe comes from Holland.\nWe're English.\nWe come from England.\nThey're French.\nThey come from France.\nYou're German.\nYou come from Germany.\nHe's Greek.\nHe comes from Greece.\nYou're Italian.\nYou come from Italy.\nWe're Norwegian.\nWe come from Norway.\nThey're Russian.\nThey come from Russia.\nShe's Spanish.\nShe comes from Spain.\nI'm Swedish.\nI come from Sweden.",
+   "chinese": "我是美国人。\n我来自美国。\n他是巴西人。\n他来自巴西。\n她是荷兰人。\n她来自荷兰。\n我们是英国人。\n我们来自英国。\n他们是法国人。\n他们来自法国。\n你是德国人。\n你来自德国。\n他是希腊人。\n他来自希腊。\n你是意大利人。\n你来自意大利。\n我们是挪威人。\n我们来自挪威。\n他们是俄罗斯人。\n他们来自俄罗斯。\n她是西班牙人。\n她来自西班牙。\n我是瑞典人。\n我来自瑞典。"
+  },
+  {
+   "lesson": 53,
+   "title_en": "An interesting climate",
+   "title_cn": "有趣的气候",
+   "pdf_page": 108,
+   "english": "HANS: Where do you come from?\nJIM: I come from England.\nHANS: What's the climate like\nin your country?\nJIM: It's mild,\nbut it's not always pleasant.\nJIM: The weather's often cold in the North\nand windy in the East.\nIt's often wet in the West\nand sometimes warm in the South.\nHANS: Which seasons do you like best?\nJIM: I like spring and summer.\nThe days are long\nand the nights are short.\nThe sun rises early\nand sets late.\nJIM: I don't like autumn and winter.\nThe days are short\nand the nights are long.\nThe sun rises late\nand sets early.\nOur climate is not very good,\nbut it's certainly interesting.\nIt's our favourite subject\nof conversation.",
+   "chinese": "汉斯：你是哪国人？\n吉姆：我是英国人。\n汉斯：你们国家的气候怎么样？\n吉姆：气候温和，但也不总是宜人的。\n吉姆：北部的天气常常寒冷，东部则常常刮风。\n西部常下雨，南部有时则很暖和。\n汉斯：你最喜欢哪些季节？\n吉姆：我最喜欢春季和夏季。因为此时白天长而夜晚短，太阳升得早而落得晚。\n吉姆：我不喜欢秋季和冬季。因为此时白天短而夜晚长，太阳升得晚而落得早。\n虽然我们国家的气候并不很好，但确实很有意思。天气是我们最喜欢谈论的话题。"
+  },
+  {
+   "lesson": 54,
+   "title_en": "What nationality are they? Where do they come from?",
+   "title_cn": "他们是哪国人？他们来自哪个国家？",
+   "pdf_page": 110,
+   "english": "I'm Australian.\nI come from Australia.\nHe's Austrian.\nHe comes from Austria.\nHe's Canadian.\nHe comes from Canada.\nWe're Chinese.\nWe come from China.\nYou're Finnish.\nYou come from Finland.\nShe's Indian.\nShe comes from India.\nYou're Japanese.\nYou come from Japan.\nI'm Korean.\nI come from Korea.\nWe're Nigerian.\nWe come from Nigeria.\nThey're Polish.\nThey come from Poland.\nShe is Thai.\nShe comes from Thailand.\nShe's Turkish.\nShe comes from Turkey.",
+   "chinese": "我是澳大利亚人。\n我来自澳大利亚。\n他是奥地利人。\n他来自奥地利。\n他是加拿大人。\n他来自加拿大。\n我们是中国人。\n我们来自中国。\n你是芬兰人。\n你来自芬兰。\n她是印度人。\n她来自印度。\n你是日本人。\n你来自日本。\n我是韩国人。\n我来自韩国。\n我们是尼日利亚人。\n我们来自尼日利亚。\n他们是波兰人。\n他们来自波兰。\n她是泰国人。\n她来自泰国。\n她是土耳其人。\n她来自土耳其。"
+  },
+  {
+   "lesson": 55,
+   "title_en": "The Sawyer family",
+   "title_cn": "索耶一家人",
+   "pdf_page": 112,
+   "english": "The Sawyers live at 87 King Street.\nIn the morning, Mr. Sawyer goes to work\nand the children go to school.\nTheir father takes them to school every day.\nMrs. Sawyer stays at home every day.\nShe does the housework.\nShe always eats her lunch at noon.\nIn the afternoon,\nshe usually sees her friends.\nThey often drink tea together.\nIn the evening,\nthe children come home from school.\nThey arrive home early.\nMr. Sawyer comes home from work.\nHe arrives home late.\nAt night,\nthe children always do their homework.\nThen they go to bed.\nMr. Sawyer usually reads his newspaper,\nbut sometimes he and his wife watch television.",
+   "chinese": "索耶一家住在国王街87号。\n早上，索耶先生去上班，孩子们去上学。父亲每天送孩子们去上学。\n索耶夫人每天呆在家里。她料理家务。\n她总是在正午吃午饭。\n下午，她总是会见她的朋友。她们经常在一起喝茶。\n傍晚，孩子们放学回家。他们到家很早。\n索耶先生下班回家。他到家里很晚。\n晚上，孩子们总是做作业，然后去睡觉。索耶先生总是读报纸，但有时他和他的妻子一起看电视。"
+  },
+  {
+   "lesson": 56,
+   "title_en": "What do they usually do?",
+   "title_cn": "他们通常做什么？",
+   "pdf_page": 114,
+   "english": "What do they usually do?",
+   "chinese": "他们通常做什么？"
+  },
+  {
+   "lesson": 57,
+   "title_en": "An unusual day",
+   "title_cn": "很不寻常的一天",
+   "pdf_page": 116,
+   "english": "It is eight o'clock.\nThe children go to school by car every day.\nbut today,\nthey are going to school on foot.\n\nIt is ten o'clock.\nMrs. Sawyer usually stays at home in the morning.\nbut this morning,\nshe is going to the shops.\n\nIt is four o'clock.\nIn the afternoon,\nMrs. Sawyer usually drinks tea in the living room.\nBut this afternoon,\nshe is drinking tea in the garden.\n\nIt is six o'clock.\nIn the evening,\nthe children usually do their homework.\nbut this evening,\nthey are not doing their homework.\nAt the moment,\nthey are playing in the garden.\n\nIt is nine o'clock.\nMr. Sawyer usually reads his newspaper at night.\nBut he's not reading his newspaper tonight.\nAt the moment,\nhe's reading an interesting book.",
+   "chinese": "现在是 8 点钟。孩子们每天都乘小汽车去上学，而今天，他们正步行去上学。\n现在是 10 点钟。上午，索耶夫人通常是呆在家里的，但今天上午，她正去商店买东西。\n现在是 4 点钟。下午，索耶夫人通常是在客厅里喝茶，但今天下午，她正在花园里喝茶。\n现在是 6 点钟。晚上，孩子们通常是做作业，而今天晚上，他们没有做作业。此刻，他们正在花园里玩。\n现在是 9 点钟。索耶先生通常是在晚上看报，但今天晚上他没看报。此刻，他正在看一本有趣的书。"
+  },
+  {
+   "lesson": 58,
+   "title_en": "What's the time?",
+   "title_cn": "几点钟？",
+   "pdf_page": 118,
+   "english": "They usually . . . but today, they are . . .\nHe usually shaves at seven o'clock every day.\nbut today, he . . .\nShe usually drinks tea in the morning.\nbut this morning, she . . .\nThey usually play in the garden in the afternoon.\nbut this afternoon, they . . .\nI usually cook a meal in the evening.\nbut this evening, I . . .\nWe usually watch television at night.\nbut tonight, we . . .",
+   "chinese": "他们总是……，但是今天他们正……\n他通常每天七点钟刮胡子。\n但是今天，他……\n她通常早上喝茶。\n但是今天上午，她……\n他们通常下午在花园里玩。\n但是今天下午，他们……\n我通常晚上做饭。\n但是今天晚上，我……\n我们通常晚上看电视。\n但是今晚，我们……"
+  },
+  {
+   "lesson": 59,
+   "title_en": "Is that all?",
+   "title_cn": "就这些吗？",
+   "pdf_page": 120,
+   "english": "LADY: I want some envelopes, please.\nSHOP ASSISTANT: Do you want the large size or the small size?\nLADY: The large size, please.\nLADY: Do you have any writing paper?\nSHOP ASSISTANT: Yes, we do.\nSHOP ASSISTANT: I don't have any small pads. I only have large ones. Do you want a pad?\nLADY: Yes, please.\nLADY: And I want some glue.\nSHOP ASSISTANT: A bottle of glue.\nLADY: And I want a large box of chalk, too.\nSHOP ASSISTANT: I only have small boxes. Do you want one?\nLADY: No, thank you.\nSHOP ASSISTANT: Is that all?\nLADY: That's all, thank you.\nSHOP ASSISTANT: What else do you want?\nLADY: I want my change.",
+   "chinese": "女 士：请给我拿几个信封。\n售货员：您要大号的还是小号的？\n女 士：请拿大号的。\n女 士：您有信纸吗？\n售货员：有。\n售货员：我没有小本的信纸，只有大本的。您要一本吗？\n女 士：好，请拿一本。\n女 士：我还要些胶水。\n售货员：一瓶胶水。\n女 士：我还要一大盒粉笔。\n售货员：我只有小盒的。您要一盒吗？\n女 士：不了，谢谢。\n售货员：就这些吗？\n女 士：就这些，谢谢。\n售货员：您还要什么吗？\n女 士：我要找的零钱。"
+  },
+  {
+   "lesson": 60,
+   "title_en": "What's the time?",
+   "title_cn": "几点钟？",
+   "pdf_page": 122,
+   "english": "Do you have any . . . ?\ncheese\nbutter\neggs\njam\nhoney\nbread\nbiscuits\npotatoes\ntomatoes\npeas\nbeans\ncabbages\nlettuces\nbananas\ngrapes\npeaches\nsteak\nmince\nchicken\nwhisky\nbeer\nwine\ntobacco\nsoap",
+   "chinese": "你有……吗？\n奶酪\n黄油\n鸡蛋\n果酱\n蜂蜜\n面包\n饼干\n土豆\n西红柿\n豌豆\n蚕豆\n卷心菜\n莴苣\n香蕉\n葡萄\n桃子\n牛排\n肉末\n鸡肉\n威士忌\n啤酒\n葡萄酒\n烟草\n肥皂"
+  },
+  {
+   "lesson": 61,
+   "title_en": "A bad cold",
+   "title_cn": "重感冒",
+   "pdf_page": 124,
+   "english": "MR. WILLIAMS: Where's Jimmy?\nMRS. WILLIAMS: He's in bed.\nMR. WILLIAMS: What's the matter with him?\nMRS. WILLIAMS: He feels ill.\nMR. WILLIAMS: He looks ill.\nMRS. WILLIAMS: We must call the doctor.\nMR. WILLIAMS: Yes, we must.\nMR. WILLIAMS: Can you remember the doctor's telephone number?\nMRS. WILLIAMS: Yes. It's 09754.\nDOCTOR: Open your mouth, Jimmy. Show me your tongue. Say, 'Ah'.\nMR. WILLIAMS: What's the matter with him, doctor?\nDOCTOR: He has a bad cold, Mr. Williams, so he must stay in bed for a week.\nMRS. WILLIAMS: That's good news for Jimmy.\nDOCTOR: Good news? Why?\nMR. WILLIAMS: Because he doesn't like school!",
+   "chinese": "威廉斯先生：吉米在哪儿？\n威廉斯夫人：他躺在床上。\n威廉斯先生：他怎么啦？\n威廉斯夫人：他觉得不舒服。\n威廉斯先生：他看上去是病了。\n威廉斯夫人：我们得去请医生。\n威廉斯先生：是的，一定得请。\n威廉斯先生：你还记得医生的电话号码吗？\n威廉斯夫人：记得。是 09754。\n医 生：把嘴张开，吉米。让我看看你的舌头。说“啊——”\n威廉斯先生：他得了什么病，医生？\n医 生：他得了重感冒，威廉斯先生，因此他必须卧床一周。\n威廉斯夫人：对吉米来说，这可是个好消息。\n医 生：好消息？为什么？\n威廉斯先生：因为他不喜欢上学！"
+  },
+  {
+   "lesson": 62,
+   "title_en": "What's the matter with them? What must they do?",
+   "title_cn": "他们怎么啦？他们该怎么办？",
+   "pdf_page": 126,
+   "english": "She has a headache.\nSo she must take an aspirin.\nGeorge has an earache.\nSo he must see a doctor.\nHe has a toothache.\nSo he must see a dentist.\nJane has a stomach ache.\nSo she must take some medicine.\nSam has a temperature.\nSo he must go to bed.\nDave has flu.\nSo he must stay in bed.\nJimmy has measles.\nSo we must call the doctor.\nSusan has mumps.\nSo we must call the doctor.",
+   "chinese": "她头痛。\n所以她必须吃一片阿司匹林。\n乔治耳朵痛。\n所以他必须去看医生。\n他牙痛。\n所以他必须去看牙医。\n简胃痛。\n所以她必须吃些药。\n萨姆发烧了。\n所以他必须上床睡觉。\n戴夫得了流感。\n所以他必须卧床。\n吉米得了麻疹。\n所以我们必须去请医生。\n苏珊得了腮腺炎。\n所以我们必须去请医生。"
+  },
+  {
+   "lesson": 63,
+   "title_en": "Thank you, doctor.",
+   "title_cn": "谢谢你，医生。",
+   "pdf_page": 128,
+   "english": "DOCTOR: How's Jimmy today?\nMRS. WILLIAMS: Better. Thank you, doctor.\nDOCTOR: Can I see him please, Mrs. Williams?\nMRS. WILLIAMS: Certainly, doctor. Come upstairs.\nDOCTOR: You look very well, Jimmy. You are better now, but you mustn't get up yet. You must stay in bed for another two days.\nDOCTOR: The boy mustn't go to school yet, Mrs. Williams. And he mustn't eat rich food.\nMRS. WILLIAMS: Does he have a temperature, doctor?\nDOCTOR: No, he doesn't.\nMRS. WILLIAMS: Must he stay in bed?\nDOCTOR: Yes. He must remain in bed for another two days. He can get up for about two hours each day, but you must keep the room warm.\nDOCTOR: Where's Mr. Williams this evening?\nMRS. WILLIAMS: He's in bed, doctor. Can you see him please? He has a bad cold, too!",
+   "chinese": "医 生：吉米今天怎么样了？\n威廉斯夫人：他好些了。谢谢您，医生。\n医 生：我可以看看他吗，威廉斯夫人？\n威廉斯夫人：当然可以，医生。上楼吧。\n医 生：你看上去很好，吉米。你现在好些了，但你还不应该起床。你必须再卧床两天。\n医 生：这孩子还不能去上学，威廉斯夫人，而且不能吃油腻的食物。\n威廉斯夫人：他还发烧吗，医生？\n医 生：不，他不发烧了。\n威廉斯夫人：他还必须卧床吗？\n医 生：是的，他还必须卧床两天。他每天可以起来两个小时，但您必须保持房间温暖。\n医 生：威廉斯先生今晚去哪儿了？\n威廉斯夫人：他在床上呢，医生。您能看看他吗？他也得了重感冒！"
+  },
+  {
+   "lesson": 64,
+   "title_en": "Don't . . . ! You mustn't . . . !",
+   "title_cn": "不要……! 你不应该……!",
+   "pdf_page": 130,
+   "english": "... take any aspirins!\n... take this medicine!\n... call the doctor!\n... play with matches!\n... talk in the library!\n... make a noise!\n... drive so quickly!\n... lean out of the window!\n... break that vase!",
+   "chinese": "不要吃任何阿司匹林！\n不要吃这种药！\n不要叫医生！\n不要玩火柴！\n不要在图书馆里谈话！\n不要发出噪音！\n不要开得这么快！\n不要把头探出窗外！\n不要打碎那个花瓶！"
+  },
+  {
+   "lesson": 65,
+   "title_en": "Not a baby",
+   "title_cn": "不是 一个 孩子",
+   "pdf_page": 132,
+   "english": "FATHER : What are you going to do this evening, Jill?\nJILL : I'm going to meet some friends, Dad.\nFATHER : You mustn't come home late. You must be home at half past ten.\nJILL : I can't get home so early, Dad!\nJILL : Can I have the key to the front door, please?\nFATHER : No, you can't.\nMOTHER : Jill's eighteen years old, Tom. She's not a baby. Give her the key. She always comes home early.\nFATHER : Oh, all right!\nFATHER : Here you are. But you mustn't come home after a quarter past eleven. Do you hear?\nJILL : Yes, Dad.\nJILL : Thanks, Mum.\nMOTHER : That's all right. Goodbye. Enjoy yourself!\nJILL : We always enjoy ourselves, Mum. Bye-bye.",
+   "chinese": "父亲：今晚你打算干什么，吉尔？\n吉尔：我打算去看几个朋友，爸爸。\n父亲：你不准回家太晚。你必须在10点半到家。\n吉尔：这么早我就到不了家，爸爸！\n吉尔：我能带上房门的钥匙吗？\n父亲：不行，你不能带。\n母亲：吉尔都18岁了，汤姆。她不是小孩子了。把钥匙给她吧。她总是早早回家的。\n父亲：那么，好吧！\n父亲：拿去。但你不能超过11点1刻回家。听见了吗？\n吉尔：听见了，爸爸。\n吉尔：谢谢，妈妈。\n母亲：不用谢。再见。好好玩吧！\n吉尔：我们总是玩得很开心的，妈妈。再见。"
+  },
+  {
+   "lesson": 66,
+   "title_en": "What's the time?",
+   "title_cn": "几点钟?",
+   "pdf_page": 134,
+   "english": "When's your birthday?\nHow old are you?\nEnjoy yourself!\nI always enjoy myself.\nWe're enjoying ourselves.\nThey're enjoying themselves.\nHe's enjoying himself.\nShe's enjoying herself.",
+   "chinese": "你的生日是哪一天？\n你多大？\n你好好玩吧！\n我总是玩得很开心。\n我们玩得很开心。\n他们玩得很开心。\n他玩得很开心。\n她玩得很开心。"
+  },
+  {
+   "lesson": 67,
+   "title_en": "The weekend",
+   "title_cn": "周末",
+   "pdf_page": 136,
+   "english": "MRS. JOHNSON : Hello. Were you at the butcher's?\nMRS. WILLIAMS : Yes, I was. Were you at the butcher's, too?\nMRS. JOHNSON : No, I wasn't. I was at the greengrocer's. How's Jimmy today?\nMRS. WILLIAMS : He's very well, thank you.\nMRS. JOHNSON : Was he absent from school last week?\nMRS. WILLIAMS : Yes, he was. He was absent on Monday, Tuesday, Wednesday and Thursday. How are you all keeping?\nMRS. JOHNSON : Very well, thank you. We're going to spend three days in the country. We're going to stay at my mother's for the weekend.\nMRS. WILLIAMS : Friday, Saturday and Sunday in the country! Aren't you lucky!",
+   "chinese": "约翰逊夫人：您好。刚才您在肉店里吗？\n威廉斯夫人：是的，我在肉店里。您也在肉店里吗？\n约翰逊夫人：不，我不是。我在蔬菜水果店里。吉米今天怎么样？\n威廉斯夫人：他很好，谢谢您。\n约翰逊夫人：上星期他没上学吧？\n威廉斯夫人：是的，他没上学。他星期一、星期二、星期三和星期四没去上学。你们身体都好吗？\n约翰逊夫人：很好，谢谢您。我们打算到乡下去三天，在我母亲家度周末。\n威廉斯夫人：星期五、星期六和星期日在乡下过！你们真幸运啊！"
+  },
+  {
+   "lesson": 68,
+   "title_en": "What's the time?",
+   "title_cn": "几点钟?",
+   "pdf_page": 138,
+   "english": "Where were you on...?\nWhen were you at...?\nSunday, January 1st church\nMonday, February 2nd school\nTuesday, March 3rd the office\nWednesday, April 4th the butcher's\nThursday, May 5th the hairdresser's\nFriday, June 6th the baker's\nSaturday, July 7th the dairy\nSunday, August 8th home\nMonday, September 9th the grocer's\nTuesday, October 10th the greengrocer's",
+   "chinese": "……你在什么地方？\n你什么时候在……？\n星期日，1月1日 教堂\n星期一，2月2日 学校\n星期二，3月3日 办公室\n星期三，4月4日 肉店\n星期四，5月5日 理发店\n星期五，6月6日 面包店\n星期六，7月7日 乳品店\n星期日，8月8日 家\n星期一，9月9日 食品杂货店\n星期二，10月10日 蔬菜水果店"
+  },
+  {
+   "lesson": 69,
+   "title_en": "The car race",
+   "title_cn": "汽车比赛",
+   "pdf_page": 140,
+   "english": "There is a car race near our town every year. In 1995, there was a very big race.\nThere were hundreds of people there. My wife and I were at the race. Our friends Julie and Jack were there, too. You can see us in the crowd. We are standing on the left.\nThere were twenty cars in the race. There were English cars, French cars, German cars, Italian cars, American cars and Japanese cars.\nIt was an exciting finish. The winner was Billy Stewart. He was in car number fifteen. Five other cars were just behind him.\nOn the way home, my wife said to me, 'Don't drive so quickly! You're not Billy Stewart!'",
+   "chinese": "在我们镇子附近每年都有一场汽车比赛。1995年举行了一次盛大的比赛。\n许许多多人都去了赛场。我和我的妻子也去了。我们的朋友朱莉和杰克也去了。你可以在人群中看到我们。我们站在左面。\n参加比赛的有20辆汽车。有英国、法国、德国、意大利、美国和日本的汽车。\n比赛的结尾是激动人心的。获胜者是比利·斯图尔特。他在第15号车里，其他5辆汽车紧跟在他后面。\n在回家的途中，我妻子对我说：\"别开得这样快！你可不是比利·斯图尔特！\""
+  },
+  {
+   "lesson": 70,
+   "title_en": "When were they there?",
+   "title_cn": "他们是什么时候在那里的?",
+   "pdf_page": 142,
+   "english": "When were they there?\nON Monday\nON Tuesday\nON Wednesday\nON Thursday\nON Friday\nON Saturday\nON January 21st\nON February 22nd\nON March 23rd\nON April 24th\nON May 25th\nON June 26th\nIN July\nIN August\nIN September\nIN October\nIN November\nIN December\nIN 1985\nIN 1987\nIN 1990\nIN 1994\nIN 1996",
+   "chinese": "他们是什么时候在那里的？\n在星期一\n在星期二\n在星期三\n在星期四\n在星期五\n在星期六\n在1月21日\n在2月22日\n在3月23日\n在4月24日\n在5月25日\n在6月26日\n在7月\n在8月\n在9月\n在10月\n在11月\n在12月\n在1985年\n在1987年\n在1990年\n在1994年\n在1996年"
+  },
+  {
+   "lesson": 71,
+   "title_en": "He's awful!",
+   "title_cn": "他讨厌透了!",
+   "pdf_page": 144,
+   "english": "JANE : What's Ron Marston like, Pauline?\nPAULINE : He's awful! He telephoned me four times yesterday, and three times the day before yesterday.\nPAULINE : He telephoned the office yesterday morning and yesterday afternoon. My boss answered the telephone.\nJANE : What did your boss say to him?\nPAULINE : He said, 'Pauline is typing letters. She can't speak to you now!'\nPAULINE : Then I arrived home at six o'clock yesterday evening. He telephoned again. But I didn't answer the phone!\nJANE : Did he telephone again last night?\nPAULINE : Yes, he did. He telephoned at nine o'clock.\nJANE : What did you say to him?\nPAULINE : I said, 'This is Pauline's mother. Please don't telephone my daughter again!'\nJANE : Did he telephone again?\nPAULINE : No, he didn't!",
+   "chinese": "简：波琳，朗·马斯顿是怎样一个人？\n波琳：他讨厌透了！他昨天给我打了4次电话。前天打了3次。\n波琳：他昨天上午和下午把电话打到了我的办公室，是我的老板接的。\n简：你老板是怎么对他说的？\n波琳：他说：\"波琳正在打字，她现在不能同你讲话！\"\n波琳：后来，我昨晚6点钟回到家里。他又打来电话，但我没接。\n简：他昨天夜里又打电话了吗？\n波琳：是的，打了。他在9点钟又打来了电话。\n简：你对他怎么说的？\n波琳：我说：\"我是波琳的母亲。请不要再给我女儿打电话了！\"\n简：他又打了没有？\n波琳：没有！"
+  },
+  {
+   "lesson": 72,
+   "title_en": "When did you...?",
+   "title_cn": "你什么时候……?",
+   "pdf_page": 146,
+   "english": "TODAY\nthis morning\nthis afternoon\nthis evening\ntonight\nYESTERDAY\nyesterday morning\nyesterday afternoon\nyesterday evening\nlast night\nTHE DAY BEFORE YESTERDAY\nthe day before yesterday in the morning\nthe day before yesterday in the afternoon\nthe day before yesterday in the evening\nthe night before last\naired\ncleaned\nopened\nsharpened\nturned on\nlistened\nboiled\narrived\nplayed\nstayed\nshaved\nclimbed\ntelephoned\ncalled\nemptied",
+   "chinese": "今天\n今天上午\n今天下午\n今天晚上\n今晚\n昨天\n昨天上午\n昨天下午\n昨天晚上\n昨晚\n前天\n前天上午\n前天下午\n前天晚上\n前天夜里\n晾晒\n打扫\n打开\n削尖\n打开（电器）\n听\n煮\n到达\n玩\n停留\n刮胡子\n爬\n打电话\n打电话\n倒空"
+  },
+  {
+   "lesson": 73,
+   "title_en": "The way to King Street",
+   "title_cn": "到国王街的走法",
+   "pdf_page": 152,
+   "english": "Last week Mrs. Mills went to London.\nShe does not know London very well,\nand she lost her way.\n\nSuddenly, she saw a man\nnear a bus stop.\n'I can ask him the way,'\nshe said to herself.\n\n'Excuse me,' she said.\n'Can you tell me the way\nto King Street, please?'\n\nThe man smiled pleasantly.\nHe did not understand English!\nHe spoke German.\nHe was a tourist.\n\nThen he put his hand\ninto his pocket,\nand took out a phrasebook.\n\nHe opened the book\nand found a phrase.\nHe read the phrase slowly.\n'I am sorry,' he said.\n'I do not speak English.'",
+   "chinese": "上星期米尔斯夫人去了伦敦。她对伦敦不很熟悉，因此迷了路。\n\n突然，她在公共汽车站附近看到一个男人。“我可以向他问路，”她想。\n\n“对不起，您能告诉我去国王街怎么走吗？”她说。\n\n这人友好地笑了笑。他不懂英语！他讲德语。他是个旅游者。\n\n然后他把手伸进了衣袋，掏出了一本常用语手册。\n\n他翻开书找到了一条短语。他慢慢地读着短语。\n\n“很抱歉，”他说，“我不会讲英语。”"
+  },
+  {
+   "lesson": 74,
+   "title_en": "What did they do?",
+   "title_cn": "他们干了什么？",
+   "pdf_page": 154,
+   "english": "He shaved hurriedly this morning and cut himself badly.\n\nHe took a cake and ate it quickly.\n\nI gave him a glass of water and he drank it thirstily.\n\nI met her in the street the day before yesterday and she greeted me warmly.\n\nThe bus went slowly yesterday afternoon and we arrived home late.\n\nThey worked very hard this morning.\n\nWe enjoyed ourselves very much last night.\n\nHe swam very well this afternoon.",
+   "chinese": "今天早晨他匆匆刮了脸，结果把自己刮伤了。\n\n他拿了一块蛋糕，很快就把它吃掉了。\n\n我给了他一杯水，他口渴地一饮而尽。\n\n前天我在街上遇见她，她热情地向我打了招呼。\n\n昨天下午公共汽车开得很慢，我们很晚才到家。\n\n今天上午他们工作非常努力。\n\n昨天晚上我们玩得非常开心。\n\n今天下午他游泳游得很好。"
+  },
+  {
+   "lesson": 75,
+   "title_en": "Uncomfortable shoes",
+   "title_cn": "不舒适的鞋子",
+   "pdf_page": 156,
+   "english": "LADY : Do you have any shoes like these?\nSHOP ASSISTANT : What size?\nLADY : Size five.\nSHOP ASSISTANT : What colour?\nLADY : Black.\nSHOP ASSISTANT : I'm sorry.\nWe don't have any.\nLADY : But my sister bought this pair last month.\nSHOP ASSISTANT : Did she buy them here?\nLADY : No, she bought them in the U.S.\nSHOP ASSISTANT : We had some shoes like those a month ago, but we don't have any now.\nLADY : Can you get a pair for me, please?\nSHOP ASSISTANT : I'm afraid that I can't.\nThey were in fashion last year and the year before last.\nBut they're not in fashion this year.\n\nSHOP ASSISTANT : These shoes are in fashion now.\nLADY : They look very uncomfortable.\nSHOP ASSISTANT : They are very uncomfortable.\nBut women always wear uncomfortable shoes!",
+   "chinese": "女士：像这样的鞋子你们有吗？\n售货员：什么尺码的？\n女士：5号的。\n售货员：什么颜色？\n女士：黑的。\n售货员：对不起，我们没有。\n女士：但是，我姐姐上个月买到了这样的一双。\n售货员：她是在这儿买的吗？\n女士：不。她是在美国买的。\n售货员：一个月前我们有这样的鞋，但是现在没有了。\n女士：您能为我找一双吗？\n售货员：恐怕不行。这鞋在去年和前年时兴，而今年已不流行了。\n\n售货员：现在流行的是这种鞋子。\n女士：这种鞋子看上去很不舒适。\n售货员：的确很不舒适。可是女人们总是穿不舒适的鞋子！"
+  },
+  {
+   "lesson": 76,
+   "title_en": "When did you...?",
+   "title_cn": "你什么时候……？",
+   "pdf_page": 158,
+   "english": "looked at a photograph\njumped off the wall\nwalked across the park\nwashed his hands\nworked in an office\nasked a question\ntyped those letters\nwatched television\ntalked to the salesman\nthanked her father\ndusted the cupboard\npainted that bookcase\nwaited at the bus stop\nwanted a car like that one\ngreeted her",
+   "chinese": "看了一张照片\n从墙上跳了下来\n穿过公园散步\n洗了手\n在办公室里工作\n问了一个问题\n打了那些信\n看了电视\n与售货员谈了话\n感谢了她的父亲\n掸了碗柜上的灰尘\n给那个书柜刷了漆\n在公共汽车站等车\n想要一辆像那样的汽车\n向她问好"
+  },
+  {
+   "lesson": 77,
+   "title_en": "Terrible toothache",
+   "title_cn": "要命的牙痛",
+   "pdf_page": 160,
+   "english": "NURSE : Good morning, Mr. Croft.\nMR. CROFT : Good morning, nurse.\nI want to see the dentist, please.\nNURSE : Do you have an appointment?\nMR. CROFT : No, I don't.\nNURSE : Is it urgent?\nMR. CROFT : Yes, it is.\nIt's very urgent.\nI feel awful.\nI have a terrible toothache.\nNURSE : Can you come at 10 a.m. on Monday, April 24th?\nMR. CROFT : I must see the dentist now, nurse.\nNURSE : The dentist is very busy at the moment.\nCan you come at 2 p.m.?\nMR. CROFT : That's very late.\nCan the dentist see me now?\nNURSE : I'm afraid that he can't, Mr. Croft.\nCan't you wait till this afternoon?\nMR. CROFT : I can wait, but my toothache can't!",
+   "chinese": "护士：早上好，克罗夫特先生。\n克罗夫特先生：早上好，护士。我想见牙科医生。\n护士：您约好了吗？\n克罗夫特先生：没有。\n护士：急吗？\n克罗夫特先生：是的，很急。我难受极了。牙痛得要命。\n护士：您在4月24日星期一上午10点钟来可以吗？\n克罗夫特先生：我必须现在就见牙科医生，护士。\n护士：牙科医生这会儿很忙。您下午两点钟来行吗？\n克罗夫特先生：那就太晚了。牙科医生现在就不能给我看一下吗？\n护士：恐怕不能，克罗夫特先生。您就不能等到今天下午了吗？\n克罗夫特先生：我倒是可以等。可是我的牙痛等不了啊！"
+  },
+  {
+   "lesson": 78,
+   "title_en": "When did you...?",
+   "title_cn": "你什么时候……？",
+   "pdf_page": 162,
+   "english": "AT:\nON: Sunday Monday Tuesday Wednesday Thursday Friday Saturday\nIN: January February March April May June\nJuly August September October November December\nIN: 1988 1989 1990 1991 1992 1993 1994 1995 1996 1997\nON: July 1st Aug. 2nd Sept. 3rd 4th Oct. 5th Nov. 6th Dec.",
+   "chinese": "在……（钟点）\n星期日 星期一 星期二 星期三 星期四 星期五 星期六\n一月 二月 三月 四月 五月 六月\n七月 八月 九月 十月 十一月 十二月\n1988年 1989年 1990年 1991年 1992年 1993年 1994年 1995年 1996年 1997年\n7月1日 8月2日 9月3日 10月4日 11月5日 12月6日"
+  },
+  {
+   "lesson": 79,
+   "title_en": "Carol's shopping list",
+   "title_cn": "卡罗尔的购物单",
+   "pdf_page": 164,
+   "english": "TOM : What are you doing, Carol?\nCAROL : I'm making a shopping list, Tom.\n\nTOM : What do we need?\nCAROL : We need a lot of things this week.\n\nCAROL : I must go to the grocer's.\nWe haven't got much tea or coffee,\nand we haven't got any sugar or jam.\n\nTOM : What about vegetables?\nCAROL : I must go to the greengrocer's.\nWe haven't got many tomatoes,\nbut we've got a lot of potatoes.\n\nCAROL : I must go to the butcher's, too.\nWe need some meat.\nWe haven't got any meat at all.\n\nTOM : Have we got any beer and wine?\nCAROL : No, we haven't.\nAnd I'm not going to get any!\n\nTOM : I hope that you've got some money.\nCAROL : I haven't got much.\nTOM : Well, I haven't got much either!",
+   "chinese": "汤姆：卡罗尔，你在干什么？\n卡罗尔：我在写购物单，汤姆。\n\n汤姆：我们都需要什么？\n卡罗尔：这星期我们需要很多东西。\n\n卡罗尔：我得去一下食品店。我们的茶叶和咖啡不多了，糖和果酱也没有了。\n\n汤姆：蔬菜呢？\n卡罗尔：我还得到蔬菜水果店去一下。我们的番茄不多了，但土豆还有不少。\n\n卡罗尔：我还要到肉店去一下。我们需要些肉。我们一点肉也没有了。\n\n汤姆：我们还有啤酒和葡萄酒吗？\n卡罗尔：没有了。不过，我不打算去买！\n\n汤姆：我希望你还有钱。\n卡罗尔：我的钱不多了。\n汤姆：唉，我也不多了！"
+  },
+  {
+   "lesson": 80,
+   "title_en": "I must go to the...",
+   "title_cn": "我必须去……",
+   "pdf_page": 166,
+   "english": "GROCER'S to get some GROCERIES:\ncheese\neggs\nbutter\nhoney\njam\nbiscuits\n\nGREENGROCER'S to get some FRUIT and VEGETABLES:\npears\noranges\nbananas\nbeans\npeas\ncabbages\n\nBUTCHER'S to get some MEAT:\nlamb\nbeef\nsteak\nmince\nchicken\n\nNEWSAGENT'S to get some STATIONERY:\nglue\nenvelopes\nwriting paper\nnewspapers\nmagazines\n\nBAKER'S to get some:\nbread\ncakes\n\nCHEMIST'S to get some:\naspirins\nmedicine",
+   "chinese": "去食品店买些食品杂货：\n奶酪\n鸡蛋\n黄油\n蜂蜜\n果酱\n饼干\n\n去蔬菜水果店买些水果和蔬菜：\n梨\n橙子\n香蕉\n豆角\n豌豆\n卷心菜\n\n去肉店买些肉：\n羊肉\n牛肉\n牛排\n肉馅\n鸡肉\n\n去报刊零售人那里买些文具：\n胶水\n信封\n信纸\n报纸\n杂志\n\n去面包店买些：\n面包\n蛋糕\n\n去药剂师那里买些：\n阿司匹林\n药"
+  },
+  {
+   "lesson": 81,
+   "title_en": "Roast beef and potatoes",
+   "title_cn": "烤牛肉和土豆",
+   "pdf_page": 168,
+   "english": "SAM: Hi, Carol!\nWhere's Tom?\nCAROL: He's upstairs.\nHe's having a bath.\nCAROL: Tom!\nTOM: Yes?\nCAROL: Sam's here.\nTOM: I'm nearly ready.\nTOM: Hello, Sam.\nHave a cigarette.\nSAM: No, thanks, Tom.\nTOM: Have a glass of whisky then.\nSAM: OK. Thanks.\nTOM: Is dinner ready, Carol?\nCAROL: It's nearly ready.\nWe can have dinner at seven o'clock.\nTOM: Sam and I had lunch together today.\nWe went to a restaurant.\nCAROL: What did you have?\nTOM: We had roast beef and potatoes.\nCAROL: Oh!\nTOM: What's the matter, Carol?\nCAROL: Well, you're going to have roast beef and potatoes again tonight!",
+   "chinese": "萨姆：你好，卡罗尔！汤姆在哪儿？\n卡罗尔：他在楼上。他正在洗澡。\n卡罗尔：汤姆！\n汤姆：什么事？\n卡罗尔：萨姆来了。\n汤姆：我马上就好。\n汤姆：你好，萨姆。请抽烟。\n萨姆：不，谢谢，汤姆。\n汤姆：那么，来杯威士忌吧。\n萨姆：好的，谢谢。\n汤姆：卡罗尔，饭好了吗？\n卡罗尔：马上就好。7点钟我们可以吃饭。\n汤姆：我和萨姆今天一起吃的午饭。我们去了一家饭店。\n卡罗尔：你们吃什么？\n汤姆：我们吃的是烤牛肉和土豆。\n卡罗尔：哦！\n汤姆：怎么了，卡罗尔？\n卡罗尔：唉，今晚你们又要吃烤牛肉和土豆了！"
+  },
+  {
+   "lesson": 82,
+   "title_en": "I had ...",
+   "title_cn": "我吃（喝、从事）了……",
+   "pdf_page": 170,
+   "english": "breakfast\nlunch\ntea\ndinner\na meal\na swim\na bath\na haircut\na lesson\na party\na holiday\na good time",
+   "chinese": "早餐\n午餐\n茶\n正餐\n一顿饭\n游泳\n洗澡\n理发\n上课\n聚会\n假日\n美好时光"
+  },
+  {
+   "lesson": 83,
+   "title_en": "Going on holiday",
+   "title_cn": "度假",
+   "pdf_page": 172,
+   "english": "CAROL: Hello, Sam.\nCome in.\nTOM: Hi, Sam.\nWe're having lunch.\nDo you want to have lunch with us?\nSAM: No, thank you, Tom.\nI've already had lunch.\nI had lunch at half past twelve.\nCAROL: Have a cup of coffee then.\nSAM: I've just had a cup, thank you.\nI had one after my lunch.\nTOM: Let's go into the living room, Carol.\nWe can have our coffee there.\nCAROL: Excuse the mess, Sam.\nThis room's very untidy.\nWe're packing our suitcases.\nWe're going to leave tomorrow.\nTom and I are going to have a holiday.\nSAM: Aren't you lucky!\nTOM: When are you going to have a holiday, Sam?\nSAM: I don't know.\nI've already had my holiday this year.\nCAROL: Where did you go?\nSAM: I stayed at home!",
+   "chinese": "卡罗尔：你好，萨姆。进来吧。\n汤姆：你好，萨姆。我们正在吃午饭，你跟我们一起吃午饭好吗？\n萨姆：不，汤姆，谢谢。我已经吃过饭了。我在12点半吃的。\n卡罗尔：那么喝杯咖啡吧。\n萨姆：我刚喝了一杯，谢谢。我是在饭后喝的。\n汤姆：我们到客厅里去吧，卡罗尔。我们可以在那里喝咖啡。\n卡罗尔：屋子很乱，请原谅，萨姆。房间里乱七八糟。我们正在收拾手提箱。明天我们就要走了。我和汤姆准备去度假。\n萨姆：你们真幸运！\n汤姆：萨姆，你准备什么时候去度假？\n萨姆：我不知道。今年我已度过假了。\n卡罗尔：你去哪儿了？\n萨姆：我呆在家里了！"
+  },
+  {
+   "lesson": 84,
+   "title_en": "Have you had ...?",
+   "title_cn": "你已经……了吗？",
+   "pdf_page": 174,
+   "english": "fruit\nbananas\noranges\npeaches\napples\nvegetables\nlettuce\ncabbage\npeas\nbeans\nmeat\nbeef\nlamb\nsteak\nchicken\nmilk\ntea\ncoffee\nwine\nbeer",
+   "chinese": "水果\n香蕉\n橙子\n桃子\n苹果\n蔬菜\n莴苣\n卷心菜\n豌豆\n豆子\n肉\n牛肉\n羊肉\n牛排\n鸡\n牛奶\n茶\n咖啡\n葡萄酒\n啤酒"
+  },
+  {
+   "lesson": 85,
+   "title_en": "Paris in the spring",
+   "title_cn": "巴黎之春",
+   "pdf_page": 176,
+   "english": "GEORGE: Hello, Ken.\nKEN: Hi, George.\nGEORGE: Have you just been to the cinema?\nKEN: Yes, I have.\nGEORGE: What's on?\nKEN: 'Paris in the Spring'.\nGEORGE: Oh, I've already seen it.\nI saw it on television last year.\nIt's an old film, but it's very good.\nKEN: Paris is a beautiful city.\nGEORGE: I've never been there.\nHave you ever been there, Ken?\nKEN: Yes, I have.\nI was there in April.\nGEORGE: Paris in the spring, eh?\nKEN: It was spring, but the weather was awful.\nIt rained all the time.\nGEORGE: Just like London!",
+   "chinese": "乔治：你好，肯。\n肯：你好，乔治。\n乔治：你刚去过电影院吗？\n肯：是的，我刚去过。\n乔治：上映什么片子？\n肯：《巴黎之春》。\n乔治：噢，我已看过了。我是去年在电视上看的。这是部老片子，但很好。\n肯：巴黎是座美丽的城市。\n乔治：我从未去过。肯，你去过吗？\n肯：是的，我去过。4月份我在那儿。\n乔治：那是巴黎之春，是吗？\n肯：是春天，但天气太糟了。一直在下雨。\n乔治：就像伦敦一样！"
+  },
+  {
+   "lesson": 86,
+   "title_en": "What have you done?",
+   "title_cn": "你已经做了什么？",
+   "pdf_page": 178,
+   "english": "aired\ncleaned\nopened\nsharpened\nturned on\nlistened to\nboiled\nanswered\nemptied\nasked\ntyped\nwashed\nwalked\npainted\ndusted",
+   "chinese": "晾晒\n打扫\n打开\n削尖\n打开\n听\n煮开\n回答\n倒空\n问\n打字\n洗\n走\n油漆\n掸灰"
+  },
+  {
+   "lesson": 87,
+   "title_en": "A car crash",
+   "title_cn": "车祸",
+   "pdf_page": 180,
+   "english": "MR. WOOD: Is my car ready yet?\nATTENDANT: I don't know, sir.\nWhat's the number of your car?\nMR. WOOD: It's LFZ 312 G.\nATTENDANT: When did you bring it to us?\nMR. WOOD: I brought it here three days ago.\nATTENDANT: Ah yes, I remember now.\nMR. WOOD: Have your mechanics finished yet?\nATTENDANT: No, they're still working on it.\nLet's go into the garage and have a look at it.\nATTENDANT: Isn't that your car?\nMR. WOOD: Well, it was my car.\nATTENDANT: Didn't you have a crash?\nMR. WOOD: That's right.\nI drove it into a lamp-post.\nCan your mechanics repair it?\nATTENDANT: Well, they're trying to repair it, sir.\nBut to tell you the truth, you need a new car!",
+   "chinese": "伍德先生：我的汽车修好了吗？\n服务员：我不知道，先生。您的汽车牌号是多少？\n伍德先生：是 LFZ312G。\n服务员：您什么时候送来的？\n伍德先生：3天前。\n服务员：啊，是的，我现在记起来了。\n伍德先生：你们的机械师修好了吗？\n服务员：没有，他们还在修呢。我们到车库去看一下吧。\n服务员：这难道不是您的车吗？\n伍德先生：唔，这曾是我的车。\n服务员：难道您没有出车祸吗？\n伍德先生：是啊。我把汽车撞在电线杆上了。你们的机械师能修好吗？\n服务员：啊，他们正设法修呢，先生。不过说实在的，您需要一辆新车了！"
+  },
+  {
+   "lesson": 88,
+   "title_en": "Have you ... yet?",
+   "title_cn": "你已经……了吗？",
+   "pdf_page": 182,
+   "english": "Have you met Mrs. Jones yet?\nYes, I have.\nWhen did you meet her?\nI met her two weeks ago.\nHas the boss left yet?\nYes, he has.\nWhen did he leave?\nHe left ten minutes ago.\nHave you had breakfast yet?\nYes, we have.\nWhen did you have it?\nWe had it at half past seven.\nHas she found her pen yet?\nYes, she has.\nWhen did she find it?\nShe found it an hour ago.",
+   "chinese": "你见过琼斯太太了吗？\n是的，我见过了。\n你什么时候见到她的？\n我是在两周前见到她的。\n老板已经走了吗？\n是的，他已经走了。\n他什么时候走的？\n他十分钟前走的。\n你已经吃过早饭了吗？\n是的，我们吃过了。\n你什么时候吃的？\n我们七点半吃的。\n她找到她的钢笔了吗？\n是的，她找到了。\n她什么时候找到的？\n她是1小时前找到的。"
+  },
+  {
+   "lesson": 89,
+   "title_en": "For sale",
+   "title_cn": "待售",
+   "pdf_page": 184,
+   "english": "NIGEL: Good afternoon.\nI believe that this house is for sale.\nIAN: That's right.\nNIGEL: May I have a look at it, please?\nIAN: Yes, of course.\nCome in.\nNIGEL: How long have you lived here?\nIAN: I've lived here for twenty years.\nNIGEL: Twenty years!\nThat's a long time.\nIAN: Yes, I've been here since 1976.\nNIGEL: Then why do you want to sell it?\nIAN: Because I've just retired.\nI want to buy a small house in the country.\nNIGEL: How much does this house cost?\nIAN: £68,500.\nNIGEL: That's a lot of money!\nIAN: It's worth every penny of it.\nNIGEL: Well, I like the house, but I can't decide yet.\nMy wife must see it first.\nIAN: Women always have the last word.",
+   "chinese": "奈杰尔：下午好。我想这房子是要出售的吧！\n伊恩：是的。\n奈杰尔：我可以看一看吗？\n伊恩：可以，当然可以。请进。\n奈杰尔：您在这里住了多长时间？\n伊恩：我在这里已经住了20年了。\n奈杰尔：20年！这个时间可不短。\n伊恩：是啊，从1976年起我就住在这里。\n奈杰尔：那么，您为什么要卖掉它呢？\n伊恩：因为我刚退休。我想在乡下买幢小房子。\n奈杰尔：这座房子卖多少钱？\n伊恩：68,500英镑。\n奈杰尔：那可真是一大笔钱呢！\n伊恩：它确确实实值这么多钱。\n奈杰尔：啊，我喜欢这房子，但我还不能决定。我妻子必须先来看一看。\n伊恩：女人总是最后说了算的。"
+  },
+  {
+   "lesson": 90,
+   "title_en": "Have you...yet?",
+   "title_cn": "你已经……了吗？",
+   "pdf_page": 186,
+   "english": "Have you read this book yet?\nYes, I have.\nWhen did you read it?\nI read it last year.\nHave you done your homework yet?\nYes, I have.\nWhen did you do it?\nI did it half an hour ago.\nHas he gone yet?\nYes, he has.\nWhen did he go?\nHe went an hour ago.\nHas she spoken to him yet?\nYes, she has.\nWhen did she speak to him?\nShe spoke to him yesterday.",
+   "chinese": "你读过这本书了吗？\n是的，我读过了。\n你什么时候读的？\n我去年读的。\n你已经做完作业了吗？\n是的，我做完了。\n你什么时候做的？\n我半小时前做的。\n他已经走了吗？\n是的，他已经走了。\n他什么时候走的？\n他一小时前走的。\n她已经跟他说过了吗？\n是的，她已经说过了。\n她什么时候跟他说的？\n她昨天跟他说的。"
+  },
+  {
+   "lesson": 91,
+   "title_en": "Poor Ian!",
+   "title_cn": "可怜的伊恩！",
+   "pdf_page": 188,
+   "english": "CATHERINE: Has Ian sold his house yet?\nJENNY: Yes, he has.\nHe sold it last week.\nCATHERINE: Has he moved to his new house yet?\nJENNY: No, not yet.\nHe's still here.\nHe's going to move tomorrow.\nCATHERINE: When? Tomorrow morning?\nJENNY: No. Tomorrow afternoon.\nI'll miss him.\nHe has always been a good neighbour.\nLINDA: He's a very nice person.\nWe'll all miss him.\nCATHERINE: When will the new people move into this house?\nJENNY: I think that they'll move in the day after tomorrow.\nLINDA: Will you see Ian today, Jenny?\nJENNY: Yes, I will.\nLINDA: Please give him my regards.\nCATHERINE: Poor Ian!\nHe didn't want to leave this house.\nJENNY: No, he didn't want to leave, but his wife did!",
+   "chinese": "凯瑟琳：伊恩已把他的房子卖掉了吗？\n詹尼：是的。卖掉了。他上星期卖掉的。\n凯瑟琳：他已经迁进新居了吗？\n詹尼：不，还没有。他仍在这里。他打算明天搬家。\n凯瑟琳：什么时候？明天上午吗？\n詹尼：不。明天下午。我会想念他的。他一直是个好邻居。\n琳达：他是个非常好的人。我们大家都会想念他的。\n凯瑟琳：新住户什么时候搬进这所房子？\n詹尼：我想他们将在后天搬进来吧。\n琳达：詹尼，您今天会见到伊恩吗？\n詹尼：是的，我会见到他。\n琳达：请代我问候他。\n凯瑟琳：可怜的伊恩！他本不想离开这幢房子。\n詹尼：是啊。他是不想离开，可是他妻子要离开。"
+  },
+  {
+   "lesson": 92,
+   "title_en": "When will...?",
+   "title_cn": "什么时候要……？",
+   "pdf_page": 190,
+   "english": "TODAY\nthis morning\nthis afternoon\nthis evening\ntonight\nTOMORROW\ntomorrow morning\ntomorrow afternoon\ntomorrow evening\ntomorrow night\nTHE DAY AFTER TOMORROW\nthe day after tomorrow in the morning\nthe day after tomorrow in the afternoon\nthe day after tomorrow in the evening\nthe night after next\nrain\nsnow\nleave\nget up\narrive\nfinish work\nhave a holiday\ndrive home\nhave a haircut\ntelephone me\nhave a shave\npack his bags\nsweep the floor\npaint this room\nrepair my car\nmake an appointment",
+   "chinese": "今天\n今天上午\n今天下午\n今天晚上\n今晚\n明天\n明天上午\n明天下午\n明天晚上\n明天夜里\n后天\n后天上午\n后天下午\n后天晚上\n后天夜里\n下雨\n下雪\n离开\n起床\n到达\n完成工作\n度假\n开车回家\n理发\n给我打电话\n刮脸\n收拾行李\n扫地板\n油漆这间房间\n修理我的汽车\n预约"
+  },
+  {
+   "lesson": 93,
+   "title_en": "Our new neighbour",
+   "title_cn": "我们的新邻居",
+   "pdf_page": 192,
+   "english": "Nigel is our new next-door neighbour.\nHe's a pilot.\nHe was in the R.A.F.\nHe will fly to New York next month.\nThe month after next he'll fly to Tokyo.\nAt the moment, he's in Madrid.\nHe flew to Spain a week ago.\nHe'll return to London the week after next.\nHe's only forty-one years old, and he has already been to nearly every country in the world.\nNigel is a very lucky man.\nBut his wife isn't very lucky.\nShe usually stays at home!",
+   "chinese": "奈杰尔是我们新搬来的隔壁邻居。\n他是个飞行员。\n他曾任皇家空军任职。\n下个月他将飞往纽约。\n再下个月他将飞往东京。\n现在他在马德里。\n他是一星期以前飞到西班牙的。\n再下个星期他将返回伦敦。\n他只有41岁，但他却去过世界上几乎每一个国家。\n奈杰尔是个很幸运的人。\n但他的妻子运气不很好。\n她总是呆在家里！"
+  },
+  {
+   "lesson": 94,
+   "title_en": "When did you/will you go to...?",
+   "title_cn": "你过去/将在什么时候去……？",
+   "pdf_page": 194,
+   "english": "last week\nthis week\nnext week\nthe week after next\nlast month\nthis month\nnext month\nthe month after next\nlast year\nthis year\nnext year\nthe year after next\nAthens\nBeijing\nBerlin\nBombay\nGeneva\nLondon\nMadrid\nMoscow\nNew York\nParis\nRome\nSeoul\nStockholm\nSydney\nTokyo",
+   "chinese": "上周\n本周\n下周\n下下周\n上个月\n这个月\n下个月\n再下个月\n去年\n今年\n明年\n后年\n雅典\n北京\n柏林\n孟买\n日内瓦\n伦敦\n马德里\n莫斯科\n纽约\n巴黎\n罗马\n汉城\n斯德哥尔摩\n悉尼\n东京"
+  },
+  {
+   "lesson": 95,
+   "title_en": "Tickets, please.",
+   "title_cn": "请把车票拿出来。",
+   "pdf_page": 196,
+   "english": "GEORGE: Two return tickets to London, please.\nWhat time will the next train leave?\nATTENDANT: At nineteen minutes past eight.\nGEORGE: Which platform?\nATTENDANT: Platform Two.\nOver the bridge.\nKEN: What time will the next train leave?\nGEORGE: At eight nineteen.\nKEN: We've got plenty of time.\nGEORGE: It's only three minutes to eight.\nKEN: Let's go and have a drink.\nThere's a bar next door to the station.\nGEORGE: We had better go back to the station now, Ken.\nPORTER: Tickets, please.\nGEORGE: We want to catch the eight nineteen to London.\nPORTER: You've just missed it!\nGEORGE: What!\nIt's only eight fifteen.\nPORTER: I'm sorry, sir.\nThat clock's ten minutes slow.\nGEORGE: When's the next train?\nPORTER: In five hours' time!",
+   "chinese": "乔治：买两张到伦敦的往返票。下一班火车什么时候开？\n服务员：8点19分。\n乔治：在哪个站台？\n服务员：2号站台。过大桥。\n肯：下一班火车什么时候开？\n乔治：8点19分。\n肯：我们的时间还很宽裕。\n乔治：现在才7点57分。\n肯：让我们去喝点东西吧。车站旁有一个酒吧。\n乔治：肯，我们现在最好回到车站去。\n收票员：请把车票拿出来。\n乔治：我们要乘8点19分的车去伦敦。\n收票员：你们刚好错过了那班车。\n乔治：什么！现在只有8点15分。\n收票员：对不起，先生。那个钟慢了10分钟。\n乔治：下一班车是什么时候？\n收票员：5个小时以后！"
+  },
+  {
+   "lesson": 96,
+   "title_en": "What's the exact time?",
+   "title_cn": "确切的时间是几点？",
+   "pdf_page": 198,
+   "english": "a minute/two minutes\nan hour/two hours\na day/two days\na week/two weeks\na month/two months\na year/two years\nAGO\nIN\nTIME\na minute's/two minutes'\nan hour's/two hours'\na day's/two days'\na week's/two weeks'\na month's/two months'\na year's/two years'\nWhen did he/will he go to...?\nAthens\nBeijing\nBerlin\nBombay\nGeneva\nLondon\nMadrid\nMoscow\nNew York\nParis\nRome\nSeoul\nStockholm\nSydney\nTokyo",
+   "chinese": "一分钟/两分钟\n一小时/两小时\n一天/两天\n一周/两周\n一个月/两个月\n一年/两年\n以前\n在……之后\n时间\n一分钟的/两分钟的\n一小时的/两小时的\n一天的/两天的\n一周的/两周的\n一个月的/两个月的\n一年的/两年的\n他曾/将在什么时候去……？\n雅典\n北京\n柏林\n孟买\n日内瓦\n伦敦\n马德里\n莫斯科\n纽约\n巴黎\n罗马\n汉城\n斯德哥尔摩\n悉尼\n东京"
+  },
+  {
+   "lesson": 97,
+   "title_en": "A small blue case",
+   "title_cn": "一只蓝色的小箱子",
+   "pdf_page": 200,
+   "english": "MR. HALL: I left a suitcase\non the train to London\nthe other day.\n\nATTENDANT: Can you describe it, sir?\n\nMR. HALL: It's a small blue case\nand it's got a zip.\nThere's a label on the handle\nwith my name and address on it.\n\nATTENDANT: Is this case yours?\nMR. HALL: No, that's not mine.\n\nATTENDANT: What about this one?\nThis one's got a label.\nMR. HALL: Let me see it.\n\nATTENDANT: What's your name and address?\nMR. HALL: David Hall.\n83, Bridge Street.\n\nATTENDANT: That's right.\nD. N. Hall.\n83, Bridge Street.\n\nATTENDANT: Three pounds fifty pence, please.\nMR. HALL: Here you are.\nATTENDANT: Thank you.\n\nMR. HALL: Hey!\nATTENDANT: What's the matter?\n\nMR. HALL: This case doesn't belong to me!\nYou've given me the wrong case!",
+   "chinese": "霍尔先生：几天前我把一只手提箱忘在开往伦敦的火车上了。\n服务员：先生，您能描述一下它是什么样的吗？\n\n霍尔先生：是只蓝色的小箱子，上面有拉链。箱把上有一标签，上面写着我的姓名和住址。\n\n服务员：这箱子是您的吗？\n霍尔先生：不，那不是我的。\n\n服务员：这只是不是？这只箱子有张标签。\n霍尔先生：让我看看。\n\n服务员：您的姓名和住址？\n霍尔先生：大卫·霍尔，大桥街83号。\n服务员：那就对了。D·N·霍尔，大桥街83号。\n\n服务员：请付3英镑50便士。\n霍尔先生：给您。\n服务员：谢谢您。\n\n霍尔先生：嗨！\n服务员：怎么回事？\n\n霍尔先生：这箱子不是我的！您给错了！"
+  },
+  {
+   "lesson": 98,
+   "title_en": "Whose is it? Whose are they?",
+   "title_cn": "它是谁的？它们是谁的？",
+   "pdf_page": 202,
+   "english": "Does this belong to me? Is this mine?\nDoes this belong to you? Is this yours?\nDoes this belong to him? Is this his?\nDoes this belong to her? Is this hers?\nDo these belong to us? Are these ours?\nDo these belong to you? Are these yours?\nDo these belong to them? Are these theirs?",
+   "chinese": "这个属于我吗？这是我的吗？\n这个属于你吗？这是你的吗？\n这个属于他吗？这是他的吗？\n这个属于她吗？这是她的吗？\n这些属于我们吗？这些是我们的吗？\n这些属于你们吗？这些是你们的吗？\n这些属于他们吗？这些是他们的吗？"
+  },
+  {
+   "lesson": 99,
+   "title_en": "Ow!",
+   "title_cn": "啊哟！",
+   "pdf_page": 204,
+   "english": "ANDY: Ow!\n\nLUCY: What's the matter, Andy?\nANDY: I slipped and fell downstairs.\n\nLUCY: Have you hurt yourself?\nANDY: Yes, I have.\nI think that\nI've hurt my back.\n\nLUCY: Try and stand up.\nCan you stand up?\nHere.\nLet me help you.\n\nANDY: I'm sorry, Lucy.\nI'm afraid that\nI can't get up.\n\nLUCY: I think that\nthe doctor had better see you.\nI'll phone Dr. Carter.\n\nLUCY: The doctor says that\nhe will come at once.\nI'm sure that\nyou need an X-ray, Andy.",
+   "chinese": "安迪：啊哟！\n\n露西：怎么了，安迪？\n安迪：我滑了一跤，从楼梯上摔下来了。\n\n露西：你摔伤了没有？\n安迪：是啊，摔伤了。我想我把背摔坏了。\n\n露西：试试站起来。你能站起来吗？来，让我帮你。\n\n安迪：对不起，露西，恐怕我站不起来。\n\n露西：我想最好请医生来给你看一下。我去给卡特医生打电话。\n\n露西：医生说他马上就来。安迪，我看你需要做一次X光透视。"
+  },
+  {
+   "lesson": 100,
+   "title_en": "He says that... She says that... They say that...",
+   "title_cn": "他/她/他们说……",
+   "pdf_page": 206,
+   "english": "He\nsays\nthinks\nbelieves\nknows\nunderstands\nis afraid\nis sorry\nis sure\n\nthat he\n\nis...\nfeels...\nhas (got)...\nneeds...\nwants...\ncan...\nmust...\nwill...\n\nis/are feel(s)\ntired  thirsty  cold  ill\n\nhas/have (got)\na cold  a headache  an earache  a toothache\n\nneed(s) want(s)\na haircut  a licence  an X-ray  some money\n\ncan must will\nwait  catch  repair  sell",
+   "chinese": "他\n说\n想\n相信\n知道\n明白\n害怕\n难过\n确信\n\n他\n\n是……\n感觉……\n有……\n需要……\n想要……\n能……\n必须……\n将会……\n\n（is/are feel(s)）：累、渴、冷、生病\n\n（has/have (got)）：感冒、头痛、耳痛、牙痛\n\n（need(s) want(s)）：理发、执照、X光透视、一些钱\n\n（can must will）：等、接、修理、卖"
+  },
+  {
+   "lesson": 101,
+   "title_en": "A card from Jimmy",
+   "title_cn": "吉米的明信片",
+   "pdf_page": 208,
+   "english": "GRANDMOTHER: Read Jimmy's card to me, Penny.\nPENNY: 'I have just arrived in Scotland\nand I'm staying at a Youth Hostel.'\n\nGRANDMOTHER: Eh?\nPENNY: He says he's just arrived in Scotland.\nHe says he's staying at a Youth Hostel.\nYou know he's a member of the Y.H.A.\n\nGRANDMOTHER: The what?\nPENNY: The Y.H.A., Mum.\nThe Youth Hostels Association.\n\nGRANDMOTHER: What else does he say?\nPENNY: 'I'll write a letter soon.\nI hope you are all well.'\n\nGRANDMOTHER: What?\nSpeak up, Penny.\nI'm afraid I can't hear you.\n\nPENNY: He says he'll write a letter soon.\nHe hopes we are all well.\n'Love, Jimmy.'\n\nGRANDMOTHER: Is that all?\nHe doesn't say very much, does he?\n\nPENNY: He can't write very much\non a card, Mum.",
+   "chinese": "祖母：请把吉米的明信片念给我听听，彭妮。\n彭妮：“我刚到苏格兰，我现住在一家青年招待所。”\n\n祖母：什么？\n彭妮：他说他到苏格兰了。他说他现住在一家青年招待所。您知道，他是“青招协”的一个成员。\n\n祖母：什么？\n彭妮：“青招协”，妈妈。青年招待所协会。\n\n祖母：他还说了些什么？\n彭妮：“我很快会写信的。祝你们大家身体都好。”\n\n祖母：什么？彭妮，大声一点。我可听不见你念的。\n\n彭妮：他说他很快会写信的。他祝我们大家身体好。“谨此问候，吉米。”\n\n祖母：就这些吗？他没写许多，是吗？\n\n彭妮：在明信片上他写不了很多，妈妈。"
+  },
+  {
+   "lesson": 102,
+   "title_en": "He says he... She says she... They say they...",
+   "title_cn": "他/她/他们说他们……",
+   "pdf_page": 210,
+   "english": "He\nsays\nthinks\nbelieves\nknows\nhopes\nis afraid\nis sorry\nis sure\n\nhe\n\nis...\nfeels...\nhas (got)...\nneeds...\nwants...\ncan...\nmust...\nwill...\n\nis/are feel(s)\ntired  thirsty  cold  ill\n\nhas/have (got)\na cold  a headache  an earache  a toothache\n\nneed(s) want(s)\na haircut  a licence  an X-ray  some money\n\ncan must will\nwait  catch  repair  sell",
+   "chinese": "他\n说\n想\n相信\n知道\n希望\n害怕\n难过\n确信\n\n他\n\n是……\n感觉……\n有……\n需要……\n想要……\n能……\n必须……\n将会……\n\n（is/are feel(s)）：累、渴、冷、生病\n\n（has/have (got)）：感冒、头痛、耳痛、牙痛\n\n（need(s) want(s)）：理发、执照、X光透视、一些钱\n\n（can must will）：等、接、修理、卖"
+  },
+  {
+   "lesson": 103,
+   "title_en": "The French test",
+   "title_cn": "法语考试",
+   "pdf_page": 212,
+   "english": "GARY: How was the exam, Richard?\nRICHARD: Not too bad.\nI think I passed in\nEnglish and Mathematics.\nThe questions were very easy.\nHow about you, Gary?\nGARY: The English and Maths papers\nweren't easy enough for me.\nI hope I haven't failed.\nRICHARD: I think I failed the French paper.\nI could answer sixteen of the questions.\nThey were very easy.\nBut I couldn't answer the rest.\nThey were too difficult for me.\nGARY: French tests are awful, aren't they?\nRICHARD: I hate them.\nI'm sure I've got a low mark.\nGARY: Oh, cheer up!\nPerhaps we didn't do too badly.\nThe guy next to me\nwrote his name\nat the top of the paper.\nRICHARD: Yes?\nGARY: Then he sat there\nand looked at it for three hours!\nHe didn't write a word!",
+   "chinese": "加里：考试考得怎样，理查德？\n理查德：不算太坏，我想我的英语和数学及格了。题目很容易。加里，你怎么样？\n加里：英语和数学试题对我来说不很容易。我希望别不及格。\n理查德：我想我的法语及格不了，我能回答其中的16道题。这些题很容易。\n但我回答不出其余的题。那些题对我来说太难了。\n加里：法语太可怕了，你说呢？\n理查德：我讨厌法语。我的法语成绩肯定很低。\n加里：啊，别灰心！或许我们考得还不算糟。坐在我旁边的那个人只在试卷顶端写了自己的名字。\n理查德：是吗？\n加里：然后他就坐在那里，对着考卷看了3个小时，一个字也没写！"
+  },
+  {
+   "lesson": 104,
+   "title_en": "Too, very, enough",
+   "title_cn": "太、非常、足够",
+   "pdf_page": 214,
+   "english": "I could answer the questions.\nThey were very easy.\nI couldn't answer the questions.\nThey were too difficult.\nThe questions were easy enough for me to answer.\nThe questions were too difficult for me to answer.\n\nanswer all the questions: easy, difficult, clever, stupid\nbuy the car: cheap, expensive\neat the cakes: fresh, stale\nhear the stereo: loud, low\nclimb the wall: low, high\neat the pear: soft, hard\neat the orange: sweet, sour",
+   "chinese": "我能回答这些问题。\n这些题很容易。\n我不能回答这些问题。\n这些题太难了。\n这些题对我来说足够容易，我能回答。\n这些题对我来说太难了，回答不了。\n\n回答所有问题：容易、困难、聪明、笨\n买汽车：便宜、贵\n吃蛋糕：新鲜、变馊\n听立体声：声音大、声音低\n爬墙：低、高\n吃梨：软、硬\n吃橘子：甜、酸"
+  },
+  {
+   "lesson": 105,
+   "title_en": "Full of mistakes",
+   "title_cn": "错误百出",
+   "pdf_page": 216,
+   "english": "THE BOSS: Where's Sandra, Bob?\nI want her.\nBOB: Do you want to speak to her?\nTHE BOSS: Yes, I do.\nI want her to come to my office.\nTell her to come at once.\n\nSANDRA: Did you want to see me?\nTHE BOSS: Ah, yes, Sandra.\nHow do you spell ’intelligent’?\nCan you tell me?\nSANDRA: I-N-T-E-L-L-I-G-E-N-T.\n\nTHE BOSS: That’s right.\nYou’ve typed it with only one ’L’.\nThis letter’s full of mistakes.\nI want you to type it again.\nSANDRA: Yes, I’ll do that.\nI’m sorry about that.\n\nTHE BOSS: And here’s a little present for you.\nSANDRA: What is it?\nTHE BOSS: It’s a dictionary.\nI hope it’ll help you.",
+   "chinese": "老 板：鲍勃，桑德拉在哪儿？我要找她。\n鲍 勃：您要同她谈话吗？\n老 板：是的。我要她到我的办公室来。叫她马上就来。\n\n桑德拉：您找我吗？\n老 板：啊，是的，桑德拉。“intelligent”怎样拼写？你能告诉我吗？\n桑德拉：I—N—T—E—L—L—I—G—E—N—T。\n\n老 板：对的。但你只打了 1 个“L”。这封信里错误百出。我要你重打一遍。\n桑德拉：是，我重打。对此我感到很抱歉。\n\n老 板：这里有一件小礼物送你。\n桑德拉：是什么？\n老 板：是本词典。我希望它能对你有所帮助。"
+  },
+  {
+   "lesson": 106,
+   "title_en": "I want you/him/her/them to ...",
+   "title_cn": "我要你/他/她/他们……",
+   "pdf_page": 218,
+   "english": "I want you/him/her/them to ...\nTell him/her/them to ...\ncarry it\ncorrect it\nlisten to it\ndescribe it\nmove it\ntry it\nfinish it\nkeep it\nI don’t want you/him/her/them to ...\nTell him/her/them not to ...\nhurt yourself\nslip\nfall\nmiss it\nbreak it\ndrive it\nlose it\ncut yourself",
+   "chinese": "我要你/他/她/他们……\n告诉他/她/他们……\n拿（搬运）它\n改正它\n听它\n描述它\n移动它\n尝试它\n完成它\n保留它\n我不要你/他/她/他们……\n告诉他/她/他们不要……\n伤害你自己\n滑倒\n摔下\n错过它\n打碎它\n驾驶它\n丢失它\n割伤你自己"
+  },
+  {
+   "lesson": 107,
+   "title_en": "It’s too small.",
+   "title_cn": "太小了。",
+   "pdf_page": 220,
+   "english": "ASSISTANT: Do you like this dress, madam?\nLADY: I like the colour very much.\nIt’s a lovely dress,\nbut it’s too small for me.\n\nASSISTANT: What about this one?\nIt’s a lovely dress.\nIt’s very smart.\nShort skirts are in fashion now.\nWould you like to try it?\nLADY: All right.\n\nLADY: I’m afraid this green dress\nis too small for me as well.\nIt’s smaller than the blue one.\n\nLADY: I don’t like the colour either.\nIt doesn’t suit me at all.\nI think the blue dress is prettier.\n\nLADY: Could you show me\nanother blue dress?\nI want a dress like that one,\nbut it must be my size.\n\nASSISTANT: I’m afraid I haven’t got a larger dress.\nThis is the largest dress in the shop.",
+   "chinese": "店员：夫人，您喜欢这件衣服吗？\n女士：我很喜欢这颜色。这是件漂亮的衣服，可是对我来说太小了。\n\n店员：这件怎么样？这是件漂亮的衣服，它很时髦。短裙现在很流行。您要试一试吗？\n女士：好吧。\n\n女士：恐怕这件绿色的我穿着也太小了。它比那件蓝色的还要小。\n\n女士：我也不喜欢这种颜色。这颜色我穿根本不适合。我认为那件蓝色的更漂亮些。\n\n女士：您能再给我看一件蓝色的吗？我想要一件和那件一样的，但必须是我的尺寸。\n\n店员：恐怕没有更大的了。这是店里最大的一件。"
+  },
+  {
+   "lesson": 108,
+   "title_en": "How do they compare?",
+   "title_cn": "它们的比较级和最高级是什么？",
+   "pdf_page": 222,
+   "english": "Sophie is tall.\nPaul is taller than Sophie.\nHans is the tallest student in our class.\nIt is hot today.\nIt was hotter yesterday.\nThe day before yesterday was the hottest day in the year.\nThere was a large crowd at the race last year.\nThis year the crowd is larger.\nIt is the largest crowd I have ever seen.\nThe brown suitcase is heavy.\nThe blue suitcase is heavier than the brown one.\nThe green suitcase is the heaviest of them all.",
+   "chinese": "索菲个子高。\n保罗比索菲高。\n汉斯是我们班个子最高的学生。\n今天天气热。\n昨天天气更热。\n前天是一年中最热的一天。\n去年观看比赛的人很多。\n今年人更多。\n这是我见过的最多的人。\n这只棕色手提箱很重。\n这只蓝色手提箱比那只棕色手提箱更重。\n这只绿色手提箱是它们当中最重的。"
+  },
+  {
+   "lesson": 109,
+   "title_en": "A good idea",
+   "title_cn": "好主意",
+   "pdf_page": 224,
+   "english": "CHARLOTTE: Shall I make some coffee, Jane?\nJANE: That’s a good idea, Charlotte.\n\nCHARLOTTE: It’s ready.\nDo you want any milk?\nJANE: Just a little, please.\n\nCHARLOTTE: What about some sugar?\nTwo teaspoonfuls?\nJANE: No, less than that.\nOne and a half teaspoonfuls, please.\nThat’s enough for me.\n\nJANE: That was very nice.\nCHARLOTTE: Would you like some more?\nJANE: Yes, please.\n\nJANE: I’d like a cigarette, too.\nMay I have one?\nCHARLOTTE: Of course.\nI think there are a few in that box.\n\nJANE: I’m afraid it’s empty.\nCHARLOTTE: What a pity!\nJANE: It doesn’t matter.\n\nCHARLOTTE: Have a biscuit instead.\nEat more and smoke less!\nJANE: That’s very good advice!",
+   "chinese": "夏洛特：我来煮点咖啡好吗，简？\n简：这是个好主意，夏洛特。\n\n夏洛特：咖啡好了，你要放点奶吗？\n简：请稍加一点。\n\n夏洛特：加些糖怎么样？两茶匙行吗？\n简：不，再少一些。请放一勺半。那对我已足够了。\n\n简：太好了。\n夏洛特：你再来点吗？\n简：好的，请再来一点。\n\n简：我还想抽枝烟。可以给我一枝吗？\n夏洛特：当然可以。我想那个盒子里有一些。\n\n简：恐怕盒子是空的。\n夏洛特：真遗憾！\n简：没关系。\n\n夏洛特：那就吃块饼干吧。多吃点，少抽点！\n简：这是极好的忠告啊！"
+  },
+  {
+   "lesson": 110,
+   "title_en": "How do they compare?",
+   "title_cn": "它们的比较级和最高级是什么？",
+   "pdf_page": 226,
+   "english": "Have you got any chocolate?\nI haven’t got much.\nI’ve got more than you have.\nI’ve got the most.\nHave you got any chocolate?\nI’ve got very little.\nI’ve got less than you have.\nI’ve got the least.\nHave you made any mistakes?\nI haven’t made many.\nI’ve made more than you have.\nI’ve made the most.\nHave you made any mistakes?\nI’ve made very few.\nI’ve made fewer than you have.\nI’ve made the fewest.\nYou must see my new car.\nIt’s very good.\nThis one’s better.\nThis one’s the best I’ve ever seen.\nYou mustn’t go to that restaurant.\nIt’s very bad.\nThis one’s worse.\nThis one’s the worst I’ve ever seen.",
+   "chinese": "你有巧克力吗？\n我没有多少。\n我有的比你的多。\n我最多。\n你有巧克力吗？\n我只有一点点。\n我有的比你的少。\n我最少。\n你出错了吗？\n我没出多少错。\n我出的错比你的多。\n我出的错最多。\n你出错了吗？\n我几乎没出错。\n我出的错比你的少。\n我出的错最少。\n你一定要看看我的新汽车。\n它很好。\n这辆更好。\n这是我所见过的（汽车）中最好的。\n你千万不要去那家饭店。\n它很差。\n这家更差。\n这是我所见过的最差的一家。"
+  },
+  {
+   "lesson": 111,
+   "title_en": "The most expensive model",
+   "title_cn": "最昂贵的型号",
+   "pdf_page": 228,
+   "english": "MR. FRITH: I like this television very much.\nHow much does it cost?\nASSISTANT: It’s the most expensive model\nin the shop.\nIt costs five hundred pounds.\n\nMRS. FRITH: That’s too expensive for us.\nWe can’t afford all that money.\n\nASSISTANT: This model’s less expensive\nthan that one.\nIt’s only three hundred pounds.\nBut, of course,\nit’s not as good as the expensive one.\n\nMR. FRITH: I don’t like this model.\nThe other model’s more expensive,\nbut it’s worth the money.\n\nMR. FRITH: Can we buy it on instalments?\nASSISTANT: Of course.\nYou can pay a deposit of thirty pounds,\nand then fourteen pounds a month\nfor three years.\n\nMR. FRITH: Do you like it, dear?\nMRS. FRITH: I certainly do,\nbut I don’t like the price.\nYou always want the best,\nbut we can’t afford it.\nSometimes you think\nyou’re a millionaire!\n\nMR. FRITH: Millionaires don’t buy things\non instalments!",
+   "chinese": "弗里斯先生：我非常喜欢这台电视机。请问它多少钱？\n店    员：这是店里最贵的型号。它的售价是 500 英镑。\n\n弗里斯夫人：这对我们来说太贵了。我们花不起那么多钱。\n\n店    员：这种型号的比那种要便宜些。它只要 300 英镑。但是，它当然没有价钱高的那种好。\n\n弗里斯先生：我不喜欢这种型号。那一种型号价格是贵一些，但它值这么多钱。\n\n弗里斯先生：我们可以用分期付款的方式购买吗？\n店    员：当然可以。您可以先付 30 英镑定金，然后每月 14 镑，3 年付清。\n\n弗里斯先生：你喜欢吗，亲爱的？\n弗里斯夫人：我当然喜欢，但是我不喜欢这个价钱。你总是要买最好的，可我们买不起。有时候你自以为自己是个百万富翁！\n弗里斯先生：百万富翁是不会分期付款买东西的！"
+  },
+  {
+   "lesson": 112,
+   "title_en": "How do they compare?",
+   "title_cn": "它们的比较级和最高级是什么？",
+   "pdf_page": 230,
+   "english": "As ... as\nNot as ... as\nsweet\ntall\nshort\nold\nblunt\nsharp\nclean\nfat\nsmart\nlight\nnew\nexpensive\nThis test is difficult.\nThis test is more difficult.\nThis is the most difficult test I have ever done!\nThis book is interesting.\nThis book is less interesting.\nThis is the least interesting book I have ever read!",
+   "chinese": "像……一样\n不像……一样\n甜的\n高的\n矮的\n旧的\n钝的\n锋利的\n干净的\n胖的\n漂亮/时髦的\n轻的\n新的\n贵的\n这个测验很难。\n这个测验更难。\n这是我做过的最难的测验！\n这本书很有趣。\n这本书不太有趣。\n这是我读过的最没趣的书！"
+  },
+  {
+   "lesson": 113,
+   "title_en": "Small change",
+   "title_cn": "零钱",
+   "pdf_page": 232,
+   "english": "CONDUCTOR : Fares, please!\nMAN : Trafalgar Square, please.\nCONDUCTOR : I'm sorry, sir.\nI can't change a ten-pound note.\nHaven't you got\nany small change?\nMAN : I've got no small change,\nI'm afraid.\nCONDUCTOR : I'll ask some of the passengers.\n\nCONDUCTOR : Have you any small change, sir?\n1st PASSENGER : I'm sorry.\nI've got none.\n2nd PASSENGER : I haven't got any either.\n\nCONDUCTOR : Can you change\nthis ten-pound note, madam?\n3rd PASSENGER : I'm afraid I can't.\n4th PASSENGER : Neither can I.\n\nCONDUCTOR : I'm very sorry, sir.\nYou must get off the bus.\nNone of our passengers\ncan change this note.\nThey're all millionaires!\n\nTWO TRAMPS : Except us.\n1st TRAMP : I've got some small change.\n2nd TRAMP : So have I.",
+   "chinese": "售 票 员 ： 请买票!\n男 子 ： 请买一张到特拉法加广场的票。\n售 票 员 ： 对不起，我找不开 10 英镑的钞票。您没有零钱吗？\n男 子 ： 恐怕我没有零钱。\n售 票 员 ： 我来问问其他乘客。\n\n售 票 员 ： 先生，您有零钱吗？\n乘 客 1 ： 对不起，我没有。\n乘 客 2 ： 我也没有。\n\n售 票 员 ： 夫人，您能把这张 10 英镑的钞票换开吗？\n乘 客 3 ： 恐怕不能。\n乘 客 4 ： 我也不能。\n\n售 票 员 ： 非常抱歉，先生。您必须下车。我们的乘客中没人能换开这张钞票。他们都是百万富翁！\n\n二流浪汉 ： 我们俩除外。\n流浪汉 1 ： 我有零钱。\n流浪汉 2 ： 我也有。"
+  },
+  {
+   "lesson": 114,
+   "title_en": "I've got none.",
+   "title_cn": "我没有。",
+   "pdf_page": 234,
+   "english": "Have you got any\nchocolate?\nI haven't got any.\nI've got no chocolate.\nI've got none.\n\nI haven't any either.\nNeither have I.\n\nHave you got any\nenvelopes?\nI haven't got any.\nI've got no envelopes.\nI've got none.\n\nI haven't any either.\nNeither have I.\n\nHave you got any\ncake?\nI've got some.\nSo have I.\n\nHave you got any\nbiscuits?\nI've got some.\nSo have I.",
+   "chinese": "你有巧克力吗？\n我没有。\n我没有巧克力。\n我一点儿也没有。\n\n我也没有。\n我也没有。\n\n你有信封吗？\n我没有。\n我没有信封。\n我一点儿也没有。\n\n我也没有。\n我也没有。\n\n你有蛋糕吗？\n我有一些。\n我也有。\n\n你有饼干吗？\n我有一些。\n我也有。"
+  },
+  {
+   "lesson": 115,
+   "title_en": "Knock, knock!",
+   "title_cn": "敲敲门!",
+   "pdf_page": 236,
+   "english": "HELEN : Isn't there anyone at home?\nJIM : I'll knock again, Helen.\nEverything's very quiet.\nI'm sure there's no one at home.\n\nHELEN : But that's impossible.\nCarol and Tom invited us to lunch.\nLook through the window.\n\nHELEN : Can you see anything?\nJIM : Nothing at all.\n\nHELEN : Let's try the back door.\nJIM : Look! Everyone's in the garden.\n\nCAROL : Hello, Helen. Hello, Jim.\nTOM : Everybody wants to have lunch\nin the garden.\nIt's nice and warm out here.\n\nCAROL : Come and have something to drink.\nJIM : Thanks, Carol.\nMay I have a glass of beer please?\nCAROL : Beer?\nThere's none left.\nYou can have some lemonade.\nJIM : Lemonade!\nTOM : Don't believe her, Jim.\nShe's only joking.\nHave some beer!",
+   "chinese": "海 伦 ： 家里没有人吗？\n吉 姆 ： 海伦，我再敲一次。毫无动静，肯定家里没有人。\n\n海 伦 ： 但这是不可能的。卡罗尔和汤姆请我们来吃午饭。从窗子里往里看看。\n\n海 伦 ： 你能看见什么吗？\n吉 姆 ： 什么也看不见。\n\n海 伦 ： 让我们到后门去试试。\n吉 姆 ： 瞧！大家都在花园里。\n\n卡罗尔 ： 你好，海伦。你好，吉姆。\n汤 姆 ： 大家都想在花园里吃午饭。这外面挺暖和。\n\n卡罗尔 ： 来喝点什么。\n吉 姆 ： 谢谢，卡罗尔。给我一杯啤酒好吗？\n卡罗尔 ： 啤酒？一点都不剩了。你可以喝点柠檬水。\n吉 姆 ： 柠檬水！\n汤 姆 ： 吉姆，别信她的。她只是在开玩笑。喝点啤酒吧！"
+  },
+  {
+   "lesson": 116,
+   "title_en": "Every, no, any and some",
+   "title_cn": "每一、无、若干和一些",
+   "pdf_page": 238,
+   "english": "Every\nEveryone\nEverybody\nEverything\nEverywhere\n\nNone\nNo one\nNobody\nNothing\nNowhere\n\nAny\nAnyone\nAnybody\nAnything\nAnywhere\n\nSome\nSomeone\nSomebody\nSomething\nSomewhere\n\nEveryone is asleep.\nEverybody is asleep.\n\nEverything is untidy.\n\nI looked for my pen\neverywhere.\n\nIs there anyone\nat home?\nIs there anybody at home?\n\nIs there anything\nin that box?\n\nI couldn't find my pen\nanywhere.\n\nThere's no one\nat home.\nThere's nobody\nat home.\n\nThere's nothing\nin this box.\n\nWhere did you go\nyesterday?\nNowhere. I stayed\nat home.\n\nThere's someone\nin the garden.\nThere's somebody\nin the garden.\n\nThere's something\nunder that chair!\n\nMy glasses must be\nsomewhere!\nYou're wearing them!",
+   "chinese": "每一\n每个人\n每个人\n每件事\n到处\n\n无\n没有人\n没有人\n什么也没有\n无处\n\n任何\n任何人\n任何人\n任何东西\n任何地方\n\n一些\n某人\n某人\n某物\n某处\n\n大家都睡着了。\n大家都睡着了。\n\n一切都不整洁。\n\n我到处找我的钢笔。\n\n家里有人吗？\n家里有人吗？\n\n那只盒子里有什么东西吗？\n\n我到处都找不到我的钢笔。\n\n家里没有人。\n家里没有人。\n\n这只盒子里什么也没有。\n\n你昨天去哪儿了？\n哪儿也没去。我呆在家里了。\n\n花园里有个人。\n花园里有个人。\n\n那把椅子下面有样东西！\n\n我的眼镜肯定在什么地方！\n你正戴着呢！"
+  },
+  {
+   "lesson": 117,
+   "title_en": "Tommy's breakfast",
+   "title_cn": "汤米的早餐",
+   "pdf_page": 240,
+   "english": "When my husband was going\ninto the dining room this morning,\nhe dropped some coins on the floor.\n\nThere were coins everywhere.\nWe looked for them,\nbut we could not find them all.\n\nWhile we were having breakfast,\nour little boy, Tommy,\nfound two small coins on the floor.\n\nHe put them both into his mouth.\nWe both tried to get the coins,\nbut it was too late.\nTommy had already swallowed them!\n\nLater that morning,\nwhen I was doing the housework,\nmy husband phoned me\nfrom the office.\n\n'How's Tommy?' he asked.\n'I don't know,' I answered.\n'Tommy's been to the toilet\nthree times this morning,\nbut I haven't had any change yet!'",
+   "chinese": "今天早晨我丈夫走进饭厅时，把一些硬币掉在地上了。\n\n到处都是硬币。我们虽然找了，但没能把它们全部找到。\n\n正当我们吃早饭时，我们的小男孩汤米在地上找到了两枚小硬币。\n\n他把这两枚硬币全都放进了嘴里。我们俩都试图把这两枚硬币拿出来，但太迟了。汤米已经把硬币咽了下去！\n\n那天上午的晚些时候，当我正做家务时，我丈夫从办公室打来电话。\n\n“汤米怎么样？”他问。“我不知道，”我回答说，“今天上午汤米去了3次厕所了，但我还没看到硬币！”"
+  },
+  {
+   "lesson": 118,
+   "title_en": "What were you doing?",
+   "title_cn": "你那时正在做什么?",
+   "pdf_page": 242,
+   "english": "Someone knocked at the door\nwhen I was having breakfast.\n\nWhen I was leaving the house,\nthe postman arrived.\n\nJust as I was opening the\nfront door, the telephone rang.\n\nShe slipped and hurt herself\nwhile she was getting off the bus.\n\nHe cut himself\nwhile he was shaving.\n\nMy wife was cooking the dinner\nwhile I was working in the garden.",
+   "chinese": "我正吃早饭时有人敲门。\n\n我正要离开房子时，邮递员到了。\n\n我刚打开前门，电话铃就响了。\n\n她下公共汽车时滑倒，伤了自己。\n\n他刮胡子时割伤了自己。\n\n我在花园里干活的时候，我妻子在做晚饭。"
+  },
+  {
+   "lesson": 119,
+   "title_en": "A true story",
+   "title_cn": "一个真实的故事",
+   "pdf_page": 244,
+   "english": "Do you like stories?\nI want to tell you a true story.\nIt happened to a friend of mine a year ago.\n\nWhile my friend, George, was reading in bed,\ntwo thieves climbed into his kitchen.\n\nAfter they had entered the house,\nthey went into the dining room.\nIt was very dark,\nso they turned on a torch.\n\nSuddenly, they heard a voice behind them.\n'What's up? What's up?' someone called.\nThe thieves dropped the torch\nand ran away as quickly as they could.\n\nGeorge heard the noise\nand came downstairs quickly.\n\nHe turned on the light,\nbut he couldn't see anyone.\nThe thieves had already gone.\n\nBut George's parrot, Henry, was still there.\n'What's up, George?' he called.\n'Nothing, Henry.' George said and smiled.\n'Go back to sleep.'",
+   "chinese": "你喜欢听故事吗？我要告诉你一个真实的故事。这是一年前发生在我一个朋友身上的故事。\n\n当我的朋友乔治在床上看书时，两个小偷爬进了他的厨房。\n\n他们进到屋里后，走进了饭厅。饭厅里很暗，于是他们打开了手电筒。\n\n突然他们听到身后有声音。“什么事？什么事？”有人叫着。小偷扔下了手电筒，飞快地逃走了。\n\n乔治听到了响声，迅速地下了楼。\n\n他开了灯，但不见一个人。小偷逃走了。\n\n但是乔治的鹦鹉亨利仍在那里。“什么事，乔治？”它叫着。“没事，亨利。”乔治笑着说，“接着睡觉吧。”"
+  },
+  {
+   "lesson": 120,
+   "title_en": "It had already happened.",
+   "title_cn": "它已经发生了。",
+   "pdf_page": 246,
+   "english": "I asked the price of the car,\nbut they had already sold it.\n\nI ran to the platform quickly,\nbut the train had already left.\n\nHe gave us our exercise books\nafter he had corrected them.\n\nShe went on holiday\nafter she had taken the examination.\n\nShe had finished the housework\nbefore she went out.\n\nWe had had dinner\nbefore they arrived.",
+   "chinese": "我问了那辆汽车的价钱，可是他们已经把它卖掉了。\n\n我迅速跑到站台，可是火车已经开走了。\n\n他批改完练习本之后，把它们发给了我们。\n\n她考完试之后去度假了。\n\n她在出去之前已经做完了家务。\n\n他们到达之前我们已经吃过晚饭了。"
+  },
+  {
+   "lesson": 121,
+   "title_en": "The man in a hat",
+   "title_cn": "戴帽子的男士",
+   "pdf_page": 248,
+   "english": "CUSTOMER: I bought two expensive dictionaries here half an hour ago, but I forgot to take them with me.\nMANAGER: Who served you, sir?\nCUSTOMER: The lady who is standing behind the counter.\nMANAGER: Which books did you buy?\nCUSTOMER: The books which are on the counter.\nMANAGER: Did you serve this gentleman half an hour ago, Caroline?\nHe says he's the man who bought these books.\nCAROLINE: I can't remember.\nThe man who I served was wearing a hat.\nMANAGER: Have you got a hat, sir?\nCUSTOMER: Yes, I have.\nMANAGER: Would you put it on, please?\nCUSTOMER: All right.\nMANAGER: Is this the man that you served, Caroline?\nCAROLINE: Yes.\nI recognize him now.",
+   "chinese": "顾　客：半小时以前我在这里买了两本很贵的辞典，但是我忘了拿走。\n经　理：是谁接待您的，先生？\n顾　客：站在柜台后面的那位女士。\n经　理：您买的是两本什么书？\n顾　客：就是柜台上的那两本。\n经　理：卡罗琳，半小时前你接待过这位先生吗？他说他就是买这两本书的人。\n卡罗琳：我记不起来了。我接待的那个人戴着一顶帽子。\n经　理：先生，您有帽子吗？\n顾　客：有的，我有帽子。\n经　理：请您把帽子戴上好吗？\n顾　客：好吧。\n经　理：卡罗琳，这就是你接待过的那个人吗？\n卡罗琳：是他。我现在认出他来了。"
+  },
+  {
+   "lesson": 122,
+   "title_en": "Who (whom), which and that",
+   "title_cn": "关系代词",
+   "pdf_page": 250,
+   "english": "Who served you?\nThe man who/that is standing behind the counter.\nWho served you?\nThe woman who/that is standing behind the counter.\nWho is making all that noise?\nThe men who/that are repairing the road.\nI served him yesterday.\nHe is the man who(m)/that I served yesterday.\nI served her yesterday.\nShe is the woman who(m)/that I served yesterday.\nI saw them yesterday.\nThey are the men who(m)/that I saw yesterday.\nWhich book did you buy?\nThe book which/that is on the counter.\nWhich books did you buy?\nThe books which/that are on the counter.\nWhich dog is yours?\nThe dog which/that is carrying that basket.",
+   "chinese": "谁接待了您？\n站在柜台后面的那位男士。\n谁接待了您？\n站在柜台后面的那位女士。\n谁弄出那么大的噪声？\n正在修路的那几个男人。\n我昨天接待了他。\n他就是我昨天接待的那位男士。\n我昨天接待了她。\n她就是我昨天接待的那位女士。\n我昨天看见了他们。\n他们就是我昨天看见的那些男人。\n你买的是哪本书？\n放在柜台上的那本书。\n你买了哪些书？\n放在柜台上的那些书。\n哪条狗是你的？\n叼着那只篮子的那条狗。"
+  },
+  {
+   "lesson": 123,
+   "title_en": "A trip to Australia",
+   "title_cn": "澳大利亚之行",
+   "pdf_page": 252,
+   "english": "MIKE: Look, Scott.\nThis is a photograph I took during my trip to Australia.\nSCOTT: Let me see it, Mike.\nSCOTT: This is a good photograph.\nWho are these people?\nMIKE: They're people I met during the trip.\nMIKE: That's the ship we travelled on.\nSCOTT: What a beautiful ship!\nSCOTT: Who's this?\nMIKE: That's the man I told you about.\nRemember?\nSCOTT: Ah yes.\nThe one who offered you a job in Australia.\nMIKE: That's right.\nSCOTT: Who's this?\nMIKE: Guess!\nSCOTT: It's not you, is it?\nMIKE: That's right.\nMIKE: I grew a beard during the trip, but I shaved it off when I came home.\nSCOTT: Why did you shave it off?\nMIKE: My wife didn't like it!",
+   "chinese": "迈　克：看。这是我到澳大利亚旅行时拍的一张照片。\n斯科特：让我看看，迈克。\n斯科特：这是一张很好的照片。这些人是谁？\n迈　克：他们是我旅行时认识的人。\n迈　克：这是我们所乘的那条船。\n斯科特：多漂亮的船啊！\n斯科特：这是谁？\n迈　克：这就是我跟你说过的那个人。还记得吗？\n斯科特：啊，记得。就是在澳大利亚给你工作做的那个人。\n迈　克：对。\n斯科特：这是谁？\n迈　克：你猜！\n斯科特：这不是你，对吗？\n迈　克：不，是我。\n迈　克：我在旅行时留了胡子，但我回到家时就把它刮了。\n斯科特：你为什么把它刮了？\n迈　克：我妻子不喜欢！"
+  },
+  {
+   "lesson": 124,
+   "title_en": "(Who) / (whom), (which) and (that)",
+   "title_cn": "关系代词",
+   "pdf_page": 254,
+   "english": "Who served you?\nThe man standing behind the counter.\nWho served you?\nThe woman standing behind the counter.\nWho is making all that noise?\nThe men repairing the road.\nI served him yesterday.\nHe is the man I served yesterday.\nI served her yesterday.\nShe is the woman I served yesterday.\nI saw them yesterday.\nThey are the men I saw yesterday.\nWhat's this?\nThis is the book I bought yesterday.\nWhat are these?\nThese are the books I bought yesterday.\nWhat's this?\nThis is the kitten I found in the garden.",
+   "chinese": "谁接待了您？\n站在柜台后面的那位男士。\n谁接待了您？\n站在柜台后面的那位女士。\n谁弄出那么大的噪声？\n正在修路的那几个男人。\n我昨天接待了他。\n他就是我昨天接待的那位男士。\n我昨天接待了她。\n她就是我昨天接待的那位女士。\n我昨天看见了他们。\n他们就是我昨天看见的那些男人。\n这是什么？\n这是我昨天买的书。\n这些是什么？\n这些是我昨天买的书。\n这是什么？\n这是我在花园里找到的那只小猫。"
+  },
+  {
+   "lesson": 125,
+   "title_en": "Tea for two",
+   "title_cn": "两个人一起喝茶",
+   "pdf_page": 256,
+   "english": "SUSAN: Can't you come in and have tea now, Peter?\nPETER: Not yet.\nI must water the garden first.\nSUSAN: Do you have to water it now?\nPETER: I'm afraid I must.\nLook at it!\nIt's terribly dry.\nSUSAN: What a nuisance!\nPETER: Last summer it was very dry, too.\nDon't you remember?\nI had to water it every day.\nSUSAN: Well, I'll have tea by myself.\nSUSAN: That was quick!\nHave you finished already?\nPETER: Yes.\nLook out of the window.\nSUSAN: It's raining!\nThat means you don't need to water the garden.\nPETER: That was a pleasant surprise.\nIt means I can have tea, instead.",
+   "chinese": "苏珊：彼得，你现在能进来喝茶吗？\n彼得：还不能。我得先给花园浇水。\n苏珊：你一定得现在浇吗？\n彼得：恐怕我得现在浇。你看看，干得厉害。\n苏珊：真讨厌！\n彼得：去年夏天也是干得很。你不记得了吗？我不得不每天浇水。\n苏珊：好吧，我一个人喝茶了。\n苏珊：好快啊！你已经浇完了？\n彼得：是的。你看看窗外。\n苏珊：下雨了！这就是说，你不必给花园浇水了。\n彼得：这是意想不到的好事。这意味着我反倒可以喝茶了。"
+  },
+  {
+   "lesson": 126,
+   "title_en": "Have to and do not need to",
+   "title_cn": "不得不和不必要",
+   "pdf_page": 258,
+   "english": "Do you have to go now?\nYes, I have to leave immediately.\nDo you have to get up early tomorrow morning?\nYes, I'll have to get up at six o'clock.\nDid you have to take a taxi?\nI'm afraid I had to.\nI couldn't get a bus.\nHasn't your friend arrived yet?\nHow long have you had to wait?\nI've had to wait for two hours!\nDo you have to water the garden?\nNo, I don't need to water it now.\nIt's going to rain.\nDo we have to walk to the station?\nNo, we don't need to.\nWe can catch a bus.",
+   "chinese": "你现在必须走吗？\n是的，我必须马上离开。\n你明天早上必须早起吗？\n是的，我必须在六点钟起床。\n你不得不坐出租车吗？\n恐怕我不得不坐。\n我赶不上公共汽车。\n你的朋友还没到吗？\n你不得不等了多久？\n我不得不等了两个小时！\n你必须给花园浇水吗？\n不，我现在不必给它浇水。\n天要下雨了。\n我们必须步行去车站吗？\n不，我们不必。\n我们可以乘公共汽车。"
+  },
+  {
+   "lesson": 127,
+   "title_en": "A famous actress",
+   "title_cn": "著名的女演员",
+   "pdf_page": 260,
+   "english": "KATE: Can you recognize that woman, Liz?\nLIZ: I think I can, Kate.\nIt must be Karen Marsh, the actress.\nKATE: I thought so.\nWho's that beside her?\nLIZ: That must be Conrad Reeves.\nKATE: Conrad Reeves, the actor?\nIt can't be.\nLet me have another look.\nI think you're right!\nIsn't he her third husband?\nLIZ: No. He must be her fourth or fifth.\nKATE: Doesn't Karen Marsh look old!\nLIZ: She does, doesn't she!\nI read she's twenty-nine, but she must be at least forty.\nKATE: I'm sure she is.\nLIZ: She was a famous actress when I was still at school.\nKATE: That was a long time ago, wasn't it?\nLIZ: Not that long ago!\nI'm not more than twenty-nine myself.",
+   "chinese": "凯特：莉兹，你能认出那个女人吗？\n莉兹：我想我认得出，凯特。那一定是女演员卡伦·马什。\n凯特：我也这样想。她旁边的那个人是谁？\n莉兹：一定是康拉德·里弗斯。\n凯特：康拉德·里弗斯，那个男演员吗？不可能是。让我再看一看。我想你是对的。他不是她的第 3 个丈夫吗？\n莉兹：不，他一定是她的第 4 个或第 5 个丈夫。\n凯特：卡伦看上去不显老嘛！\n莉兹：是的，谁说不呢！我从报上看到她是 29 岁，但她一定至少有 40 岁了。\n凯特：我肯定她有 40 岁了。\n莉兹：当我还是学生时，她就是个著名的演员了。\n凯特：那是好久以前的事了，是吗？\n莉兹：不，没有那么久。我自己现在还没 29 岁呢。"
+  },
+  {
+   "lesson": 128,
+   "title_en": "He can't be . . . He must be . . .",
+   "title_cn": "他不可能…… 他肯定是……",
+   "pdf_page": 262,
+   "english": "He can't be ill.\nHe must be tired.\nIt can't be my new hat.\nIt must be my old one.\nShe can't be Danish.\nShe must be Swedish.\nHe can't be a dentist.\nHe must be a doctor.\nShe can't be forty.\nShe must be fifty.\nIt can't be the 20th.\nIt must be the 21st.\nHe can't be the youngest.\nHe must be the oldest.\nHe can't be reading.\nHe must be sleeping.",
+   "chinese": "他不可能病了。\n他一定是累了。\n它不可能是我的新帽子。\n它一定是我的旧帽子。\n她不可能是丹麦人。\n她一定是瑞典人。\n他不可能是牙医。\n他一定是医生。\n她不可能四十岁。\n她一定五十岁。\n这不可能是20号。\n这一定是21号。\n他不可能是最小的。\n他一定是最大的。\n他不可能在看书。\n他一定在睡觉。"
+  },
+  {
+   "lesson": 129,
+   "title_en": "Seventy miles an hour",
+   "title_cn": "时速70英里",
+   "pdf_page": 264,
+   "english": "ANN: Look, Gary!\nThat policeman's waving to you.\nHe wants you to stop.\n\nPOLICEMAN: Where do you think you are?\nOn a race track?\nYou must have been driving\nat seventy miles an hour.\n\nGARY: I can't have been.\nPOLICEMAN: I was doing eighty\nwhen I overtook you.\n\nPOLICEMAN: Didn't you see the speed limit?\nGARY: I'm afraid I didn't, officer.\nI must have been dreaming.\nANN: He wasn't dreaming, officer.\nI was telling him to drive slowly.\nGARY: That's why I didn't see the sign.\n\nPOLICEMAN: Let me see your driving licence.\n\nPOLICEMAN: I won't charge you this time.\nBut you'd better not do it again!\nGARY: Thank you.\nI'll certainly be more careful.\n\nANN: I told you to drive slowly, Gary.\nGARY: You always tell me\nto drive slowly, darling.\nANN: Well, next time\nyou'd better take my advice!",
+   "chinese": "安：瞧，加里！那个警察正朝你挥手呢。他要你停下来。\n\n警察：你认为你现在是在哪儿？在赛车道上吗？你刚才一定是以每小时70英里的速度开车。\n加里：我不会开得那样快的。\n警察：我是以每小时80英里的速度赶上你的。\n\n警察：难道你没看见限速牌吗？\n加里：恐怕我没有看见，警官。我一定是思想开小差了。\n安：警官，他思想没有开小差。我刚才正告诉他开慢点。\n加里：所以我才没看见那牌子。\n\n警察：让我看一看你的驾驶执照。\n\n警察：这次我就不罚你款了。但你最好不要再开得这样快。\n加里：谢谢您。我以后一定会多加注意。\n\n安：加里，我刚才叫你开慢点吧。\n加里：你总是叫我开慢点，亲爱的。\n安：好啦，下次你最好还是听从我的劝告吧！"
+  },
+  {
+   "lesson": 130,
+   "title_en": "He can't have been... He must have been...",
+   "title_cn": "他那时不可能…… 他那时肯定是……",
+   "pdf_page": 266,
+   "english": "He can't have been ill.\nHe must have been tired.\n\nIt can't have been my new hat.\nIt must have been my old one.\n\nShe can't have been Danish.\nShe must have been Swedish.\n\nHe can't have been a dentist.\nHe must have been a doctor.\n\nShe can't have been forty.\nShe must have been fifty.\n\nIt can't have been the 20th.\nIt must have been the 21st.\n\nHe can't have been the youngest.\nHe must have been the oldest.\n\nHe can't have been reading.\nHe must have been sleeping.",
+   "chinese": "他那时不可能病了。\n他那时肯定是累了。\n\n它不可能是我的新帽子。\n它准是我的旧帽子。\n\n她不可能是丹麦人。\n她准是瑞典人。\n\n他不可能是牙医。\n他准是医生。\n\n她不可能才40岁。\n她准是50岁了。\n\n它不可能是20号。\n它准是21号。\n\n他不可能是最小的。\n他准是最大的。\n\n他那时不可能在看书。\n他那时肯定是在睡觉。"
+  },
+  {
+   "lesson": 131,
+   "title_en": "Don't be so sure!",
+   "title_cn": "别那么肯定！",
+   "pdf_page": 268,
+   "english": "MARTIN: Where are you going to\nspend your holidays this year, Gary?\nGARY: We may go abroad.\nI'm not sure.\nMy wife wants to go to Egypt.\nI'd like to go there, too.\nWe can't make up our minds.\nMARTIN: Will you travel by sea or by air?\nGARY: We may travel by sea.\nMARTIN: It's cheaper, isn't it?\nGARY: It may be cheaper,\nbut it takes a long time.\nMARTIN: I'm sure you'll enjoy yourselves.\nGARY: Don't be so sure.\nWe might not go anywhere.\nMy wife always worries too much.\nWho's going to look after the dog?\nWho's going to look after the house?\nWho's going to look after the garden?\nWe have this problem every year.\nIn the end, we stay at home\nand look after everything!",
+   "chinese": "马丁：加里，今年你们打算去哪里度假？\n加里：我们可能到国外去，但我不敢肯定。我妻子想到埃及去，我也想去那儿。我们还拿不定主意。\n马丁：你们乘船去，还是乘飞机去？\n加里：我们可能乘船去。\n马丁：这更便宜些，是吗？\n加里：可能是便宜些，但花的时间长。\n马丁：我肯定你们一定会玩得很痛快。\n加里：别那么肯定。我们可能哪里也去不成。我妻子总是担心这担心那的。谁来照看狗啦，谁来看管房子啦，谁来照料花园啦，我们每年都碰到这类问题。末了，我们呆在家里来照看一切。"
+  },
+  {
+   "lesson": 132,
+   "title_en": "He may be... He may have been... I'm not sure.",
+   "title_cn": "他可能是…… 他可能已经…… 我不敢肯定。",
+   "pdf_page": 270,
+   "english": "Where's Harry?\nHe may be in his room.\nI'm not sure.\n\nWhere will he go?\nHe may go to the cinema.\nI'm not sure.\n\nWhy is he late?\nHe may be busy.\nI'm not sure.\n\nWhat is he doing?\nHe may be reading.\nI'm not sure.\n\nWhy was he late?\nHe may have been busy.\nI'm not sure.\n\nWhat was he doing?\nHe may have been reading.\nI'm not sure.",
+   "chinese": "哈里在哪儿？\n他可能在他房间里。\n我不敢肯定。\n\n他将去哪儿？\n他可能去电影院。\n我不敢肯定。\n\n他为什么迟到？\n他可能很忙。\n我不敢肯定。\n\n他在干什么？\n他可能在看书。\n我不敢肯定。\n\n他刚才为什么迟到？\n他可能刚才很忙。\n我不敢肯定。\n\n他刚才在干什么？\n他可能刚才在看书。\n我不敢肯定。"
+  },
+  {
+   "lesson": 133,
+   "title_en": "Sensational news!",
+   "title_cn": "爆炸性新闻！",
+   "pdf_page": 272,
+   "english": "REPORTER: Have you just made\na new film, Miss Marsh?\nMISS MARSH: Yes, I have.\nREPORTER: Are you going to make another?\nMISS MARSH: No, I'm not.\nI'm going to retire.\nI feel very tired.\nI don't want to make another film\nfor a long time.\n\nKATE: Let's buy a newspaper, Liz.\nListen to this!\n'Karen Marsh: Sensational News!\nBy our reporter, Alan Jones.\nKaren Marsh arrived\nat London Airport today.\nShe was wearing a blue dress\nand a mink coat.\nShe told me\nshe had just made a new film.\nShe said\nshe was not going to make another.\nShe said she was going to retire.\nShe told reporters she felt very tired\nand didn't want to make\nanother film for a long time.'\nLIZ: I wonder why!",
+   "chinese": "记者：您刚拍完一部新电影吗，马什小姐？\n马什小姐：是的，我刚拍完。\n记者：您准备再拍一部吗？\n马什小姐：不，我不准备拍了。我准备退休了。我感觉累得很。我早就不想再拍片子了。\n\n凯特：我们买份报纸吧，莉兹。你听这段：“卡伦·马什：爆炸性新闻！由本报记者艾伦·琼斯报导。卡伦·马什今天到达伦敦机场。她穿着一身蓝色的套装和一件貂皮大衣。她告诉我她刚拍完一部新片子。她说她不准备再拍电影了。她说她准备退休。她告诉记者她感到很疲劳，早就不想再拍电影了。”\n莉兹：我很想知道为什么。"
+  },
+  {
+   "lesson": 134,
+   "title_en": "He said (that) he... He told me (that) he...",
+   "title_cn": "他曾说他…… 他曾告诉我说他……",
+   "pdf_page": 274,
+   "english": "I'm tired.\nWhat did he say?\nWhat did he tell you?\nHe said (that) he was tired.\nHe told me (that) he was tired.\n\nI'm reading.\nWhat did she say?\nWhat did she tell you?\nShe said (that) she was reading.\nShe told me (that) she was reading.\n\nWe want our dinner.\nWhat did they say?\nWhat did they tell you?\nThey said (that) they wanted their dinner.\nThey told me (that) they wanted their dinner.\n\nI've finished my homework.\nWhat did he say?\nWhat did he tell you?\nHe said (that) he had finished his homework.\nHe told me (that) he had finished his homework.",
+   "chinese": "我累了。\n他说什么？\n他告诉了你什么？\n他说他累了。\n他告诉我他累了。\n\n我在看书。\n她说什么？\n她告诉了你什么？\n她说她在看书。\n她告诉我她在看书。\n\n我们要吃晚饭。\n他们说什么？\n他们告诉了你什么？\n他们说他们要吃晚饭。\n他们告诉我他们要吃晚饭。\n\n我刚做完作业。\n他说什么？\n他告诉了你什么？\n他说他刚做完作业。\n他告诉我他刚做完作业。"
+  },
+  {
+   "lesson": 135,
+   "title_en": "The latest report",
+   "title_cn": "最新消息",
+   "pdf_page": 276,
+   "english": "REPORTER: Are you really\ngoing to retire, Miss Marsh?\nMISS MARSH: I may.\nI can't make up my mind.\nI will have to ask\nmy future husband.\nHe won't let me make another film.\nREPORTER: Your future husband, Miss Marsh?\nMISS MARSH: Yes. Let me introduce him to you.\nHis name is Carlos.\nWe're going to get married next week.\n\nKATE: Look, Liz!\nHere's another report about Karen Marsh.\nListen: 'Karen Marsh: The latest.\nAt the London Hotel today Miss Marsh told reporters she might retire.\nShe said she couldn't make up her mind.\nShe said she would have to ask her future husband.\nShe said her future husband would not let her make another film.\nThen she introduced us to Carlos and told us they would get married next week.'\nLIZ: That's sensational news, isn't it, Kate?\nKATE: It certainly is.\nHe'll be her sixth husband!",
+   "chinese": "记者：马什小姐，您真的准备退休吗？\n马什小姐：有可能退。我还拿不定主意。我得问一下我的未婚夫。他不会再让我拍电影了。\n\n记者：您的未婚夫，马什小姐？\n马什小姐：是的，让我把他给你们介绍一下。他叫卡洛斯。下星期我们就要结婚了。\n\n凯特：看啊，莉兹！这又有一篇关于卡伦·马什的报道。你听，“卡伦·马什：最新消息。今天在伦敦旅馆，马什小姐告诉记者她可能要退休。她说她还拿不定主意。她说她得问问她的未婚夫。她说她的未婚夫不会再让她拍电影了。然后她把我们介绍给卡洛斯，并告诉我们他们下星期结婚。”\n\n莉兹：凯特，这真是条轰动的消息，是不是？\n凯特：当然啦。他将是她的第6个丈夫！"
+  },
+  {
+   "lesson": 136,
+   "title_en": "He said (that) he... He told me (that) he...",
+   "title_cn": "他（曾）说他…… 他（曾）告诉我说他……",
+   "pdf_page": 278,
+   "english": "I'll leave tomorrow.\nWhat did he say?\nWhat did he tell you?\nHe said (that) he would leave tomorrow.\nHe told me (that) he would leave tomorrow.\n\nI can't do this Maths problem.\nWhat did he say?\nWhat did he tell you?\nHe said (that) he couldn't do this Maths problem.\nHe told me (that) he couldn't do this Maths problem.\n\nI may return at six o'clock.\nWhat did she say?\nWhat did she tell you?\nShe said (that) she might return at six o'clock.\nShe told me (that) she might return at six o'clock.",
+   "chinese": "我明天就走。\n他说什么？\n他告诉了你什么？\n他说他明天就走。\n他告诉我他明天就走。\n\n我不会做这道数学题。\n他说什么？\n他告诉了你什么？\n他说他做不了这道数学题。\n他告诉我他做不了这道数学题。\n\n我可能6点钟回来。\n她说什么？\n她告诉了你什么？\n她说她可能6点钟回来。\n她告诉我她可能6点钟回来。"
+  },
+  {
+   "lesson": 137,
+   "title_en": "A pleasant dream",
+   "title_cn": "美好的梦",
+   "pdf_page": 280,
+   "english": "JULIE: Are you doing the football pools, Brian?\nBRIAN: Yes, I've nearly finished, Julie.\nI'm sure we'll win something this week.\nJULIE: You always say that,\nbut we never win anything!\nWhat will you do\nif you win a lot of money?\nBRIAN: If I win a lot of money\nI'll buy you a mink coat.\nJULIE: I don't want a mink coat!\nI want to see the world.\nBRIAN: All right.\nIf we win a lot of money\nwe'll travel round the world\nand we'll stay at the best hotels.\nThen we'll return home\nand buy a big house in the country.\nWe'll have a beautiful garden and ...\nJULIE: But if we spend all that money\nwe'll be poor again.\nWhat'll we do then?\nBRIAN: If we spend all the money\nwe'll try and win the football pools again.\nJULIE: It's a pleasant dream\nbut everything depends on 'if'!",
+   "chinese": "朱莉：布赖恩，你正在下足球赛的赌注吗？\n布赖恩：是的。我这就做完了，朱莉。我敢肯定这星期我们会赢一点的。\n朱莉：你老是那样说，但是我们从来没赢过！要是你赢了许多钱，你打算做什么呢？\n布赖恩：要是我赢了许多钱，我给你买件貂皮大衣。\n朱莉：我不要貂皮大衣。我要去见见世面。\n布赖恩：好吧。要是我们赢了很多钱，我们就去周游世界，并且住最好的旅馆。然后我们返回家园，在乡下买幢大房子。我们将有一个漂亮的花园和……\n朱莉：但是如果我们把所有的钱都花光了，我们又会变穷的。那时我们怎么办呢？\n布赖恩：如果我们花光了所有钱，我们设法在足球赛赌注上再赢一次。\n朱莉：这是个美好的梦，但一切都取决于“如果”！"
+  },
+  {
+   "lesson": 138,
+   "title_en": "If...",
+   "title_cn": "如果……",
+   "pdf_page": 282,
+   "english": "If you break this window,\nyou'll have to pay for it!\nIf you don't hurry,\nwe'll miss the train.\nIf he falls,\nhe'll hurt himself.\nIf it rains tomorrow,\nwe won't go to the seaside.\nIf you feel better,\nyou can get up.\nIf he sells that car,\nhe can buy a new one.",
+   "chinese": "如果你打破这扇窗户，\n你就得赔偿！\n如果你不赶快，\n我们就会错过火车。\n如果他摔倒，\n他会伤着自己。\n如果明天下雨，\n我们就不去海滨了。\n如果你感觉好些，\n你就可以起床。\n如果他卖掉那辆汽车，\n他就能买一辆新的。"
+  },
+  {
+   "lesson": 139,
+   "title_en": "Is that you, John?",
+   "title_cn": "是你吗，约翰？",
+   "pdf_page": 284,
+   "english": "GRAHAM TURNER: Is that you, John?\nJOHN SMITH: Yes, speaking.\nGRAHAM TURNER: Tell Mary we'll be late\nfor dinner this evening.\nJOHN SMITH: I'm afraid I don't understand.\nGRAHAM TURNER: Hasn't Mary told you?\nShe invited Charlotte and me\nto dinner this evening.\nI said I would be\nat your house at six o'clock,\nbut the boss wants me\nto do some extra work.\nI'll have to stay at the office.\nI don't know when I'll finish.\nOh, and by the way,\nmy wife wants to know\nif Mary needs any help.\nJOHN SMITH: I don't know what you're talking about.\nGRAHAM TURNER: That is John Smith, isn't it?\nJOHN SMITH: Yes, I'm John Smith.\nGRAHAM TURNER: You are John Smith, the engineer, aren't you?\nJOHN SMITH: That's right.\nGRAHAM TURNER: You work\nfor the Overseas Engineering Company, don't you?\nJOHN SMITH: No, I don't.\nI'm John Smith the telephone engineer\nand I'm repairing your telephone line.",
+   "chinese": "格雷厄姆·特纳：是你吗，约翰？\n约翰·史密斯：是我，请讲。\n格雷厄姆·特纳：你告诉玛丽，今晚吃饭我们将晚到一会儿。\n约翰·史密斯：恐怕我还不明白您的意思。\n格雷厄姆·特纳：玛丽没有告诉你吗？她邀请我和夏洛特今晚去吃饭。我说过我6点到你家，但老板要我加班。我不得不留在办公室，不知道什么时候才能结束。噢，顺便问一句，我妻子想知道玛丽是否需要帮忙。\n约翰·史密斯：我不知道您在说些什么。\n格雷厄姆·特纳：你是约翰·史密斯，对吗？\n约翰·史密斯：是的，我是约翰·史密斯。\n格雷厄姆·特纳：你是工程师约翰·史密斯，对吗？\n约翰·史密斯：对。\n格雷厄姆·特纳：你在海外工程公司上班，是吗？\n约翰·史密斯：不，不是。我是电话工程师约翰·史密斯，我正在修理您的电话线。"
+  },
+  {
+   "lesson": 140,
+   "title_en": "He wants to know if/why/what/when",
+   "title_cn": "他想知道是否/为什么/什么/什么时候",
+   "pdf_page": 286,
+   "english": "Are you tired?\nWhy are you tired?\nWhat does he want to know?\nWhat does he want to know?\nHe wants to know if you are tired.\nHe wants to know why you are tired.\nAre you reading?\nWhat are you reading?\nWhat does he want to know?\nWhat does he want to know?\nHe wants to know if you are reading.\nHe wants to know what you are reading.\nDoes Tom always do his homework?\nWhen does Tom do his homework?\nWhat does he want to know?\nWhat does he want to know?\nHe wants to know if Tom always does his homework.\nHe wants to know when Tom does his homework.",
+   "chinese": "你累了吗？\n你为什么累？\n他想知道什么？\n他想知道什么？\n他想知道你是否累了。\n他想知道你为什么累了。\n你在看书吗？\n你在看什么？\n他想知道什么？\n他想知道什么？\n他想知道你是否在看。\n他想知道你在看什么。\n汤姆总是做作业吗？\n汤姆什么时候做作业？\n他想知道什么？\n他想知道什么？\n他想知道汤姆是否总是做作业。\n他想知道汤姆什么时候做作业。"
+  },
+  {
+   "lesson": 141,
+   "title_en": "Sally's first train ride",
+   "title_cn": "萨莉第一次乘火车旅行",
+   "pdf_page": 288,
+   "english": "Last week, my four-year-old daughter, Sally,\nwas invited to a children's party.\nI decided to take her by train.\nSally was very excited\nbecause she had never travelled\non a train before.\nShe sat near the window\nand asked questions\nabout everything she saw.\nSuddenly, a middle-aged lady\ngot on the train\nand sat opposite Sally.\n'Hello, little girl,' she said.\nSally did not answer,\nbut looked at her curiously.\nThe lady was dressed in a blue coat\nand a large, funny hat.\nAfter the train had left the station,\nthe lady opened her handbag and took out her powder compact.\nShe then began to make up her face.\n'Why are you doing that?' Sally asked.\n'To make myself beautiful,' the lady answered.\nShe put away her compact and smiled kindly.\n'But you are still ugly,' Sally said.\nSally was amused,\nbut I was very embarrassed!",
+   "chinese": "上周，我4岁的女儿萨莉被邀请去参加一个儿童聚会。\n我决定带她乘火车去。\n萨莉非常激动，因为她从未乘过火车。\n她靠车窗坐着，对她所看到的一切都要问个明白。\n突然，一个中年妇女上了火车，坐在萨莉的对面。\n“你好，小姑娘，”她说。\n萨莉没回答，却好奇地看着她。\n那位妇女穿着一件蓝色的大衣，戴着一顶大而滑稽的帽子。\n火车开出车站后，那位妇女打开了手提包，拿出了粉盒。\n然后她开始打扮起来。\n“你为什么要那样做呢？”萨莉问。\n“为了把自己打扮漂亮啊，”那位妇女答道。\n她放好了粉盒，慈祥地微笑着。\n“可是你仍然难看呀，”萨莉说。\n萨莉感到很有趣，而我却很尴尬。"
+  },
+  {
+   "lesson": 142,
+   "title_en": "Someone invited Sally to a party.",
+   "title_cn": "有人邀请萨莉出席一个聚会。",
+   "pdf_page": 290,
+   "english": "She was embarrassed.\nThey are worried.\nDoes anyone ever repair this car?\nSomeone repairs it regularly.\nIt is repaired regularly.\nDoes anyone ever correct these exercise books?\nSomeone corrects them regularly.\nThey are corrected regularly.\nDoes anyone ever meet him at the station in the morning?\nSomeone met him at the station this morning.\nHe was met at the station this morning.",
+   "chinese": "她感到很尴尬。\n他们很担心。\n有人修理过这辆汽车吗？\n有人定期修理它。\n它被定期修理。\n有人批改过这些练习本吗？\n有人定期批改它们。\n它们被定期批改。\n有人早上在车站接他吗？\n今天早上有人在车站接了他。\n今天早上他在车站有人接。"
+  },
+  {
+   "lesson": 143,
+   "title_en": "A walk through the woods",
+   "title_cn": "林中散步",
+   "pdf_page": 292,
+   "english": "I live in a very old town\nwhich is surrounded by beautiful woods.\nIt is a famous beauty spot.\nOn Sundays, hundreds of people\ncome from the city\nto see our town\nand to walk through the woods.\nVisitors have been asked\nto keep the woods clean and tidy.\nLitter baskets have been placed under the trees,\nbut people still throw their rubbish everywhere.\nLast Wednesday, I went for a walk in the woods.\nWhat I saw\nmade me very sad.\nI counted seven old cars\nand three old refrigerators.\nThe litter baskets were empty\nand the ground was covered with\npieces of paper, cigarette ends, old tyres,\nempty bottles and rusty tins.\nAmong the rubbish,\nI found a sign which said,\n'Anyone who leaves litter in these woods\nwill be prosecuted!'",
+   "chinese": "我住在一个由美丽的树林环绕的古老小镇上。\n这是一个著名的风景胜地。\n每逢星期天，有许许多多人从城里来观赏我们的小镇，并在树林中散步。\n游客已被告知要保持树林的整洁。\n树下都已设置了废物筐，但是人们仍到处扔垃圾。\n上星期三我到树林里去散步。\n我所见到的一切使我非常难过。\n我数了一下，有7辆旧汽车和3个旧冰箱。\n废物筐是空的，而满地都是纸片、烟头、旧轮胎、空瓶子和生锈的空罐头盒。\n在垃圾堆中我发现了一块牌子，上面写着：\n“凡在此树林里丢弃垃圾者，将依法处置。”"
+  },
+  {
+   "lesson": 144,
+   "title_en": "He hasn't been served yet.",
+   "title_cn": "还没有人来侍候他。",
+   "pdf_page": 294,
+   "english": "Hasn't anyone repaired this car yet?\nIt has already been repaired!\nHasn't anyone corrected these exercise books yet?\nThey have already been corrected!\nHasn't anyone caught the thief yet?\nHe hasn't been caught yet.\nHe will be caught soon!\nHasn't anyone caught the thieves yet?\nThey haven't been caught yet.\nThey will be caught soon!",
+   "chinese": "还没有人修理过这辆汽车吗？\n它已经修好了！\n还没有人批改过这些练习本吗？\n它们已经批改完了！\n还没有人抓住那个小偷吗？\n他还没有被抓住。\n他很快就会被抓住！\n还没有人抓住那些小偷吗？\n他们还没有被抓住。\n他们很快就会被抓住！"
+  }
+ ]
+}
