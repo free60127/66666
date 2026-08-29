@@ -10,8 +10,7 @@ services:
     startCommand: node server/index.mjs
     healthCheckPath: /api/health
     envVars:
-      - key: PORT
-        value: 8787
+      # 不要在此固定 PORT：Render 会自动注入 PORT，代码端用 process.env.PORT（缺省 8787）
       - key: AI_BASE_URL
         sync: false
       - key: AI_MODEL
