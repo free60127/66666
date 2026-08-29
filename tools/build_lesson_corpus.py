@@ -26,7 +26,94 @@ WORKER_MAX_SIDE_LEN = 4000
 TITLE_OVERRIDES = {
     24: ("A skeleton in the cupboard", "家丑"),
     41: ("Illusions of pastoral peace", "宁静田园生活的遐想"),
+    58: ("A spot of bother", "一点儿小麻烦"),
 }
+
+TITLE_CN_OVERRIDES = {
+    10: "“泰坦尼克”号的沉没",
+    13: "是我，别害怕",
+    14: "贵族歹徒",
+    25: "卡蒂萨克号帆船",
+    36: "百万分之一的机遇",
+    56: "河流，我们的邻居",
+}
+
+
+def repair_english(text: str, lesson: int) -> str:
+    """Repair deterministic scan/OCR artifacts without rewriting source prose."""
+    text = text.replace("It. was", "It was")
+    text = text.replace("flooded. she would", "flooded, she would")
+    text = text.replace("sme! l", "smell")
+    text = text.replace("telephoncd", "telephoned")
+    text = text.replace("con- tained", "contained")
+    text = text.replace("Iargest", "largest")
+    text = text.replace("joumalist", "journalist")
+    text = text.replace("worid", "world")
+    text = text.replace("Jarge", "large")
+    text = text.replace("hirn", "him")
+    text = text.replace("particuiar", "particular")
+    text = text.replace("forcsecn", "foreseen")
+    text = re.sub(r"\bf\s*(?=\d)", "£", text)
+    text = text.replace("£3,0o0", "£3,000").replace("£3o", "£30")
+    text = re.sub(r"(?<=[a-z])-\s+(?=[a-z])", "", text)
+    text = re.sub(r"(?<=\d)o(?=\d)", "0", text)
+    text = re.sub(r"\b\d{2,3}[S5]\s+(?=[A-Za-z])", "", text)
+
+    lesson_repairs = {
+        21: {
+            "answered Bil.": "answered Bill.",
+            "*That's the trouble": "'That's the trouble",
+        },
+        23: {
+            "eaten and what cannot be eaten.": "People become quite illogical when they try to decide what can be eaten and what cannot be eaten.",
+        },
+        33: {
+            "A day may begin well enough, but suddenly everything seems to get out choose to go wrong at precisely the same moment.": "A day may begin well enough, but suddenly everything seems to get out of control. What invariably happens is that a great number of things choose to go wrong at precisely the same moment.",
+            "As if this were not enough to reduce you to tears, your Things can go wrong": "As if this were not enough to reduce you to tears, your husband arrives, unexpectedly bringing three guests to dinner. Things can go wrong",
+            "meal gets burmt": "meal gets burnt",
+            "cars Happened to be": "cars happened to be",
+            "had to sweer un hundreds": "had to sweep up hundreds",
+        },
+        42: {
+            "After entering the narrow gap on the pla-": "After entering the narrow gap on the plateau, they climbed down the steep sides of the cave until they came to a narrow corridor. They had to edge their way along this, sometimes wading across shallow streams, or swimming across deep pools. Suddenly they came to a waterfall which dropped into an underground lake at the bottom of the cave. They plunged into the lake, and after loading their gear on an inflatable rubber dinghy, let the current carry them to the other side. To protect themselves from the icy water, they had to wear special rubber suits. At the far end of the lake, they came to huge piles of rubble which had been washed up by the water. In this part of the cave, they could hear an insistent booming sound which they found was caused by a small waterspout shooting down into a pool from the roof of the cave. Squeezing through a cleft in the rocks, the pot-holers arrived at an enormous cavern, the size of a huge concert hall. After switching on powerful arc lights, they saw great stalagmites - some of them over forty feet high --- rising up like tree-trunks to meet the stalactites suspended from the roof. Round about, piles of limestone glistened in all the colours of the rainbow. In the eerie silence of the cavern, the only sound that could be heard was made by water which dripped continuously from the high dome above them.",
+        },
+        46: {
+            "labour. No countless do-it-yourself publications.": "labour. No one can plead ignorance of a subject any longer, for there are countless do-it-yourself publications.",
+            "After buying I was not surprised": "After buying a new chain I was faced with the insurmountable task of putting the confusing jigsaw puzzle together again. I was not surprised",
+        },
+        50: {
+            "The same old favourites recur year in year out with monotonous regularity. We resolve to get up earlier each morning, eat less, find more time to play with the children, do a thousand and one jobs about the house, be nice to people we don't like, drive carefully, and take the accomplishments are beyond attainment.": "The same old favourites recur year in year out with monotonous regularity. We resolve to get up earlier each morning, eat less, find more time to play with the children, do a thousand and one jobs about the house, be nice to people we don't like, drive carefully, and take the dog for a walk every day. Past experience has taught us that certain accomplishments are beyond attainment.",
+            "I limited myself to two modest ambitions: to do physical exercises every morning and to read more either of these new resolutions": "I limited myself to two modest ambitions: to do physical exercises every morning and to read more of an evening. An all-night party on New Year's Eve provided me with a good excuse for not carrying out either of these new resolutions",
+        },
+        56: {
+            "We know instinctively, just as beekeepers events of our lives were not related to it.": "We know instinctively, just as beekeepers with their bees, that misfortune might overtake us if the important events of our lives were not related to it.",
+            "From an attic window we could get a sweeping view of the river sign of disaster was a dead sheep floating down.": "From an attic window we could get a sweeping view of the river where their land joined ours, and at the most critical juncture we took turns in watching that point. The first sign of disaster was a dead sheep floating down.",
+        },
+        59: {
+            "Among these I would requisites.": "Among these I would list string and brown paper, kept by thrifty people when a parcel has been opened, to save buying these two requisites.",
+            "It provides relaxation for ment, since the collection is housed at home.": "It provides relaxation for leisure hours, as just looking at one's treasures is always a joy. One does not have to go outside for amusement, since the collection is housed at home.",
+        },
+        60: {
+            "detaiis": "details",
+            "He agreed that a train did come into the to see a timetable, feeling sure": "He agreed that a train did come into the station at the time on the paper and that it did stop, but only to take on mail, not passengers. The girl asked to see a timetable, feeling sure",
+        },
+    }
+    for old, new in lesson_repairs.get(lesson, {}).items():
+        text = text.replace(old, new)
+    if lesson == 42:
+        # The low-resolution pass may keep the continuation after its broken
+        # boundary; avoid appending the recovered continuation twice.
+        recovered_end = text.find("above them.")
+        duplicate_tail = text.find("heir way along this", recovered_end + 1)
+        if recovered_end >= 0 and duplicate_tail >= 0:
+            text = text[: recovered_end + len("above them.")]
+    return latin_text(text)
+
+
+def repair_chinese(text: str) -> str:
+    text = re.split(r"Comprehension\s*理解|Vocabulary\s*词汇", text, maxsplit=1, flags=re.IGNORECASE)[0]
+    text = re.sub(r"(?<=[\u3400-\u9fff])[-]+(?=[\u3400-\u9fff])", "", text)
+    return text.strip()
 
 
 def page_map(book: int, lessons: int) -> dict[int, int]:
@@ -349,16 +436,18 @@ def extract_chinese(page_blocks: list[dict[str, Any]]) -> str:
     return ""
 
 
-def parse_lesson(lesson: int, start_page: int, blocks: list[dict[str, Any]]) -> dict[str, Any]:
+def parse_lesson(lesson: int, start_page: int, blocks: list[dict[str, Any]], book: int = 3) -> dict[str, Any]:
     first_rows = blocks[0]["rows"] if blocks else []
     all_rows = [row for block in blocks for row in block["rows"]]
     title, title_cn, _ = find_title(first_rows, lesson)
     if not title or title == f"Lesson {lesson}":
         title, title_cn, _ = find_title(all_rows, lesson)
-    if lesson in TITLE_OVERRIDES:
+    if book == 3 and lesson in TITLE_OVERRIDES:
         title, title_cn = TITLE_OVERRIDES[lesson]
-    original = extract_original(all_rows, lesson)
-    chinese = extract_chinese(blocks)
+    if book == 3 and lesson in TITLE_CN_OVERRIDES:
+        title_cn = TITLE_CN_OVERRIDES[lesson]
+    original = repair_english(extract_original(all_rows, lesson), lesson)
+    chinese = repair_chinese(extract_chinese(blocks))
     return {
         "lesson": lesson,
         "title": title,
@@ -478,7 +567,7 @@ def main() -> None:
     for lesson in lesson_numbers:
         start = mapping[lesson]
         blocks = [page_blocks[p] for p in pages_by_lesson[lesson] if p in page_blocks]
-        item = parse_lesson(lesson, start, blocks)
+        item = parse_lesson(lesson, start, blocks, args.book)
         parsed[lesson] = item
         if args.book == 2 and not item["chinese"]:
             missing_translation.append(lesson)
@@ -498,7 +587,7 @@ def main() -> None:
         for lesson in missing_translation:
             start = mapping[lesson]
             blocks = [page_blocks[p] for p in (start, start + 1) if p in page_blocks]
-            parsed[lesson] = parse_lesson(lesson, start, blocks)
+            parsed[lesson] = parse_lesson(lesson, start, blocks, args.book)
 
     lessons = [parsed[lesson] for lesson in lesson_numbers]
     args.output.parent.mkdir(parents=True, exist_ok=True)

@@ -106,6 +106,8 @@ textarea, input { font: inherit; }
 .v-row.draft p { color: #5a4a8a; }
 .v-row.ai p { color: #0d7a70; }
 .v-row.original p { color: #8a6d1a; }
+.section-note { font-size: 12px; color: var(--muted); margin-left: 8px; font-weight: 400; }
+mark.hl { background: #ffe9a8; color: inherit; padding: 0 1px; border-radius: 2px; }
 .findings { display: flex; flex-direction: column; gap: 9px; }
 .finding { border: 1px solid var(--line); border-left: 4px solid var(--red); border-radius: 8px; padding: 9px 12px; background: #fbfcfd; }
 .finding.level-improve { border-left-color: var(--gold); }
@@ -151,9 +153,11 @@ textarea, input { font: inherit; }
   .result { display: block !important; height: auto !important; min-height: 0 !important; overflow: visible !important; padding: 0 !important; }
   .sheet { border: none !important; box-shadow: none !important; max-width: none !important; border-radius: 0 !important; padding: 0 !important; }
   .sheet-section { break-inside: auto !important; page-break-inside: auto !important; }
+  * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
   .analysis { break-before: page; page-break-before: always; border-top: none !important; }
-  .overall-card { break-inside: avoid; page-break-inside: avoid; }
-  .sentence-card { break-inside: avoid; page-break-inside: avoid; }
-  .finding { break-inside: avoid; page-break-inside: avoid; }
+  .overall-card { break-inside: auto; page-break-inside: auto; }
+  .sentence-card { break-inside: auto; page-break-inside: auto; }
+  .sentence-card p, .v-row p { orphans: 2; widows: 2; }
+  .sentence-head, .finding { break-inside: avoid; page-break-inside: avoid; }
   .v-row { break-inside: avoid; page-break-inside: avoid; }
 }

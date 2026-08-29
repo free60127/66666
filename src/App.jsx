@@ -45,6 +45,67 @@ function lessonLabel(lesson) {
   return lesson ? `Lesson ${lesson.lesson} · ${lesson.title_en || lesson.title_cn}` : '';
 }
 
+function collectMarks(text, findings) {
+  const src = String(text || '');
+  const arr = Array.isArray(findings) ? findings : [];
+  if (!src || !arr.length) return [];
+  const chars = [];
+  const map = [];
+  let prevWs = true;
+  for (let i = 0; i < src.length; i++) {
+    const ch = src[i];
+    if (/\s/.test(ch)) {
+      if (prevWs) continue;
+      chars.push(' ');
+      map.push({ s: i, e: i + 1 });
+      prevWs = true;
+    } else {
+      chars.push(ch.toLowerCase());
+      map.push({ s: i, e: i + 1 });
+      prevWs = false;
+    }
+  }
+  const norm = chars.join('');
+  const taken = [];
+  const marks = [];
+  const needles = arr
+    .map((f) => (f && typeof f.from === 'string' ? f.from.replace(/\s+/g, ' ').trim().toLowerCase() : ''))
+    .filter((f) => f.length >= 2)
+    .sort((a, b) => b.length - a.length);
+  for (const needle of needles) {
+    let idx = 0;
+    while (idx <= norm.length - needle.length) {
+      const pos = norm.indexOf(needle, idx);
+      if (pos < 0) break;
+      const start = map[pos].s;
+      const end = map[pos + needle.length - 1].e;
+      const overlap = taken.some(([a, b]) => start < b && end > a);
+      if (!overlap) {
+        marks.push({ start, end });
+        taken.push([start, end]);
+        break;
+      }
+      idx = pos + 1;
+    }
+  }
+  return marks.sort((a, b) => a.start - b.start);
+}
+
+function DraftText({ text, findings }) {
+  const src = String(text || '');
+  const marks = collectMarks(text, findings);
+  if (!marks.length) return src;
+  const out = [];
+  let cursor = 0;
+  marks.forEach((m, i) => {
+    if (m.start > cursor) out.push(<span key={'t' + i}>{src.slice(cursor, m.start)}</span>);
+    out.push(<mark key={'m' + i} className="hl">{src.slice(m.start, m.end)}</mark>);
+    cursor = m.end;
+  });
+  if (cursor < src.length) out.push(<span key="tail">{src.slice(cursor)}</span>);
+  return out;
+}
+
 function App() {
   const [settings, setSettings] = useState(loadSettings());
   const [status, setStatus] = useState(null);
@@ -290,6 +351,7 @@ function App() {
 function ResultSheet({ result, onBack, onCopy }) {
   const overall = result.overall || {};
   const sentences = result.sentences || [];
+  const allFindings = sentences.flatMap((s) => s.findings || []);
   return (
     <div className="result-sheet">
       <div className="result-toolbar">
@@ -300,7 +362,7 @@ function ResultSheet({ result, onBack, onCopy }) {
       <article className="sheet">
         <header className="sheet-title"><span className="eyebrow">BACK-TRANSLATE TRAINING · 回译训练作业</span><h1>{result.title}</h1></header>
         <Section label="中文" tone="cn"><p>{result.chinese}</p></Section>
-        <Section label="原稿" tone="draft"><p>{result.draft}</p></Section>
+        <Section label="原稿" tone="draft" note="黄色高亮 = 待改正或可优化的表达"><p><DraftText text={result.draft} findings={allFindings} /></p></Section>
         <Section label="AI 修正版" tone="ai"><p>{result.ai}</p></Section>
         <Section label="原文" tone="original"><p>{result.original || '（自由模式：未匹配到课文原文）'}</p></Section>
         <section className="sheet-section analysis">
@@ -320,8 +382,8 @@ function ResultSheet({ result, onBack, onCopy }) {
   );
 }
 
-function Section({ label, tone, children }) {
-  return <section className={'sheet-section v-' + tone}><div className="section-heading"><span className="label-dot" /><h2>{label}</h2></div>{children}</section>;
+function Section({ label, tone, note, children }) {
+  return <section className={'sheet-section v-' + tone}><div className="section-heading"><span className="label-dot" /><h2>{label}</h2>{note ? <span className="section-note">{note}</span> : null}</div>{children}</section>;
 }
 
 function SentenceCard({ index, sentence }) {
@@ -330,7 +392,7 @@ function SentenceCard({ index, sentence }) {
     <div className="sentence-card">
       <div className="sentence-head"><span className="sentence-index">{String(index + 1).padStart(2, '0')}</span><p className="sentence-cn">{sentence.cn}</p><span className="finding-count">{findings.length} 项</span></div>
       <div className="versions">
-        <VersionRow label="原稿" tone="draft" text={sentence.draft} />
+        <VersionRow label="原稿" tone="draft" text={<DraftText text={sentence.draft} findings={findings} />} />
         <VersionRow label="AI 修正版" tone="ai" text={sentence.ai} />
         {sentence.original ? <VersionRow label="课文原文" tone="original" text={sentence.original} /> : null}
       </div>
