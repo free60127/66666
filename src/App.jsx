@@ -644,7 +644,7 @@ function App() {
             {status?.corpusLessons ? ' · ' + status.corpusLessons + ' 课' : ''}
           </div>
           <button className="ghost-btn" onClick={() => { setView('editor'); setResult(null); }}><X size={15} />编辑器</button>
-          {historyList.length > 0 ? <button className="ghost-btn" onClick={openHistoryModal}><History size={15} />历史结果</button> : null}
+          <button className="ghost-btn" onClick={openHistoryModal}><History size={15} />历史结果{historyList.length ? ` (${historyList.length})` : ''}</button>
         </header>
 
         {view === 'editor' ? (
@@ -738,7 +738,7 @@ function App() {
         <div className="modal-mask" onClick={() => setHistoryOpen(false)}>
           <div className="modal history-modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-head"><h2>历史作业</h2><button className="icon-btn" onClick={() => setHistoryOpen(false)}><X size={16} /></button></div>
-            {historyList.length === 0 ? <p className="muted">暂无历史记录。生成一次完整分析后，记录会自动保存在这里。</p> : (
+            {historyList.length === 0 ? <p className="muted">暂无历史记录。生成一次完整分析后，记录会自动保存在这里；此功能上线前生成的旧作业不会自动补录。</p> : (
               <div className="history-list">
                 {historyList.map((h) => (
                   <button className="history-item" key={h.jobId} onClick={() => loadHistoryJob(h.jobId)}>
