@@ -728,7 +728,7 @@ function App() {
                 <textarea className="big-textarea" value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="上传 DOCX 后，这里会自动填入英文初稿" />
               </div>
             </div>
-            {error && <div className="error-banner"><Flame size={15} />{error}<button className="link" onClick={loadDemo}>查看离线示例</button></div>}
+            {error && <div className="error-banner"><Flame size={15} /><span className="error-text">{error}</span><button className="link" onClick={loadDemo}>查看离线示例</button><button className="icon-btn err-close" onClick={() => setError('')} aria-label="关闭提示"><X size={15} /></button></div>}
             <div className="actions-bar">
               <button className="primary-btn big" onClick={() => runGenerate()} disabled={busy || parsing}>
                 {busy ? <LoaderCircle className="spin" size={17} /> : <WandSparkles size={17} />}

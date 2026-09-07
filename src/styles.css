@@ -69,6 +69,9 @@ textarea, input { font: inherit; }
 .big-textarea { width: 100%; min-height: 260px; border: 1px solid var(--line); border-radius: 10px; padding: 12px; resize: vertical; line-height: 1.75; color: var(--text); }
 .big-textarea:focus { outline: 2px solid var(--brand); outline-offset: -1px; }
 .error-banner { margin-top: 14px; background: #fdecec; border: 1px solid #f3c2c2; color: #a33; padding: 10px 14px; border-radius: 10px; display: flex; gap: 10px; align-items: center; }
+.error-text { flex: 1; min-width: 0; }
+.error-banner .err-close { flex-shrink: 0; color: var(--red); }
+.error-banner .err-close:hover { background: #f8d9d9; }
 .error-banner .link { color: var(--brand); text-decoration: underline; }
 .actions-bar { margin-top: 16px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .spin { animation: spin 1s linear infinite; }
@@ -184,7 +187,7 @@ mark.hl { background: #ffe9a8; color: inherit; padding: 0 1px; border-radius: 2p
 .icon-btn:hover { background: #f0f3f6; }
 .link { color: var(--brand); text-decoration: none; }
 
-@media (max-width: 900px) {
+@media screen and (max-width: 900px) {
   .sidebar { position: fixed; top: 0; left: 0; bottom: 0; z-index: 40; margin-left: 0; box-shadow: 0 0 30px rgba(0, 0, 0, .3); }
   .sidebar.collapsed { display: none; }
   .sidebar-close { display: inline-flex; position: absolute; top: 10px; right: 10px; z-index: 41; }
@@ -230,12 +233,13 @@ mark.hl { background: #ffe9a8; color: inherit; padding: 0 1px; border-radius: 2p
 }
 
 @media print {
-  @page { margin: 14mm 12mm; }
+  @page { margin: 10mm 10mm; }
   html, body, #root { height: auto !important; min-height: 0 !important; overflow: visible !important; }
   .app { display: block !important; height: auto !important; min-height: 0 !important; overflow: visible !important; }
   .main { display: block !important; height: auto !important; min-height: 0 !important; overflow: visible !important; }
   .sidebar, .topbar, .result-toolbar, .modal-mask { display: none !important; }
-  body { background: #fff; }
+  body { background: #fff !important; color: #1c2733 !important; }
+  html, body, #root, .app, .main, .result, .sheet, .sheet-section { background: #fff !important; }
   .editor { display: none !important; }
   .result { display: block !important; height: auto !important; min-height: 0 !important; overflow: visible !important; padding: 0 !important; }
   .sheet { border: none !important; box-shadow: none !important; max-width: none !important; border-radius: 0 !important; padding: 0 !important; }
