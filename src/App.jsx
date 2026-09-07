@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import mammoth from 'mammoth/mammoth.browser.js';
 import {
   ArrowLeft, BookOpen, CheckCircle2, ClipboardCopy, Download, FileText, Flame,
-  LoaderCircle, PenLine, Plus, Settings, Sparkles, Upload, WandSparkles, X,
+  LoaderCircle, PanelLeftClose, PanelLeftOpen, PenLine, Plus, Settings, Sparkles, Upload, WandSparkles, X,
 } from 'lucide-react';
 import { analyze, getLessons, getLesson, getStatus, loadSettings, matchLesson, saveSettings } from './api.js';
 import { DEMO_LESSON_18, DEMO_LESSONS } from './demo.js';
@@ -124,7 +124,22 @@ function App() {
   const [result, setResult] = useState(null);
   const [view, setView] = useState('editor');
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(() => {
+    if (typeof window !== 'undefined' && window.innerWidth <= 900) return false;
+    return localStorage.getItem('bt-sidebar') !== 'collapsed';
+  });
   const fileRef = useRef(null);
+
+  const toggleSidebar = () => {
+    setSidebarOpen((open) => {
+      localStorage.setItem('bt-sidebar', open ? 'collapsed' : 'open');
+      return !open;
+    });
+  };
+  // 手机端侧栏是覆盖层，选中课文后自动收起
+  const closeSidebarOnMobile = () => {
+    if (window.innerWidth <= 900) setSidebarOpen(false);
+  };
 
   const refreshStatus = async () => {
     try { setStatus(await getStatus()); } catch { setStatus(null); }
@@ -256,9 +271,9 @@ function App() {
 
   return (
     <div className="app">
-      <aside className="sidebar">
+      <aside className={'sidebar' + (sidebarOpen ? '' : ' collapsed')}>
         <div className="brand"><div className="brand-mark">回</div><div><strong>回译本</strong><span>BACK-TRANSLATE STUDIO</span></div></div>
-        <button className="primary-btn" onClick={() => { setView('editor'); setResult(null); }}><Plus size={16} />新建回译作业</button>
+        <button className="primary-btn" onClick={() => { closeSidebarOnMobile(); setView('editor'); setResult(null); }}><Plus size={16} />新建回译作业</button>
         <div className="side-section">
           <div className="side-title">课文库</div>
           <div className="book-tabs">
@@ -268,7 +283,7 @@ function App() {
             {visibleLessons.length === 0 && <div className="muted">正在加载语料…</div>}
             {visibleLessons.map((l) => (
               <button key={`${l.book}-${l.lesson}`} className={'lesson-item' + (lessonId === l.lesson && book === l.book && mode === 'lesson' ? ' active' : '')}
-                onClick={() => selectLesson(l.book, l.lesson)}>
+                onClick={() => { closeSidebarOnMobile(); selectLesson(l.book, l.lesson); }}>
                 <span className="lesson-no">{String(l.lesson).padStart(2, '0')}</span>
                 <span className="lesson-title">{l.title_cn || l.title_en || 'Lesson ' + l.lesson}</span>
               </button>
@@ -282,6 +297,9 @@ function App() {
 
       <main className="main">
         <header className="topbar">
+          <button className="icon-btn side-toggle" onClick={toggleSidebar} title={sidebarOpen ? '收起侧栏' : '展开侧栏'} aria-label={sidebarOpen ? '收起侧栏' : '展开侧栏'}>
+            {sidebarOpen ? <PanelLeftClose size={18} /> : <PanelLeftOpen size={18} />}
+          </button>
           <div className="topbar-left"><BookOpen size={18} /><strong>{mode === 'lesson' ? '课文回译训练' : '自由回译训练'}</strong></div>
           <div className="status-chip" title={status ? (status.model + ' @ ' + status.baseUrl) : '请先启动后端 npm run server'}>
             <span className={'dot ' + (status ? 'ok' : 'err')} />

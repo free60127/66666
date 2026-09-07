@@ -10,7 +10,10 @@ button { font: inherit; cursor: pointer; border: none; background: none; }
 textarea, input { font: inherit; }
 
 .app { display: flex; height: 100%; }
-.sidebar { width: 268px; min-width: 268px; background: #10222e; color: #dfe9f0; display: flex; flex-direction: column; padding: 16px 12px; gap: 14px; overflow-y: auto; }
+.sidebar { width: 268px; min-width: 268px; background: #10222e; color: #dfe9f0; display: flex; flex-direction: column; padding: 16px 12px; gap: 14px; overflow-y: auto; transition: margin-left .25s ease; }
+.sidebar.collapsed { margin-left: -268px; }
+.side-toggle { color: var(--muted); display: inline-flex; align-items: center; }
+.side-toggle:hover { color: var(--text); background: #f0f3f6; }
 .brand { display: flex; align-items: center; gap: 10px; padding: 4px 6px; }
 .brand-mark { width: 38px; height: 38px; border-radius: 10px; background: linear-gradient(135deg, #2aa7ff, #1164d8); display: grid; place-items: center; font-weight: 700; color: #fff; }
 .brand strong { display: block; font-size: 17px; }
@@ -144,7 +147,8 @@ mark.hl { background: #ffe9a8; color: inherit; padding: 0 1px; border-radius: 2p
 .link { color: var(--brand); text-decoration: none; }
 
 @media (max-width: 900px) {
-  .sidebar { display: none; }
+  .sidebar { position: fixed; top: 0; left: 0; bottom: 0; z-index: 40; margin-left: 0; box-shadow: 0 0 30px rgba(0, 0, 0, .3); }
+  .sidebar.collapsed { display: none; }
   .editor-grid { grid-template-columns: 1fr; }
   .sheet { padding: 20px 18px; }
   .v-row { grid-template-columns: 64px 1fr; }
