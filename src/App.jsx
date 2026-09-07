@@ -16,6 +16,7 @@ const CATEGORY_COLOR = {
 };
 
 const HISTORY_KEY = 'bt-history';
+const CONFIDENCE_LABEL = { high: '高置信度', medium: '中置信度', low: '低置信度', none: '未匹配', manual: '手动选择' };
 function loadHistory() {
   try {
     const arr = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
@@ -35,9 +36,11 @@ function isMarker(line) {
 }
 
 function isMostlyEnglish(line) {
-  const letters = (line.match(/[A-Za-z]/g) || []).length;
+  const words = (line.match(/[A-Za-z]+(?:['’-][A-Za-z]+)*/g) || []);
+  const letters = words.join('').length;
   const han = (line.match(/[\u4e00-\u9fff]/g) || []).length;
-  return letters >= 12 && letters > han * 2;
+  // 短句也要能识别：至少 2 个英文单词、字母数 >=3，且英文显著多于中文
+  return words.length >= 2 && letters >= 3 && letters > han * 2;
 }
 
 function parseAssignmentText(raw) {
@@ -192,6 +195,10 @@ function App() {
   const [chinese, setChinese] = useState('');
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
+  const [progressStep, setProgressStep] = useState(0);
+  const [elapsed, setElapsed] = useState(0);
+  const [progressMsg, setProgressMsg] = useState('');
+  const progressTimerRef = useRef(null);
   const [parsing, setParsing] = useState(false);
   const [fileName, setFileName] = useState('');
   const [error, setError] = useState('');
@@ -203,8 +210,11 @@ function App() {
   const [materialLevel, setMaterialLevel] = useState('中级');
   const [materialStyle, setMaterialStyle] = useState('生活故事');
   const [materialBusy, setMaterialBusy] = useState(false);
+  const [materialElapsed, setMaterialElapsed] = useState(0);
   const [materialKeywords, setMaterialKeywords] = useState([]);
   const [generatedOriginal, setGeneratedOriginal] = useState('');
+  const [matchConfidence, setMatchConfidence] = useState('');
+  const [matchScore, setMatchScore] = useState(null);
   const [currentJobId, setCurrentJobId] = useState('');
   const [historyList, setHistoryList] = useState(loadHistory);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -220,6 +230,17 @@ function App() {
       localStorage.setItem('bt-sidebar', open ? 'collapsed' : 'open');
       return !open;
     });
+  };
+
+  const startProgressTimer = () => {
+    const start = Date.now();
+    setElapsed(0);
+    clearInterval(progressTimerRef.current);
+    progressTimerRef.current = setInterval(() => setElapsed(Math.floor((Date.now() - start) / 1000)), 1000);
+  };
+  const stopProgressTimer = () => {
+    clearInterval(progressTimerRef.current);
+    progressTimerRef.current = null;
   };
   // 手机端侧栏是覆盖层，选中课文后自动收起
   const closeSidebarOnMobile = () => {
@@ -287,6 +308,8 @@ function App() {
     setLessonId(nextLesson);
     setMatchedLesson(null);
     setMode('lesson');
+    setMatchConfidence('manual');
+    setMatchScore(null);
     try {
       localStorage.setItem('bt-book', String(nextBook));
       localStorage.setItem('bt-lesson', String(nextLesson));
@@ -331,19 +354,31 @@ function App() {
       setGeneratedOriginal('');
       setMaterialKeywords([]);
       const found = await matchLesson({ title: parsed.title, chinese: parsed.chinese });
-      if (found?.match) {
+      if (found?.match && found.confidence && found.confidence !== 'none' && found.confidence !== 'low') {
         setBook(found.match.book);
         setLessonId(found.match.lesson);
         setMatchedLesson(found.match);
         setMode('lesson');
         setTitle(lessonLabel(found.match));
+        setMatchConfidence(found.confidence);
+        setMatchScore(found.score);
         try {
           localStorage.setItem('bt-book', String(found.match.book));
           localStorage.setItem('bt-lesson', String(found.match.lesson));
         } catch { /* ignore */ }
+      } else if (found?.match) {
+        // 低置信度：默认先用自由模式，但把候选课文展示出来，用户可一键切换
+        setBook(found.match.book);
+        setLessonId(found.match.lesson);
+        setMatchedLesson(found.match);
+        setMode('free');
+        setMatchConfidence(found.confidence || 'low');
+        setMatchScore(found.score);
       } else {
         setMatchedLesson(null);
         setMode('free');
+        setMatchConfidence('none');
+        setMatchScore(null);
       }
     } catch (e) {
       setFileName('');
@@ -353,10 +388,25 @@ function App() {
     }
   };
 
+  const applyMatchedLesson = () => {
+    if (!matchedLesson) return;
+    setMode('lesson');
+    setTitle(lessonLabel(matchedLesson));
+    setMatchConfidence('manual');
+    setMatchScore(null);
+    try {
+      localStorage.setItem('bt-book', String(matchedLesson.book));
+      localStorage.setItem('bt-lesson', String(matchedLesson.lesson));
+    } catch { /* ignore */ }
+  };
+
   const handleGenerateMaterial = async () => {
     const topic = materialTopic.trim();
     if (!topic) { setError('请填写素材主题'); return; }
     setError(''); setMaterialBusy(true);
+    const materialStart = Date.now();
+    setMaterialElapsed(0);
+    const materialTimer = setInterval(() => setMaterialElapsed(Math.floor((Date.now() - materialStart) / 1000)), 1000);
     try {
       const resp = await generateMaterial({
         topic, level: materialLevel, style: materialStyle,
@@ -389,6 +439,8 @@ function App() {
           setMaterialKeywords(data.keywords || []);
           setMatchedLesson(null);
           setMode('free');
+          setMatchConfidence('none');
+          setMatchScore(null);
           setMaterialOpen(false);
           return;
         }
@@ -400,6 +452,7 @@ function App() {
     } catch (e) {
       setError(e.message || '素材生成失败');
     } finally {
+      clearInterval(materialTimer);
       setMaterialBusy(false);
     }
   };
@@ -459,6 +512,8 @@ function App() {
     if (!cn) { setError('请先上传包含中文提示的 DOCX，或填入中文提示'); return; }
     if (!df) { setError('请先上传包含英文初稿的 DOCX，或填入英文初稿'); return; }
     setError(''); setBusy(true);
+    setProgressStep(1); setProgressMsg('正在提交后台任务…'); startProgressTimer();
+    let finishedOk = false;
     try {
       const resp = await analyze({
         title: title.trim(), chinese: cn, draft: df,
@@ -472,6 +527,7 @@ function App() {
         if (resp.data) { setResult(resp.data); setView('result'); return; }
         throw new Error('服务器未返回任务编号，请重试');
       }
+      setProgressStep(2); setProgressMsg('AI 正在后台生成（约1-2分钟）…');
       const deadline = Date.now() + 10 * 60 * 1000;
       let pollFailures = 0;
       while (Date.now() < deadline) {
@@ -488,6 +544,7 @@ function App() {
         const job = r.job;
         if (!job) continue;
         if (job.status === 'done') {
+          setProgressStep(3); setProgressMsg('生成完成'); finishedOk = true;
           setResult(job.data);
           setCurrentJobId(jobId);
           setView('result');
@@ -498,13 +555,18 @@ function App() {
         if (job.status === 'error') {
           throw new Error(job.error || '生成失败，请重试');
         }
+        if (job.status === 'running') {
+          setProgressStep(2); setProgressMsg('AI 正在后台生成（约1-2分钟）…');
+        }
       }
       throw new Error('生成超时（超过10分钟），请重新提交');
     } catch (e) {
       setError(e.message);
       setView('editor');
     } finally {
+      stopProgressTimer();
       setBusy(false);
+      if (!finishedOk) { setProgressStep(0); setProgressMsg(''); }
     }
   };
 
@@ -522,6 +584,7 @@ function App() {
       result.title, '', '【中文译文】', result.chinese, '', '【原稿】', result.draft, '',
       '【AI 修正版】', result.ai, '', '【课文原文】', result.original, '',
       '【逐句解析】', result.overall?.summary || '', '',
+      '【分项得分】', ...(result.overall?.scoreBreakdown || []).map((b) => '· ' + b.label + '：' + b.score + '/' + (b.max || 20) + (b.comment ? '（' + b.comment + '）' : '')), '',
       ...(result.sentences || []).flatMap((s, i) => [
         String(i + 1) + '. ' + s.cn, '原稿：' + s.draft, 'AI 修正版：' + s.ai,
         '原文：' + s.original, ...(s.findings || []).map((f) => {
@@ -597,7 +660,15 @@ function App() {
                 <Sparkles size={16} />AI 生成训练素材
               </button>
             </div>
-            {matchedLesson && <div className="match-banner"><BookOpen size={15} />已匹配：新概念英语第 {matchedLesson.book} 册 · Lesson {matchedLesson.lesson} · {matchedLesson.title_en}，原文将自动带入分析</div>}
+            {matchedLesson && (
+              <div className={'match-banner' + (mode === 'free' ? ' weak' : '')}>
+                <BookOpen size={15} />
+                <span className="match-text">已识别可能有课文：新概念英语第 {matchedLesson.book} 册 · Lesson {matchedLesson.lesson} · {matchedLesson.title_en}（{CONFIDENCE_LABEL[matchConfidence] || matchConfidence || '未匹配'}{matchScore != null ? ` · 匹配分 ${matchScore}` : ''}）{mode === 'free' ? '，当前按自由模式' : '，原文将自动带入分析'}</span>
+                {mode === 'free'
+                  ? <button className="link" onClick={applyMatchedLesson}>改用这个课文</button>
+                  : <button className="link" onClick={() => { setMode('free'); setMatchConfidence('manual'); }}>改用自由模式</button>}
+              </div>
+            )}
             {generatedOriginal && <div className="match-banner"><Sparkles size={15} />已载入 AI 原创训练素材（无教材版权）：{title}{materialKeywords.length ? ` · 建议词汇：${materialKeywords.join('、')}` : ''}，请根据中文提示写出你的英文初稿</div>}
             <div className="mode-tabs">
               <button className={mode === 'lesson' ? 'active' : ''} onClick={() => setMode('lesson')}><BookOpen size={15} />课文模式</button>
@@ -623,6 +694,17 @@ function App() {
               {!status?.hasKey && <button className="ghost-btn" onClick={loadDemo}><Sparkles size={15} />离线示例</button>}
               <span className="muted">{busy ? '已提交后台任务，请保持页面打开，完成后自动展示' : '生成顺序：标题 → 中文 → 原稿 → AI 修正版 → 原文 → 逐句解析'}</span>
             </div>
+            {busy && (
+              <div className="progress-box">
+                <div className="progress-steps">
+                  <span className={progressStep >= 1 ? 'active' : ''}><CheckCircle2 size={12} />已提交</span>
+                  <span className={progressStep >= 2 ? 'active' : ''}><LoaderCircle className={progressStep === 2 ? 'spin' : ''} size={12} />AI 生成中</span>
+                  <span className={progressStep >= 3 ? 'active' : ''}><CheckCircle2 size={12} />完成</span>
+                </div>
+                <div className="progress-track"><div className="progress-fill" style={{ width: progressStep >= 3 ? '100%' : progressStep >= 2 ? '66%' : '18%' }} /></div>
+                <span className="muted small">{progressMsg}{elapsed > 0 ? ` · 已进行 ${elapsed} 秒` : ''}</span>
+              </div>
+            )}
           </section>
         ) : (
           <section className="result">
@@ -644,7 +726,7 @@ function App() {
             <div className="modal-actions">
               <button className="primary-btn" onClick={handleGenerateMaterial} disabled={materialBusy}>
                 {materialBusy ? <LoaderCircle className="spin" size={16} /> : <Sparkles size={16} />}
-                {materialBusy ? 'AI 正在创作素材…' : '生成素材'}
+                {materialBusy ? `AI 正在创作素材…（${materialElapsed} 秒）` : '生成素材'}
               </button>
               <button className="ghost-btn" onClick={() => setMaterialOpen(false)} disabled={materialBusy}>取消</button>
             </div>
@@ -714,6 +796,25 @@ function ResultSheet({ result, onBack, onCopy, onShare, shareTip }) {
               <p>{overall.summary || ''}</p>
               <div className="chips">{(overall.highlights || []).map((h, i) => <span key={'hl' + i} className="chip"><CheckCircle2 size={13} />{h}</span>)}</div>
               <div className="advice"><strong>练习建议</strong><ul>{(overall.advice || []).map((a, i) => <li key={'ad' + i}>{a}</li>)}</ul></div>
+              {Array.isArray(overall.scoreBreakdown) && overall.scoreBreakdown.length ? (
+                <div className="score-breakdown">
+                  <div className="score-breakdown-title">分项得分</div>
+                  {overall.scoreBreakdown.map((b, i) => {
+                    const max = Number(b.max) || 20;
+                    const pct = Math.max(0, Math.min(100, (Number(b.score) || 0) / max * 100));
+                    return (
+                      <div key={'sb' + i}>
+                        <div className="score-row">
+                          <span className="score-label">{b.label}</span>
+                          <div className="score-track"><div className="score-fill" style={{ width: pct + '%' }} /></div>
+                          <span className="score-num">{b.score}/{max}</span>
+                        </div>
+                        {b.comment ? <div className="score-comment">{b.comment}</div> : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : null}
             </div>
           </div>
           {sentences.map((sentence, i) => <SentenceCard key={'s' + i} index={i} sentence={sentence} />)}

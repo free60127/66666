@@ -8,6 +8,13 @@ export const DEMO_LESSON_18 = {
   original: 'After I had had lunch at a village pub, I looked for my bag. I had left it on a chair beside the door and now it wasn’t there! As I was looking for it, the landlord came in.\n‘Did you have a good meal?’ he asked.\n‘Yes, thank you,’ I answered, ‘but I can’t pay the bill. I haven’t got my bag.’\nThe landlord smiled and immediately went out. In a few minutes he returned with my bag and gave it back to me.\n‘I’m very sorry,’ he said. ‘My dog had taken it into the garden. He often does this!’',
   overall: {
     score: 78,
+    scoreBreakdown: [
+      { label: '词汇准确', score: 15, max: 20, comment: 'search my bag 搭配错误，应掌握 search for / look for' },
+      { label: '语法与时态', score: 16, max: 20, comment: '过去时逐步稳定，但直接引语时态一致性还需注意' },
+      { label: '语境与逻辑', score: 16, max: 20, comment: '情节基本忠实，bar/boss 选词与原文 pub/landlord 有偏差' },
+      { label: '流畅度', score: 16, max: 20, comment: '句子完整连贯，个别句子衔接可更自然' },
+      { label: '地道程度', score: 15, max: 20, comment: '口语化问句与动词搭配距离母语者还有距离' },
+    ],
     issues: 12,
     summary: '整体能基本传达故事大意，但动词用法（search）、时态切换（过去时 vs 现在时）、口语表达（Do you have lunch well?）和名词选择（bar/boss）存在多处不地道的地方。'
       + ' 亮点是句式完整、标点基本规范；最值得改进的是“寻物”类动词搭配和直接引语的时态一致性。',

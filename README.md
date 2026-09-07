@@ -12,7 +12,8 @@
 
 - 实时生成，不是预先套好的壳子：任意中文 + 任意英文初稿都能生成完整作业
 - 课文模式（自动匹配新概念课次并带入原文）/ 自由模式（无原文也完整分析）
-- DOCX 导入：Mammoth 读取 Word 正文，自动识别标题、中文与英文初稿，并匹配课次
+- DOCX 导入：Mammoth 读取 Word 正文，自动识别标题、中文与英文初稿，并匹配课次（匹配结果显示高/中/低置信度与匹配分；低置信度默认走自由模式，可一键改用候选课文）
+- 分项评分与生成进度：结果页展示词汇准确 / 语法时态 / 语境逻辑 / 流畅度 / 地道程度 5 个分项得分条；生成过程显示「已提交 → AI 生成中 → 完成」三步进度与已耗时
 - AI 原创素材：按主题/难度/文体用 AI 生成无版权英文短文 + 完整中文翻译（如时事、中国文化），可直接作为回译训练题源（回应用户「新概念课文有版权、AI 生成文章可商业化」的建议）
 - 逐句级解析：每条错误含 from → to 与中文解释，分 error / improve / study 三级；核心动词/形容词/易混词按「语域、感情色彩、语用、语义轻重、固定搭配、内涵外延」六大维度讲透，并附带近义词对比表（word / meaning / register / tone / strength / usage / example）与例句
 - 地道习语强化：AI 润色版优先使用符合情境的习语（如 suddenly → out of the blue），并在 findings 与「地道习语强化」板块逐条解释气势、场景与普通说法的差异
@@ -79,7 +80,7 @@
 | GET | /api/status | 服务状态、模型、各册语料数量 |
 | GET | /api/lessons?book=2 | 课次列表（可省略 book） |
 | GET | /api/lessons/2/18 或 /api/lessons/18 | 单课详情（中文 + 原文） |
-| POST | /api/match | 按标题/中文匹配课次 |
+| POST | /api/match | 按标题/中文匹配课次，返回 `{match, confidence: high/medium/low/none, score, reason}` |
 | POST | /api/generate-material | 异步提交 AI 原创素材生成（topic、level、style），立即返回 `{ok, jobId}` |
 | GET | /api/generate-material/:jobId | 轮询素材生成状态：`{ok, job:{jobId, status, data?, error?}}`，status 为 pending / running / done / error |
 | POST | /api/analyze | 异步提交回译作业（chinese、draft + 可选 book、lessonId、title、original、baseUrl、model、apiKey），立即返回 `{ok, jobId}` |
@@ -87,7 +88,7 @@
 
 所有任务（分析 + 素材）都会持久化到服务端 `data/jobs.json`（保留 7 天），后端重启不会丢失；结果页「复制分享链接」会生成 `#job=<jobId>` 链接，任何人打开都能恢复同一次批改结果；前端还会在本机浏览器保存最近 20 条历史记录。
 
-`/api/analyze/:jobId` 在 status=done 时 job.data 结构：{ title, chinese, draft, ai, original, overall{score,issues,summary,highlights,advice}, sentences[{cn,draft,ai,original,findings[{category,from,to,level,explanation,dimensions,synonyms,examples,idiom}]}], vocabularyNotes, idiomHighlights, advancedSentences, bonusExpressions }。
+`/api/analyze/:jobId` 在 status=done 时 job.data 结构：{ title, chinese, draft, ai, original, overall{score,scoreBreakdown[{label,score,max,comment}],issues,summary,highlights,advice}, sentences[{cn,draft,ai,original,findings[{category,from,to,level,explanation,dimensions,synonyms,examples,idiom}]}], vocabularyNotes, idiomHighlights, advancedSentences, bonusExpressions }。
 
 ## 导出 PDF
 

@@ -88,8 +88,11 @@ function lessonNumber(text) {
   return m ? Number(m[1]) : null;
 }
 function titleBook(text) {
-  const m = String(text || '').match(/(?:新概念\s*)?(?:book|册|volume)?\s*([1-4])(?:\s*册)?/i);
-  return m ? Number(m[1]) : null;
+  const t = String(text || '');
+  // 只识别明确的“册/book/新概念 N”标记，避免把 Lesson 18 的“1”误判成第 1 册
+  const m = t.match(/(?:新概念\s*第?\s*([1-4])\s*册|(?:book|volume)\s*([1-4])|第\s*([1-4])\s*册|(?:新概念)\s*([1-4]))/i);
+  if (!m) return null;
+  return Number(m[1] || m[2] || m[3] || m[4]);
 }
 function matchLesson({ title, chinese, book }) {
   const requestedBook = isValidBook(book) ? Number(book) : titleBook(title);
@@ -102,24 +105,33 @@ function matchLesson({ title, chinese, book }) {
     const titleCn = compact(l.title_cn);
     const sourceCn = compact(l.chinese);
     let score = 0;
+    let reason = '';
     if (requestedBook && l.book === requestedBook) score += 30;
-    if (number != null && l.lesson === number) score += 220;
-    if (titleKey && (titleKey === titleEn || titleKey === titleCn)) score += 180;
-    if (titleKey && (titleKey.includes(titleEn) || titleEn.includes(titleKey))) score += 100;
-    if (cnKey && sourceCn === cnKey) score += 400;
+    if (number != null && l.lesson === number) { score += 220; reason += '课号匹配;'; }
+    if (titleKey && (titleKey === titleEn || titleKey === titleCn)) { score += 180; reason += '标题精确匹配;'; }
+    if (titleKey && (titleKey.includes(titleEn) || titleEn.includes(titleKey))) { score += 100; reason += '标题包含;'; }
+    if (cnKey && sourceCn === cnKey) { score += 400; reason += '中文全文精确匹配;'; }
     if (cnKey && sourceCn) {
       let prefix = 0;
       while (prefix < Math.min(cnKey.length, sourceCn.length) && cnKey[prefix] === sourceCn[prefix]) prefix += 1;
-      score += Math.min(70, prefix / Math.max(1, Math.min(cnKey.length, sourceCn.length)) * 70);
+      const p = Math.min(70, prefix / Math.max(1, Math.min(cnKey.length, sourceCn.length)) * 70);
+      score += p;
+      if (p >= 40) reason += '中文开头相似;';
     }
-    return { lesson: l, score };
+    return { lesson: l, score, reason };
   }).sort((a, b) => b.score - a.score);
-  return scored[0]?.lesson || null;
+  const best = scored[0] || null;
+  if (!best || best.score < 60) return { match: null, score: 0, confidence: 'none', reason: '' };
+  const second = scored[1] || null;
+  let confidence = best.score >= 320 ? 'high' : (best.score >= 150 ? 'medium' : 'low');
+  // 若第一名与第二名差距太小，降低置信度，避免“误判”
+  if (second && second.score > 0 && best.score - second.score < Math.max(40, best.score * 0.15)) confidence = 'low';
+  return { match: best.lesson, score: best.score, confidence, reason: best.reason };
 }
 function resolveLesson({ book, lessonId, title, chinese }) {
   const n = Number(lessonId);
   if (Number.isFinite(n) && n > 0) return findLesson(isValidBook(book) ? Number(book) : 2, n);
-  return matchLesson({ title, chinese, book });
+  return matchLesson({ title, chinese, book }).match;
 }
 
 const stat = {
@@ -397,14 +409,16 @@ const server = http.createServer(async (req, res) => {
     }
     if (p === '/api/match' && req.method === 'POST') {
       const body = await readBody(req);
-      const match = matchLesson({
+      const m = matchLesson({
         title: String(body.title || ''),
         chinese: String(body.chinese || ''),
         book: body.book,
       });
       return json(res, 200, {
-        match,
-        confidence: match ? (lessonNumber(body.title) === match.lesson ? 'high' : 'medium') : 'none',
+        match: m.match,
+        confidence: m.confidence,
+        score: m.score,
+        reason: m.reason,
       });
     }
     if (p === '/api/generate-material' && req.method === 'POST') {
