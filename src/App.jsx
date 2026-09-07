@@ -163,9 +163,15 @@ function App() {
   const [settings, setSettings] = useState(loadSettings());
   const [status, setStatus] = useState(null);
   const [lessons, setLessons] = useState([]);
-  const [book, setBook] = useState(2);
+  const [book, setBook] = useState(() => {
+    const b = Number(localStorage.getItem('bt-book'));
+    return [1, 2, 3, 4].includes(b) ? b : 2;
+  });
   const [mode, setMode] = useState('lesson');
-  const [lessonId, setLessonId] = useState(18);
+  const [lessonId, setLessonId] = useState(() => {
+    const n = Number(localStorage.getItem('bt-lesson'));
+    return Number.isFinite(n) && n > 0 ? n : 18;
+  });
   const [matchedLesson, setMatchedLesson] = useState(null);
   const [title, setTitle] = useState('');
   const [chinese, setChinese] = useState('');
@@ -205,6 +211,16 @@ function App() {
     try { setStatus(await getStatus()); } catch { setStatus(null); }
   };
 
+  // 恢复上次打开的书册/课次；没有记录则默认第一课
+  const pickInitialLesson = (list) => {
+    const savedBook = Number(localStorage.getItem('bt-book'));
+    const savedLesson = Number(localStorage.getItem('bt-lesson'));
+    const targetBook = [1, 2, 3, 4].includes(savedBook) ? savedBook : 2;
+    const match = list.find((l) => l.book === targetBook && l.lesson === savedLesson);
+    if (match) return match;
+    return list.find((l) => l.book === targetBook) || list[0] || null;
+  };
+
   useEffect(() => {
     let alive = true;
     refreshStatus();
@@ -212,12 +228,16 @@ function App() {
       if (!alive) return;
       const loaded = data.lessons || [];
       setLessons(loaded);
-      if (loaded.length) selectLesson(2, loaded.some((l) => l.book === 2 && l.lesson === 18) ? 18 : loaded[0].lesson);
+      if (loaded.length) {
+        const target = pickInitialLesson(loaded);
+        selectLesson(target.book, target.lesson);
+      }
     }).catch(() => {
       if (!alive) return;
       const fallback = DEMO_LESSONS.map((l) => ({ ...l, book: 2 }));
       setLessons(fallback);
-      selectLesson(2, 18);
+      const target = pickInitialLesson(fallback) || { book: 2, lesson: 18 };
+      selectLesson(target.book, target.lesson);
     });
     return () => { alive = false; };
   }, []);
@@ -229,6 +249,10 @@ function App() {
     setLessonId(nextLesson);
     setMatchedLesson(null);
     setMode('lesson');
+    try {
+      localStorage.setItem('bt-book', String(nextBook));
+      localStorage.setItem('bt-lesson', String(nextLesson));
+    } catch { /* ignore */ }
     try {
       const lesson = await getLesson(nextBook, nextLesson);
       setTitle(lessonLabel(lesson));
@@ -275,6 +299,10 @@ function App() {
         setMatchedLesson(found.match);
         setMode('lesson');
         setTitle(lessonLabel(found.match));
+        try {
+          localStorage.setItem('bt-book', String(found.match.book));
+          localStorage.setItem('bt-lesson', String(found.match.lesson));
+        } catch { /* ignore */ }
       } else {
         setMatchedLesson(null);
         setMode('free');
