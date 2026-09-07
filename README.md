@@ -4,7 +4,7 @@
 
 **标题 → 中文译文 → 初稿 → AI 润色版本 → 课文原文 → 详细错误解析与三版本对比**
 
-（拼写 / 语法 / 时态 / 词义 / 搭配 / 语境 / 流畅度 / 地道程度）
+（拼写 / 语法 / 时态/语态 / 词义 / 搭配 / 语境 / 流畅度 / 地道程度，并按「语域 / 感情色彩 / 语用 / 语义轻重 / 固定搭配 / 内涵外延」六大维度做词汇深度辨析，同时给出近义词对比与地道习语强化）
 
 > AI 润色版本**基于原文但超出原文**——不是简单改错，而是在保留原意与事实的前提下，用更生动、地道、富有文学色彩的方式重新写作；逐句解析会说明 AI 版本比原文好在哪里。
 
@@ -13,7 +13,9 @@
 - 实时生成，不是预先套好的壳子：任意中文 + 任意英文初稿都能生成完整作业
 - 课文模式（自动匹配新概念课次并带入原文）/ 自由模式（无原文也完整分析）
 - DOCX 导入：Mammoth 读取 Word 正文，自动识别标题、中文与英文初稿，并匹配课次
-- 逐句级解析：每条错误含 from → to 与中文解释，分 error / improve / study 三级
+- AI 原创素材：按主题/难度/文体用 AI 生成无版权英文短文 + 完整中文翻译（如时事、中国文化），可直接作为回译训练题源（回应用户「新概念课文有版权、AI 生成文章可商业化」的建议）
+- 逐句级解析：每条错误含 from → to 与中文解释，分 error / improve / study 三级；核心动词/形容词/易混词按「语域、感情色彩、语用、语义轻重、固定搭配、内涵外延」六大维度讲透，并附带近义词对比表（word / meaning / register / tone / strength / usage / example）与例句
+- 地道习语强化：AI 润色版优先使用符合情境的习语（如 suddenly → out of the blue），并在 findings 与「地道习语强化」板块逐条解释气势、场景与普通说法的差异
 - 初稿黄色高亮：批改后自动在原稿与逐句行中标出错误 / 不地道表达，屏幕与打印均保留
 - 打印排版优化：句子卡片可跨页拆分，不再留大片空白
 - 多册语料：支持任意册 JSON 语料（新概念 1 / 2 / 3 / 4 册，见「语料」）
@@ -77,9 +79,10 @@
 | GET | /api/lessons?book=2 | 课次列表（可省略 book） |
 | GET | /api/lessons/2/18 或 /api/lessons/18 | 单课详情（中文 + 原文） |
 | POST | /api/match | 按标题/中文匹配课次 |
-| POST | /api/analyze | 生成回译作业（chinese、draft + 可选 book、lessonId、title、baseUrl、model、apiKey） |
+| POST | /api/generate-material | 生成 AI 原创训练素材（topic、level、style；返回 title/original/chinese/keywords） |
+| POST | /api/analyze | 生成回译作业（chinese、draft + 可选 book、lessonId、title、original、baseUrl、model、apiKey） |
 
-/api/analyze 返回结构：{ title, chinese, draft, ai, original, overall{score,issues,summary,highlights,advice}, sentences[{cn,draft,ai,original,findings[{category,from,to,level,explanation}]}] }。
+/api/analyze 返回结构：{ title, chinese, draft, ai, original, overall{score,issues,summary,highlights,advice}, sentences[{cn,draft,ai,original,findings[{category,from,to,level,explanation,dimensions,synonyms,examples,idiom}]}], vocabularyNotes, idiomHighlights, advancedSentences, bonusExpressions }。
 
 ## 导出 PDF
 

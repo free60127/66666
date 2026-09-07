@@ -21,8 +21,25 @@ export const DEMO_LESSON_18 = {
       ai: 'After having lunch at a small village bar, I started looking for my bag.',
       original: 'After I had had lunch at a village pub, I looked for my bag.',
       findings: [
-        { category: '词义', from: 'search my bag', to: 'search for my bag', level: 'error', explanation: 'search + 地点 + for + 目标；search my bag 意为“搜查包内”，与“寻找”不符。' },
-        { category: '词义', from: 'a little village bar', to: 'a village pub / a small village bar', level: 'improve', explanation: 'pub 是英式“提供餐食的小酒馆”，比 bar 更贴合课文语境；small 比 little 更中性。' },
+        { category: '词义', from: 'search my bag', to: 'search for my bag', level: 'error',
+          explanation: 'search + 地点 + for + 目标；search my bag 意为“搜查包内”，与“寻找”不符。',
+          dimensions: ['固定搭配', '语域', '语义轻重'],
+          synonyms: [
+            { word: 'search for', meaning: '寻找（某物/某人）', register: '通用', tone: '中性', strength: '中', usage: '宾语是寻找的目标：search for my bag', example: 'I searched for my keys in every pocket.' },
+            { word: 'look for', meaning: '寻找', register: '日常口语', tone: '中性', strength: '弱', usage: '最日常的说法', example: 'I am looking for my bag.' },
+          ],
+          examples: [
+            { en: 'I was searching for my bag after lunch.', cn: '午饭后我在找我的包。' },
+            { en: 'The police searched the house for the missing ring.', cn: '警察搜查房子寻找丢失的戒指。' },
+          ] },
+        { category: '词义', from: 'a little village bar', to: 'a village pub / a small village bar', level: 'improve',
+          explanation: 'pub 是英式“提供餐食的小酒馆”，比 bar 更贴合课文语境；small 比 little 更中性。',
+          dimensions: ['语域', '感情色彩'],
+          synonyms: [
+            { word: 'pub', meaning: '（英式）酒馆、小馆', register: '英式/日常书面', tone: '中性', strength: '中', usage: '可提供餐食的小酒馆，课文语境', example: 'We had lunch at a village pub.' },
+            { word: 'bar', meaning: '酒吧、吧台', register: '美式/通用', tone: '中性', strength: '弱', usage: '侧重卖酒的吧台或酒吧', example: 'They met at a bar downtown.' },
+            { word: 'inn', meaning: '小客栈、乡村旅店', register: '正式/书面', tone: '中性偏雅', strength: '中', usage: '既可住宿也可用餐的乡村小店', example: 'They stayed at a country inn.' },
+          ] },
         { category: '地道程度', from: 'started looking for my bag', to: 'After having lunch..., I started...', level: 'study', explanation: '介词短语开头表示时间先后，比逐字直译更地道。' },
         { category: '语法', from: 'After I had had lunch', to: 'After I had had lunch（过去完成时）', level: 'study', explanation: 'had had 强调“吃午饭”发生在“找包”之前；比一般过去时更严谨。' },
       ],
@@ -73,6 +90,44 @@ export const DEMO_LESSON_18 = {
         { category: '语域', from: 'I’m so sorry', to: 'I’m very sorry', level: 'improve', explanation: 'very 比 so 更正式克制，符合店主道歉语气。' },
       ],
     },
+  ],
+  vocabularyNotes: [
+    {
+      word: 'search / look for / seek',
+      type: '动词 · 搭配',
+      meaning: '三者都有“寻找”义，但搭配、语域与强弱不同。',
+      dimensions: ['固定搭配', '语域', '语义轻重'],
+      synonyms: [
+        { word: 'search', meaning: '搜查；仔细寻找', register: '正式/中性', tone: '中性', strength: '中', usage: 'search + 地点 + for + 目标；search my bag 是“搜查包里”，不是“找包”', example: 'The police searched the house for clues.' },
+        { word: 'look for', meaning: '寻找', register: '日常口语', tone: '中性', strength: '弱', usage: '最通用的“找”', example: 'I looked for my bag everywhere.' },
+        { word: 'seek', meaning: '寻求；寻找', register: '书面/正式', tone: '中性', strength: '中强', usage: '常用于抽象目标（seek help / seek approval）', example: 'They sought shelter from the rain.' },
+      ],
+      examples: [
+        { en: 'I was searching for my bag.', cn: '我正在找我的包。' },
+        { en: 'I looked everywhere for my bag.', cn: '我到处找我的包。' },
+      ],
+      note: '固定搭配：宾语是包/人/线索时用 search for；宾语是房间/口袋等地点时用 search（搜查）。',
+    },
+    {
+      word: 'get on / off vs get in / out of',
+      type: '动词短语 · 交通工具搭配',
+      meaning: '根据交通工具内部空间决定用 on/off 还是 in/out of。',
+      dimensions: ['固定搭配', '语用'],
+      synonyms: [
+        { word: 'get on / get off', meaning: '上/下（大交通工具）', register: '通用', tone: '中性', strength: '—', usage: '公交、火车、轮船、飞机等可以站立走动的大交通工具', example: 'We got on the bus at the corner.' },
+        { word: 'get in / get out of', meaning: '上/下（小空间交通工具）', register: '通用', tone: '中性', strength: '—', usage: '小轿车、出租车、独木舟等无法在里面随意走动的小空间', example: 'He got out of the taxi.' },
+      ],
+      examples: [
+        { en: 'She got off the bus and walked home.', cn: '她下了公交车走回家。' },
+        { en: 'He got out of the car and locked the door.', cn: '他下了车并锁上车门。' },
+      ],
+      note: '判断标准：能否在里面 move around。能走动→on/off；不能走动→in/out of。',
+    },
+  ],
+  idiomHighlights: [
+    { situation: '突然发生', common: 'suddenly', idiom: 'out of the blue', example: 'The phone rang out of the blue.', explanation: '比 suddenly 更有“毫无预兆、从天而降”的画面感，适合描述意外事件，语气更生动。' },
+    { situation: '非常生气', common: 'very angry', idiom: 'fuming / seething', example: 'He was fuming at the news.', explanation: 'fuming 像“冒烟”一样强调怒不可遏，比 very angry 更有情绪冲击力。' },
+    { situation: '立刻离开/滚开', common: 'get away now', idiom: 'beat it / clear off', example: 'The guards told the boys to beat it.', explanation: 'beat it 是口语化的“快走开”，比 get away now 更符合吆喝语气，适合直接引语。' },
   ],
 };
 

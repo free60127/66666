@@ -4,13 +4,15 @@ import {
   ArrowLeft, BookOpen, CheckCircle2, ClipboardCopy, Download, FileText, Flame,
   LoaderCircle, PanelLeftClose, PanelLeftOpen, PenLine, Plus, Settings, Sparkles, Upload, WandSparkles, X,
 } from 'lucide-react';
-import { analyze, getLessons, getLesson, getStatus, loadSettings, matchLesson, saveSettings } from './api.js';
+import { analyze, generateMaterial, getLessons, getLesson, getStatus, loadSettings, matchLesson, saveSettings } from './api.js';
 import { DEMO_LESSON_18, DEMO_LESSONS } from './demo.js';
 
 const LEVEL_LABEL = { error: '必须改错', improve: '润色升级', study: '对照学习' };
 const CATEGORY_COLOR = {
-  拼写: 'red', 标点: 'red', 语法: 'blue', 时态: 'blue', 词义: 'gold', 搭配: 'gold',
-  语境: 'purple', 流畅度: 'teal', 地道程度: 'teal', 专名: 'purple', 其他: 'gray',
+  拼写: 'red', 标点: 'red', 语法: 'blue', 时态: 'blue', 语态: 'blue', 句式: 'blue',
+  词义: 'gold', 近义词辨析: 'gold', 搭配: 'gold', 语义轻重: 'gold', 内涵外延: 'gold',
+  感情色彩: 'gold', 语境: 'purple', 语域: 'purple', 语用: 'purple',
+  流畅度: 'teal', 地道程度: 'teal', 习语: 'teal', 专名: 'purple', 其他: 'gray',
 };
 
 function isMarker(line) {
@@ -106,6 +108,57 @@ function DraftText({ text, findings }) {
   return out;
 }
 
+function SynRow({ s }) {
+  if (!s) return null;
+  if (typeof s === 'string') return <div className="syn-row"><div className="syn-head"><strong className="syn-word">{s}</strong></div></div>;
+  return (
+    <div className="syn-row">
+      <div className="syn-head">
+        <strong className="syn-word">{s.word}</strong>
+        {s.register ? <span className="syn-meta">{s.register}</span> : null}
+        {s.tone ? <span className="syn-meta">{s.tone}</span> : null}
+        {s.strength ? <span className="syn-meta">{s.strength}</span> : null}
+      </div>
+      {s.meaning ? <div className="syn-meaning">{s.meaning}</div> : null}
+      {s.usage ? <div className="syn-usage">{s.usage}</div> : null}
+      {s.example ? <div className="syn-ex">{s.example}</div> : null}
+    </div>
+  );
+}
+
+function FindingExtras({ finding }) {
+  const f = finding || {};
+  const dims = Array.isArray(f.dimensions) ? f.dimensions : [];
+  const syns = Array.isArray(f.synonyms) ? f.synonyms : [];
+  const exs = Array.isArray(f.examples) ? f.examples : [];
+  if (!dims.length && !syns.length && !exs.length && !f.idiom) return null;
+  return (
+    <div className="finding-extras">
+      {dims.length ? (
+        <div className="dim-row"><span className="ext-label">辨析维度</span>
+          <span className="dim-chips">{dims.map((d, i) => <span className="dim-chip" key={'fd' + i}>{d}</span>)}</span>
+        </div>
+      ) : null}
+      {f.idiom ? <div className="idiom-note"><span className="ext-label">地道习语</span><strong>{f.idiom}</strong></div> : null}
+      {syns.length ? (
+        <div className="syn-block"><span className="ext-label">近义词对比</span>
+          <div className="syn-list">{syns.map((s, i) => <SynRow key={'fs' + i} s={s} />)}</div>
+        </div>
+      ) : null}
+      {exs.length ? (
+        <div className="ex-block"><span className="ext-label">例句</span>
+          {exs.map((x, i) => (
+            <div className="example-line" key={'fe' + i}>
+              <em>{x?.en || x?.example || ''}</em>
+              {x?.cn ? <span>{x.cn}</span> : null}
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function App() {
   const [settings, setSettings] = useState(loadSettings());
   const [status, setStatus] = useState(null);
@@ -124,6 +177,13 @@ function App() {
   const [result, setResult] = useState(null);
   const [view, setView] = useState('editor');
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [materialOpen, setMaterialOpen] = useState(false);
+  const [materialTopic, setMaterialTopic] = useState('');
+  const [materialLevel, setMaterialLevel] = useState('中级');
+  const [materialStyle, setMaterialStyle] = useState('生活故事');
+  const [materialBusy, setMaterialBusy] = useState(false);
+  const [materialKeywords, setMaterialKeywords] = useState([]);
+  const [generatedOriginal, setGeneratedOriginal] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(() => {
     if (typeof window !== 'undefined' && window.innerWidth <= 900) return false;
     return localStorage.getItem('bt-sidebar') !== 'collapsed';
@@ -174,11 +234,15 @@ function App() {
       setTitle(lessonLabel(lesson));
       setChinese(lesson.chinese || '');
       setDraft('');
+      setGeneratedOriginal('');
+      setMaterialKeywords([]);
       setMatchedLesson(lesson);
     } catch {
       setTitle(`Lesson ${nextLesson}`);
       setChinese('');
       setDraft('');
+      setGeneratedOriginal('');
+      setMaterialKeywords([]);
     }
     if (autoGenerate) setTimeout(() => runGenerate(nextLesson), 60);
   };
@@ -202,6 +266,8 @@ function App() {
       setTitle(parsed.title);
       setChinese(parsed.chinese);
       setDraft(parsed.draft);
+      setGeneratedOriginal('');
+      setMaterialKeywords([]);
       const found = await matchLesson({ title: parsed.title, chinese: parsed.chinese });
       if (found?.match) {
         setBook(found.match.book);
@@ -221,6 +287,32 @@ function App() {
     }
   };
 
+  const handleGenerateMaterial = async () => {
+    const topic = materialTopic.trim();
+    if (!topic) { setError('请填写素材主题'); return; }
+    setError(''); setMaterialBusy(true);
+    try {
+      const resp = await generateMaterial({
+        topic, level: materialLevel, style: materialStyle,
+        baseUrl: settings.baseUrl, model: settings.model, apiKey: settings.apiKey,
+      });
+      const data = resp.data || {};
+      if (!data.original || !data.chinese) throw new Error('AI 返回内容不完整，请重试');
+      setTitle(data.title || topic);
+      setChinese(data.chinese);
+      setDraft('');
+      setGeneratedOriginal(data.original);
+      setMaterialKeywords(data.keywords || []);
+      setMatchedLesson(null);
+      setMode('free');
+      setMaterialOpen(false);
+    } catch (e) {
+      setError(e.message || '素材生成失败');
+    } finally {
+      setMaterialBusy(false);
+    }
+  };
+
   const runGenerate = async (overrideLessonId) => {
     const id = overrideLessonId ?? lessonId;
     const cn = chinese.trim();
@@ -233,6 +325,7 @@ function App() {
         title: title.trim(), chinese: cn, draft: df,
         book: mode === 'lesson' ? book : undefined,
         lessonId: mode === 'lesson' ? id : undefined,
+        original: mode === 'free' ? (generatedOriginal || undefined) : undefined,
         baseUrl: settings.baseUrl, model: settings.model, apiKey: settings.apiKey,
       });
       setResult(resp.data);
@@ -259,8 +352,15 @@ function App() {
       '【逐句解析】', result.overall?.summary || '', '',
       ...(result.sentences || []).flatMap((s, i) => [
         String(i + 1) + '. ' + s.cn, '原稿：' + s.draft, 'AI 修正版：' + s.ai,
-        '原文：' + s.original, ...(s.findings || []).map((f) => '· [' + f.category + '] ' + f.from + ' → ' + f.to + '：' + f.explanation), '',
+        '原文：' + s.original, ...(s.findings || []).map((f) => {
+          const dims = Array.isArray(f.dimensions) && f.dimensions.length ? '（维度：' + f.dimensions.join('、') + '）' : '';
+          const syns = Array.isArray(f.synonyms) && f.synonyms.length ? '；近义词：' + f.synonyms.map((s) => typeof s === 'string' ? s : (s.word + (s.meaning ? ' ' + s.meaning : ''))).join(' / ') : '';
+          const idiom = f.idiom ? '；习语：' + f.idiom : '';
+          return '· [' + f.category + '] ' + f.from + ' → ' + f.to + '：' + f.explanation + dims + syns + idiom;
+        }), '',
       ]),
+      '【词汇深度辨析】', ...(result.vocabularyNotes || []).map((v, i) => String(i + 1) + '. ' + v.word + (v.type ? '（' + v.type + '）' : '') + '：' + (v.meaning || '') + (v.note ? ' ' + v.note : '')), '',
+      '【地道习语】', ...(result.idiomHighlights || []).map((id, i) => String(i + 1) + '. ' + id.idiom + (id.common ? '（普通说法：' + id.common + '）' : '') + '：' + (id.explanation || '')), '',
       '【可学习的高级句式】', ...(result.advancedSentences || []).map((a) => '· ' + a), '',
       '【加分表达】', ...(result.bonusExpressions || []).map((b) => '· ' + b), '',
     ].join('\n');
@@ -318,8 +418,12 @@ function App() {
                 {parsing ? '正在读取 DOCX…' : '上传 DOCX 作业'}
               </button>
               <span className="upload-name">{fileName || '上传后自动读取标题、中文和英文初稿'}</span>
+              <button className="ghost-btn" onClick={() => { setMaterialOpen(true); setError(''); }} disabled={materialBusy}>
+                <Sparkles size={16} />AI 生成训练素材
+              </button>
             </div>
             {matchedLesson && <div className="match-banner"><BookOpen size={15} />已匹配：新概念英语第 {matchedLesson.book} 册 · Lesson {matchedLesson.lesson} · {matchedLesson.title_en}，原文将自动带入分析</div>}
+            {generatedOriginal && <div className="match-banner"><Sparkles size={15} />已载入 AI 原创训练素材（无教材版权）：{title}{materialKeywords.length ? ` · 建议词汇：${materialKeywords.join('、')}` : ''}，请根据中文提示写出你的英文初稿</div>}
             <div className="mode-tabs">
               <button className={mode === 'lesson' ? 'active' : ''} onClick={() => setMode('lesson')}><BookOpen size={15} />课文模式</button>
               <button className={mode === 'free' ? 'active' : ''} onClick={() => setMode('free')}><PenLine size={15} />自由模式</button>
@@ -351,6 +455,27 @@ function App() {
           </section>
         )}
       </main>
+
+      {materialOpen && (
+        <div className="modal-mask" onClick={() => !materialBusy && setMaterialOpen(false)}>
+          <div className="modal material-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head"><h2>AI 生成训练素材</h2><button className="icon-btn" onClick={() => setMaterialOpen(false)} disabled={materialBusy}><X size={16} /></button></div>
+            <label>主题<textarea rows={2} value={materialTopic} onChange={(e) => setMaterialTopic(e.target.value)} placeholder="例如：春节的由来 / 人工智能改变生活 / 城市通勤 / 中国茶文化" /></label>
+            <div className="material-grid">
+              <label>难度<select value={materialLevel} onChange={(e) => setMaterialLevel(e.target.value)}><option>基础</option><option>中级</option><option>高级</option></select></label>
+              <label>文章类型<select value={materialStyle} onChange={(e) => setMaterialStyle(e.target.value)}><option>生活故事</option><option>中国文化</option><option>时事观察</option><option>科技</option><option>人物故事</option></select></label>
+            </div>
+            <p className="muted small">AI 将原创一篇 120-220 词英文短文 + 完整中文翻译，避开教材版权，可直接用于回译训练。</p>
+            <div className="modal-actions">
+              <button className="primary-btn" onClick={handleGenerateMaterial} disabled={materialBusy}>
+                {materialBusy ? <LoaderCircle className="spin" size={16} /> : <Sparkles size={16} />}
+                {materialBusy ? 'AI 正在创作素材…' : '生成素材'}
+              </button>
+              <button className="ghost-btn" onClick={() => setMaterialOpen(false)} disabled={materialBusy}>取消</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {settingsOpen && (
         <div className="modal-mask" onClick={() => setSettingsOpen(false)}>
@@ -397,6 +522,8 @@ function ResultSheet({ result, onBack, onCopy }) {
           </div>
           {sentences.map((sentence, i) => <SentenceCard key={'s' + i} index={i} sentence={sentence} />)}
         </section>
+        <VocabularyNotes items={result.vocabularyNotes} />
+        <IdiomHighlights items={result.idiomHighlights} />
         <section className="sheet-section summary">
           <div className="section-heading"><span className="label-dot" /><h2>学习总结 · 可学习的高级句式与加分表达</h2></div>
           <SummaryBlock title="高级句式" tone="teal" items={result.advancedSentences} />
@@ -426,6 +553,7 @@ function SentenceCard({ index, sentence }) {
           <div className="finding-top"><span className={'cat cat-' + (CATEGORY_COLOR[finding.category] || 'gray')}>{finding.category}</span><span className="level">{LEVEL_LABEL[finding.level] || finding.level}</span></div>
           <div className="finding-diff"><span className="from">{finding.from}</span><span className="arrow">→</span><strong className="to">{finding.to}</strong></div>
           <p className="finding-exp">{finding.explanation}</p>
+          <FindingExtras finding={finding} />
         </div>)}
         {findings.length === 0 && <div className="muted small">该句未发现明显问题。</div>}
       </div>
@@ -435,6 +563,49 @@ function SentenceCard({ index, sentence }) {
 
 function VersionRow({ label, tone, text }) {
   return <div className={'v-row ' + tone}><span className="v-label">{label}</span><p>{text}</p></div>;
+}
+
+function VocabularyNotes({ items }) {
+  const arr = Array.isArray(items) ? items.filter(Boolean) : [];
+  if (!arr.length) return null;
+  return (
+    <section className="sheet-section vocab">
+      <div className="section-heading"><span className="label-dot" /><h2>词汇深度辨析</h2><span className="muted small">{arr.length} 组核心词 · 六大维度拆解</span></div>
+      {arr.map((v, i) => {
+        const dims = Array.isArray(v.dimensions) ? v.dimensions : [];
+        const syns = Array.isArray(v.synonyms) ? v.synonyms : [];
+        const exs = Array.isArray(v.examples) ? v.examples : [];
+        return (
+          <div className="vocab-card" key={'vn' + i}>
+            <div className="vocab-head"><strong className="vocab-word">{v.word}</strong>{v.type ? <span className="vocab-type">{v.type}</span> : null}</div>
+            {v.meaning ? <p className="vocab-meaning">{v.meaning}</p> : null}
+            {dims.length ? <div className="dim-chips">{dims.map((d, j) => <span className="dim-chip" key={'vd' + j}>{d}</span>)}</div> : null}
+            {syns.length ? <div className="syn-block"><span className="ext-label">近义词对比</span><div className="syn-list">{syns.map((s, j) => <SynRow key={'vs' + j} s={s} />)}</div></div> : null}
+            {exs.length ? <div className="ex-block"><span className="ext-label">例句</span>{exs.map((x, j) => <div className="example-line" key={'ve' + j}><em>{x?.en || x?.example || ''}</em>{x?.cn ? <span>{x.cn}</span> : null}</div>)}</div> : null}
+            {v.note ? <p className="vocab-note">{v.note}</p> : null}
+          </div>
+        );
+      })}
+    </section>
+  );
+}
+
+function IdiomHighlights({ items }) {
+  const arr = Array.isArray(items) ? items.filter(Boolean) : [];
+  if (!arr.length) return null;
+  return (
+    <section className="sheet-section idiom">
+      <div className="section-heading"><span className="label-dot" /><h2>地道习语强化</h2><span className="muted small">{arr.length} 条 · 写作与口语加分素材</span></div>
+      {arr.map((id, i) => (
+        <div className="idiom-card" key={'ih' + i}>
+          <div className="idiom-head"><span className="idiom-badge">习语</span><strong>{id.idiom}</strong>{id.situation ? <span className="idiom-situation">{id.situation}</span> : null}</div>
+          {id.common ? <div className="idiom-common">普通说法：{id.common}</div> : null}
+          {id.example ? <div className="idiom-example">{id.example}</div> : null}
+          {id.explanation ? <p className="idiom-exp">{id.explanation}</p> : null}
+        </div>
+      ))}
+    </section>
+  );
 }
 
 function SummaryBlock({ title, tone, items }) {

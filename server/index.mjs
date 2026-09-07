@@ -2,7 +2,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { SYSTEM_PROMPT, buildUserMessage } from './prompt.mjs';
+import { SYSTEM_PROMPT, buildUserMessage, MATERIAL_PROMPT, buildMaterialMessage } from './prompt.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -242,14 +242,47 @@ const server = http.createServer(async (req, res) => {
         confidence: match ? (lessonNumber(body.title) === match.lesson ? 'high' : 'medium') : 'none',
       });
     }
+    if (p === '/api/generate-material' && req.method === 'POST') {
+      const body = await readBody(req);
+      const topic = String(body.topic || '').trim();
+      if (!topic) return json(res, 400, { error: '请填写主题，例如：春节、人工智能、城市通勤' });
+      const level = String(body.level || '中级');
+      const style = String(body.style || '生活故事');
+      const baseUrl = String(body.baseUrl || '').trim() || stat.baseUrl();
+      const model = String(body.model || '').trim() || stat.model();
+      const apiKey = String(body.apiKey || '').trim() || process.env.AI_API_KEY || '';
+      if (!apiKey) return json(res, 400, { error: '未配置 AI_API_KEY：请复制 .env.example 为 .env 并填写，或在设置面板填入 API Key' });
+
+      const messages = [
+        { role: 'system', content: MATERIAL_PROMPT },
+        { role: 'user', content: buildMaterialMessage({ topic, level, style }) },
+      ];
+      const raw = await callLLM({ baseUrl, model, apiKey, messages });
+      let parsed;
+      try {
+        parsed = JSON.parse(stripJson(raw));
+      } catch (e) {
+        return json(res, 502, { error: '模型返回不是有效 JSON，请重试或换模型', raw: raw.slice(0, 800) });
+      }
+      return json(res, 200, {
+        ok: true,
+        data: {
+          title: String(parsed.title || topic).trim(),
+          original: String(parsed.original || '').trim(),
+          chinese: String(parsed.chinese || '').trim(),
+          keywords: Array.isArray(parsed.keywords) ? parsed.keywords.filter(Boolean) : [],
+        },
+      });
+    }
     if (p === '/api/analyze' && req.method === 'POST') {
       const body = await readBody(req);
       const chinese = String(body.chinese || '').trim();
       const draft = String(body.draft || '').trim();
       if (!chinese || !draft) return json(res, 400, { error: '缺少中文提示或英文初稿' });
 
+      const userOriginal = String(body.original || '').trim();
       const lessonNo = body.lessonId != null ? Number(body.lessonId) : null;
-      const lesson = resolveLesson({ book: body.book, lessonId: lessonNo, title: body.title, chinese });
+      const lesson = userOriginal ? null : resolveLesson({ book: body.book, lessonId: lessonNo, title: body.title, chinese });
       const title = body.title || (lesson ? 'Lesson ' + lesson.lesson + ' · ' + (lesson.title_en || lesson.title_cn) : '自由回译训练');
 
       const baseUrl = String(body.baseUrl || '').trim() || stat.baseUrl();
@@ -259,7 +292,7 @@ const server = http.createServer(async (req, res) => {
 
       const messages = [
         { role: 'system', content: SYSTEM_PROMPT },
-        { role: 'user', content: buildUserMessage({ title, chinese, draft, original: lesson ? lesson.english : '' }) },
+        { role: 'user', content: buildUserMessage({ title, chinese, draft, original: lesson ? lesson.english : userOriginal }) },
       ];
       const raw = await callLLM({ baseUrl, model, apiKey, messages });
       let parsed;
@@ -273,9 +306,11 @@ const server = http.createServer(async (req, res) => {
         chinese: parsed.chinese || chinese,
         draft: parsed.draft || draft,
         ai: parsed.ai || '',
-        original: parsed.original || (lesson ? lesson.english : ''),
+        original: parsed.original || (lesson ? lesson.english : userOriginal),
         overall: parsed.overall || {},
         sentences: Array.isArray(parsed.sentences) ? parsed.sentences : [],
+        vocabularyNotes: Array.isArray(parsed.vocabularyNotes) ? parsed.vocabularyNotes : [],
+        idiomHighlights: Array.isArray(parsed.idiomHighlights) ? parsed.idiomHighlights : [],
         advancedSentences: Array.isArray(parsed.advancedSentences) ? parsed.advancedSentences : [],
         bonusExpressions: Array.isArray(parsed.bonusExpressions) ? parsed.bonusExpressions : [],
       };

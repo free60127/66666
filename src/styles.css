@@ -134,6 +134,38 @@ mark.hl { background: #ffe9a8; color: inherit; padding: 0 1px; border-radius: 2p
 .finding-diff .arrow { color: var(--muted); }
 .finding-diff .to { color: var(--green); }
 .finding-exp { margin: 0; font-size: 13px; line-height: 1.75; color: #3d4854; }
+.finding-extras { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--line); display: flex; flex-direction: column; gap: 7px; }
+.ext-label { font-size: 11px; color: var(--muted); font-weight: 700; margin-right: 6px; flex-shrink: 0; }
+.dim-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12px; }
+.dim-chips { display: inline-flex; flex-wrap: wrap; gap: 5px; }
+.dim-chip { font-size: 11px; background: #eef2fb; color: var(--blue); border-radius: 999px; padding: 2px 8px; }
+.idiom-note { font-size: 12px; color: #0d7a70; display: flex; gap: 6px; align-items: baseline; }
+.idiom-note strong { font-size: 14px; }
+.syn-block, .ex-block { display: flex; flex-direction: column; gap: 5px; font-size: 12px; }
+.syn-list { display: flex; flex-direction: column; gap: 6px; }
+.syn-row { border: 1px solid var(--line); background: #fff; border-radius: 8px; padding: 7px 9px; }
+.syn-head { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }
+.syn-word { font-size: 13px; color: var(--text); }
+.syn-meta { font-size: 11px; color: var(--muted); background: #f2f5f8; border-radius: 999px; padding: 1px 7px; }
+.syn-meaning { margin-top: 2px; font-size: 12px; }
+.syn-usage { font-size: 12px; color: #3d4854; margin-top: 2px; }
+.syn-ex { font-size: 12px; color: #0d7a70; margin-top: 3px; font-style: italic; }
+.example-line { font-size: 12px; line-height: 1.6; display: flex; gap: 8px; align-items: baseline; }
+.example-line em { color: #0d7a70; flex-shrink: 0; font-style: italic; }
+.example-line span { color: var(--muted); }
+.vocab-card { border: 1px solid var(--line); border-left: 4px solid var(--blue); border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; background: #fbfcfd; }
+.vocab-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 4px; }
+.vocab-word { font-size: 16px; }
+.vocab-type { font-size: 11px; background: #e8f0fb; color: var(--brand); border-radius: 5px; padding: 1px 7px; }
+.vocab-meaning { margin: 0 0 5px; font-size: 13px; }
+.vocab-note { margin: 6px 0 0; font-size: 12.5px; color: #3d4854; line-height: 1.7; }
+.idiom-card { border: 1px solid var(--line); border-left: 4px solid var(--teal); border-radius: 10px; padding: 10px 12px; margin-bottom: 10px; background: #fbfcfd; }
+.idiom-head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; margin-bottom: 4px; }
+.idiom-badge { font-size: 10px; background: var(--teal); color: #fff; border-radius: 5px; padding: 1px 6px; }
+.idiom-situation { font-size: 12px; color: var(--muted); }
+.idiom-common { font-size: 12px; color: var(--muted); }
+.idiom-example { font-size: 13px; color: #0d7a70; font-style: italic; margin: 3px 0; }
+.idiom-exp { margin: 0; font-size: 13px; line-height: 1.7; }
 
 .modal-mask { position: fixed; inset: 0; background: rgba(15, 25, 35, .45); display: grid; place-items: center; z-index: 50; }
 .modal { width: 420px; max-width: calc(100vw - 32px); background: #fff; border-radius: 14px; padding: 20px; }
@@ -141,6 +173,9 @@ mark.hl { background: #ffe9a8; color: inherit; padding: 0 1px; border-radius: 2p
 .modal-head h2 { margin: 0; font-size: 17px; }
 .modal label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 12px; }
 .modal input { width: 100%; margin-top: 6px; border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; }
+.material-modal { width: 480px; }
+.material-modal textarea, .material-modal select { width: 100%; margin-top: 6px; border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; font: inherit; background: #fff; }
+.material-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
 .icon-btn { border-radius: 8px; padding: 6px; color: var(--muted); }
 .icon-btn:hover { background: #f0f3f6; }
