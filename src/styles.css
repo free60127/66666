@@ -190,9 +190,43 @@ mark.hl { background: #ffe9a8; color: inherit; padding: 0 1px; border-radius: 2p
   .sidebar-close { display: inline-flex; position: absolute; top: 10px; right: 10px; z-index: 41; }
   .sidebar-backdrop { display: block; position: fixed; inset: 0; z-index: 39; background: rgba(0, 0, 0, .35); }
   .editor-grid { grid-template-columns: 1fr; }
-  .sheet { padding: 20px 18px; }
-  .v-row { grid-template-columns: 64px 1fr; }
+  .sheet { padding: 16px 12px; border-radius: 12px; }
+  .v-row { grid-template-columns: 52px 1fr; gap: 6px; }
   .title-field { align-items: stretch; flex-direction: column; gap: 5px; }
+
+  /* 顶部栏：允许换行，状态条独占一行，避免按钮被挤出屏幕 */
+  .topbar { flex-wrap: wrap; height: auto; min-height: 0; padding: 8px 12px; gap: 8px; }
+  .topbar-left { flex: 1 1 auto; min-width: 0; }
+  .topbar-left strong { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: inline-block; max-width: 100%; vertical-align: middle; }
+  .topbar .ghost-btn { white-space: nowrap; }
+  .status-chip { margin-left: 0; order: 9; flex-basis: 100%; justify-content: center; max-width: 100%; padding: 5px 8px; font-size: 11px; }
+
+  /* 结果页操作栏：2 列网格，按钮占满半宽 */
+  .result { padding: 10px 8px; }
+  .result-toolbar { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; max-width: none; width: 100%; margin: 0 auto 12px; }
+  .result-toolbar .ghost-btn { justify-content: center; width: 100%; padding: 10px 8px; font-size: 13px; }
+  .share-tip { grid-column: 1 / -1; text-align: center; }
+
+  /* 综合评价卡：上下排列，分项得分紧凑 */
+  .overall-card { flex-direction: column; gap: 12px; padding: 14px; }
+  .score-ring { align-self: center; margin: 0 auto 4px; }
+  .score-row { gap: 6px; }
+  .score-label { width: 70px; font-size: 12px; }
+  .score-num { width: 36px; }
+  .score-comment { margin-left: 0; }
+
+  /* 卡片与内容留白收紧 */
+  .sentence-card { padding: 12px; }
+  .finding { padding: 8px 10px; }
+  .sheet-title h1 { font-size: 20px; line-height: 1.3; }
+  .section-heading { flex-wrap: wrap; }
+  .finding-diff { overflow-wrap: anywhere; }
+  .example-line { flex-direction: column; gap: 2px; align-items: flex-start; }
+  .example-line em { flex-shrink: 1; }
+
+  /* 弹窗占满手机宽度 */
+  .modal, .history-modal, .material-modal { width: calc(100vw - 24px); max-width: calc(100vw - 24px); }
+  .modal { padding: 16px; }
 }
 
 @media print {
