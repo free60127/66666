@@ -220,3 +220,13 @@ mark.hl { background: #ffe9a8; color: inherit; padding: 0 1px; border-radius: 2p
   /* 标题/行首/纠错箭头尽量不脱离上下文 */
   .sentence-head, .finding-top, .finding-diff, .v-label, .summary-title { break-inside: avoid !important; page-break-inside: avoid !important; break-after: avoid; page-break-after: avoid; }
 }
+
+/* 历史记录 + 分享链接（P1 #7 持久化/历史/分享） */
+.share-tip { font-size: 12px; color: var(--teal); align-self: center; }
+.history-modal { width: 460px; }
+.history-list { display: flex; flex-direction: column; gap: 8px; max-height: 55vh; overflow: auto; margin: 4px 0 10px; }
+.history-item { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; text-align: left; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: #fbfcfd; cursor: pointer; }
+.history-item:hover { border-color: var(--brand); }
+.history-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.history-info strong { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.history-link { font-size: 12px; color: var(--brand); flex-shrink: 0; }

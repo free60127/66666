@@ -2,9 +2,9 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import mammoth from 'mammoth/mammoth.browser.js';
 import {
   ArrowLeft, BookOpen, CheckCircle2, ClipboardCopy, Download, FileText, Flame,
-  LoaderCircle, PanelLeftClose, PanelLeftOpen, PenLine, Plus, Settings, Sparkles, Upload, WandSparkles, X,
+  History, Link2, LoaderCircle, PanelLeftClose, PanelLeftOpen, PenLine, Plus, Settings, Sparkles, Upload, WandSparkles, X,
 } from 'lucide-react';
-import { analyze, generateMaterial, getAnalyzeJob, getLessons, getLesson, getStatus, loadSettings, matchLesson, saveSettings } from './api.js';
+import { analyze, generateMaterial, getAnalyzeJob, getLessons, getLesson, getMaterialJob, getStatus, loadSettings, matchLesson, saveSettings } from './api.js';
 import { DEMO_LESSON_18, DEMO_LESSONS } from './demo.js';
 
 const LEVEL_LABEL = { error: '必须改错', improve: '润色升级', study: '对照学习' };
@@ -14,6 +14,21 @@ const CATEGORY_COLOR = {
   感情色彩: 'gold', 语境: 'purple', 语域: 'purple', 语用: 'purple',
   流畅度: 'teal', 地道程度: 'teal', 习语: 'teal', 专名: 'purple', 其他: 'gray',
 };
+
+const HISTORY_KEY = 'bt-history';
+function loadHistory() {
+  try {
+    const arr = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
+    return Array.isArray(arr) ? arr.filter(Boolean) : [];
+  } catch { return []; }
+}
+function saveHistory(arr) {
+  try { localStorage.setItem(HISTORY_KEY, JSON.stringify(arr.slice(0, 20))); } catch { /* ignore */ }
+}
+function formatTime(ts) {
+  if (!ts) return '';
+  try { return new Date(ts).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }); } catch { return ''; }
+}
 
 function isMarker(line) {
   return /^(标题|中文|中文译文|译文|原稿|初稿|英文初稿|学生译本|AI\s*(润色|修正)|原文|原版|逐句|详细错误|分析)/i.test(line.trim());
@@ -190,6 +205,10 @@ function App() {
   const [materialBusy, setMaterialBusy] = useState(false);
   const [materialKeywords, setMaterialKeywords] = useState([]);
   const [generatedOriginal, setGeneratedOriginal] = useState('');
+  const [currentJobId, setCurrentJobId] = useState('');
+  const [historyList, setHistoryList] = useState(loadHistory);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [shareTip, setShareTip] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(() => {
     if (typeof window !== 'undefined' && window.innerWidth <= 900) return false;
     return localStorage.getItem('bt-sidebar') !== 'collapsed';
@@ -240,6 +259,25 @@ function App() {
       selectLesson(target.book, target.lesson);
     });
     return () => { alive = false; };
+  }, []);
+
+  // 通过分享链接 #job=xxx 打开时，直接恢复该次生成结果（即使后端重启过，任务已持久化）
+  useEffect(() => {
+    const m = window.location.hash.match(/^#job=([A-Za-z0-9-]{8,64})/);
+    if (!m) return;
+    const jobId = m[1];
+    getAnalyzeJob(jobId).then((r) => {
+      if (r.job?.status === 'done' && r.job.data) {
+        setResult(r.job.data);
+        setCurrentJobId(jobId);
+        setView('result');
+        setError('');
+      } else if (r.job?.status === 'error') {
+        setError(r.job.error || '该任务生成失败');
+      } else {
+        setError('该结果仍在生成中，请稍后刷新查看');
+      }
+    }).catch(() => {});
   }, []);
 
   const visibleLessons = useMemo(() => lessons.filter((l) => l.book === book), [lessons, book]);
@@ -324,20 +362,93 @@ function App() {
         topic, level: materialLevel, style: materialStyle,
         baseUrl: settings.baseUrl, model: settings.model, apiKey: settings.apiKey,
       });
-      const data = resp.data || {};
-      if (!data.original || !data.chinese) throw new Error('AI 返回内容不完整，请重试');
-      setTitle(data.title || topic);
-      setChinese(data.chinese);
-      setDraft('');
-      setGeneratedOriginal(data.original);
-      setMaterialKeywords(data.keywords || []);
-      setMatchedLesson(null);
-      setMode('free');
-      setMaterialOpen(false);
+      const jobId = resp.jobId;
+      if (!jobId) throw new Error('服务器未返回任务编号，请重试');
+      const deadline = Date.now() + 10 * 60 * 1000;
+      let pollFailures = 0;
+      while (Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 2500));
+        let r;
+        try {
+          r = await getMaterialJob(jobId);
+          pollFailures = 0;
+        } catch (e) {
+          pollFailures += 1;
+          if (pollFailures > 10) throw new Error('网络不稳定，暂时无法获取素材，请重试');
+          continue;
+        }
+        const job = r.job;
+        if (!job) continue;
+        if (job.status === 'done') {
+          const data = job.data || {};
+          if (!data.original || !data.chinese) throw new Error('AI 返回内容不完整，请重试');
+          setTitle(data.title || topic);
+          setChinese(data.chinese);
+          setDraft('');
+          setGeneratedOriginal(data.original);
+          setMaterialKeywords(data.keywords || []);
+          setMatchedLesson(null);
+          setMode('free');
+          setMaterialOpen(false);
+          return;
+        }
+        if (job.status === 'error') {
+          throw new Error(job.error || '素材生成失败，请重试');
+        }
+      }
+      throw new Error('生成素材超时（超过10分钟），请重新提交');
     } catch (e) {
       setError(e.message || '素材生成失败');
     } finally {
       setMaterialBusy(false);
+    }
+  };
+
+  const addToHistory = (jobId, jobTitle) => {
+    setHistoryList((prev) => {
+      const next = [{ jobId, title: jobTitle || '回译作业', time: Date.now() }, ...prev.filter((x) => x.jobId !== jobId)].slice(0, 20);
+      saveHistory(next);
+      return next;
+    });
+  };
+
+  const openHistoryModal = () => {
+    setHistoryList(loadHistory());
+    setHistoryOpen(true);
+  };
+
+  const loadHistoryJob = async (jobId) => {
+    try {
+      const r = await getAnalyzeJob(jobId);
+      const job = r.job;
+      setHistoryOpen(false);
+      if (job?.status === 'done' && job.data) {
+        setResult(job.data);
+        setCurrentJobId(jobId);
+        setView('result');
+        setError('');
+        window.history.replaceState(null, '', '#job=' + jobId);
+      } else if (job?.status === 'error') {
+        setError(job.error || '该任务生成失败');
+      } else {
+        setError('该结果仍在生成中或已超时，请稍后再试');
+      }
+    } catch (e) {
+      setHistoryOpen(false);
+      setError(e.message || '无法读取该结果');
+    }
+  };
+
+  const shareResult = async () => {
+    if (!currentJobId) { setShareTip('当前是离线示例，没有可分享的结果链接'); return; }
+    const url = window.location.origin + window.location.pathname + '#job=' + currentJobId;
+    try {
+      await navigator.clipboard.writeText(url);
+      setShareTip('分享链接已复制，可发给老师或同学');
+      setError('');
+      setTimeout(() => setShareTip(''), 4000);
+    } catch {
+      setShareTip('复制失败，请手动复制链接：' + url);
     }
   };
 
@@ -378,7 +489,10 @@ function App() {
         if (!job) continue;
         if (job.status === 'done') {
           setResult(job.data);
+          setCurrentJobId(jobId);
           setView('result');
+          addToHistory(jobId, job.data?.title || title);
+          window.history.replaceState(null, '', '#job=' + jobId);
           return;
         }
         if (job.status === 'error') {
@@ -398,6 +512,8 @@ function App() {
     setResult(DEMO_LESSON_18);
     setView('result');
     setError('');
+    setCurrentJobId('');
+    window.history.replaceState(null, '', window.location.pathname + window.location.search);
   };
 
   const copyAll = async () => {
@@ -465,6 +581,7 @@ function App() {
             {status?.corpusLessons ? ' · ' + status.corpusLessons + ' 课' : ''}
           </div>
           <button className="ghost-btn" onClick={() => { setView('editor'); setResult(null); }}><X size={15} />编辑器</button>
+          {historyList.length > 0 ? <button className="ghost-btn" onClick={openHistoryModal}><History size={15} />历史结果</button> : null}
         </header>
 
         {view === 'editor' ? (
@@ -509,7 +626,7 @@ function App() {
           </section>
         ) : (
           <section className="result">
-            {result && <ResultSheet result={result} onBack={() => setView('editor')} onCopy={copyAll} />}
+            {result && <ResultSheet result={result} onBack={() => setView('editor')} onCopy={copyAll} onShare={shareResult} shareTip={shareTip} />}
           </section>
         )}
       </main>
@@ -535,6 +652,25 @@ function App() {
         </div>
       )}
 
+      {historyOpen && (
+        <div className="modal-mask" onClick={() => setHistoryOpen(false)}>
+          <div className="modal history-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head"><h2>历史作业</h2><button className="icon-btn" onClick={() => setHistoryOpen(false)}><X size={16} /></button></div>
+            {historyList.length === 0 ? <p className="muted">暂无历史记录。生成一次完整分析后，记录会自动保存在这里。</p> : (
+              <div className="history-list">
+                {historyList.map((h) => (
+                  <button className="history-item" key={h.jobId} onClick={() => loadHistoryJob(h.jobId)}>
+                    <span className="history-info"><strong>{h.title || '回译作业'}</strong><span className="muted small">{formatTime(h.time)}</span></span>
+                    <span className="history-link">查看结果</span>
+                  </button>
+                ))}
+              </div>
+            )}
+            <p className="muted small">历史记录保存在当前浏览器；每次结果也会持久化在后端 7 天，可通过分享链接在任何设备打开。</p>
+          </div>
+        </div>
+      )}
+
       {settingsOpen && (
         <div className="modal-mask" onClick={() => setSettingsOpen(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
@@ -551,7 +687,7 @@ function App() {
   );
 }
 
-function ResultSheet({ result, onBack, onCopy }) {
+function ResultSheet({ result, onBack, onCopy, onShare, shareTip }) {
   const overall = result.overall || {};
   const sentences = result.sentences || [];
   const allFindings = sentences.flatMap((s) => s.findings || []);
@@ -560,7 +696,9 @@ function ResultSheet({ result, onBack, onCopy }) {
       <div className="result-toolbar">
         <button className="ghost-btn" onClick={onBack}><ArrowLeft size={15} />返回编辑</button>
         <button className="ghost-btn" onClick={onCopy}><ClipboardCopy size={15} />复制全部</button>
+        <button className="ghost-btn" onClick={onShare}><Link2 size={15} />复制分享链接</button>
         <button className="ghost-btn" onClick={() => window.print()}><Download size={15} />导出 PDF</button>
+        {shareTip ? <span className="share-tip">{shareTip}</span> : null}
       </div>
       <article className="sheet">
         <header className="sheet-title"><span className="eyebrow">BACK-TRANSLATE TRAINING · 回译训练作业</span><h1>{result.title}</h1></header>

@@ -16,6 +16,7 @@ export const matchLesson = (payload) => api('/api/match', { method: 'POST', body
 export const analyze = (payload) => api('/api/analyze', { method: 'POST', body: JSON.stringify(payload) });
 export const getAnalyzeJob = (jobId) => api('/api/analyze/' + jobId);
 export const generateMaterial = (payload) => api('/api/generate-material', { method: 'POST', body: JSON.stringify(payload) });
+export const getMaterialJob = (jobId) => api('/api/generate-material/' + jobId);
 
 // 本地设置（仅个人使用时，key 会随请求发给 localhost 后端）
 const KEY = 'bt-studio-settings';

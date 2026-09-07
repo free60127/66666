@@ -128,8 +128,33 @@ const stat = {
   hasKey: () => Boolean(process.env.AI_API_KEY),
 };
 
-/* ---------- 异步分析与任务状态 ---------- */
-const analyzeJobs = new Map();
+/* ---------- 异步任务（分析/素材）持久化 ---------- */
+const DATA_DIR = path.join(ROOT, 'data');
+const JOBS_FILE = path.join(DATA_DIR, 'jobs.json');
+const JOB_TTL = 7 * 24 * 60 * 60 * 1000; // 保留 7 天，避免无限膨胀
+const jobs = new Map();
+
+function loadJobs() {
+  try {
+    const raw = JSON.parse(fs.readFileSync(JOBS_FILE, 'utf8'));
+    const arr = Array.isArray(raw.jobs) ? raw.jobs : [];
+    for (const j of arr) {
+      if (!j || !j.jobId) continue;
+      if (Date.now() - (j.createdAt || 0) < JOB_TTL) jobs.set(j.jobId, j);
+    }
+  } catch { /* 首次运行没有文件 */ }
+}
+function persistJobs() {
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.writeFileSync(JOBS_FILE, JSON.stringify({ jobs: [...jobs.values()] }));
+  } catch (e) { console.error('持久化任务失败:', e.message); }
+}
+function saveJob(job) {
+  jobs.set(job.jobId, job);
+  persistJobs();
+}
+loadJobs();
 
 /* ---------- helpers ---------- */
 function json(res, code, obj) {
@@ -167,15 +192,21 @@ function parseJsonLoose(raw) {
   throw new Error('invalid json');
 }
 
-async function postChat({ url, headers, body, withFormat }) {
+async function postChat({ url, headers, body, withFormat, timeoutMs = 120000 }) {
   let r;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     r = await fetch(url, {
       method: 'POST', headers,
+      signal: controller.signal,
       body: JSON.stringify(withFormat ? Object.assign({}, body, { response_format: { type: 'json_object' } }) : body),
     });
   } catch (e) {
+    if (e?.name === 'AbortError') throw new Error('模型接口请求超时（' + Math.round(timeoutMs / 1000) + '秒），请稍后重试');
     throw new Error('无法连接模型接口: ' + e.message);
+  } finally {
+    clearTimeout(timer);
   }
   return r;
 }
@@ -225,10 +256,11 @@ async function callLLM({ baseUrl, model, apiKey, messages }) {
 
 /* ---------- 异步分析任务 ---------- */
 async function runAnalyzeJob(jobId, { title, chinese, draft, original, lesson, lessonNo, baseUrl, model, apiKey }) {
-  const job = analyzeJobs.get(jobId);
+  const job = jobs.get(jobId);
   if (!job) return;
   job.status = 'running';
   job.startedAt = Date.now();
+  saveJob(job);
   try {
     const messages = [
       { role: 'system', content: SYSTEM_PROMPT },
@@ -256,12 +288,53 @@ async function runAnalyzeJob(jobId, { title, chinese, draft, original, lesson, l
     };
     job.status = 'done';
     job.meta = { book: lesson?.book || null, lessonId: lesson?.lesson || lessonNo, baseUrl, model };
+    saveJob(job);
   } catch (e) {
     job.status = 'error';
     job.error = e.message || '生成失败，请重试';
+    saveJob(job);
   } finally {
     job.finishedAt = Date.now();
-    setTimeout(() => analyzeJobs.delete(jobId), 10 * 60 * 1000);
+    saveJob(job);
+    setTimeout(() => { jobs.delete(jobId); persistJobs(); }, JOB_TTL);
+  }
+}
+
+/* ---------- 异步素材生成任务 ---------- */
+async function runMaterialJob(jobId, { topic, level, style, baseUrl, model, apiKey }) {
+  const job = jobs.get(jobId);
+  if (!job) return;
+  job.status = 'running';
+  job.startedAt = Date.now();
+  saveJob(job);
+  try {
+    const messages = [
+      { role: 'system', content: MATERIAL_PROMPT },
+      { role: 'user', content: buildMaterialMessage({ topic, level, style }) },
+    ];
+    const raw = await callLLM({ baseUrl, model, apiKey, messages });
+    let parsed;
+    try {
+      parsed = parseJsonLoose(raw);
+    } catch (e) {
+      throw new Error('模型返回不是有效 JSON，请重试或换模型');
+    }
+    job.data = {
+      title: String(parsed.title || topic).trim(),
+      original: String(parsed.original || '').trim(),
+      chinese: String(parsed.chinese || '').trim(),
+      keywords: Array.isArray(parsed.keywords) ? parsed.keywords.filter(Boolean) : [],
+    };
+    job.status = 'done';
+    saveJob(job);
+  } catch (e) {
+    job.status = 'error';
+    job.error = e.message || '素材生成失败，请重试';
+    saveJob(job);
+  } finally {
+    job.finishedAt = Date.now();
+    saveJob(job);
+    setTimeout(() => { jobs.delete(jobId); persistJobs(); }, JOB_TTL);
   }
 }
 
@@ -345,25 +418,18 @@ const server = http.createServer(async (req, res) => {
       const apiKey = String(body.apiKey || '').trim() || process.env.AI_API_KEY || '';
       if (!apiKey) return json(res, 400, { error: '未配置 AI_API_KEY：请复制 .env.example 为 .env 并填写，或在设置面板填入 API Key' });
 
-      const messages = [
-        { role: 'system', content: MATERIAL_PROMPT },
-        { role: 'user', content: buildMaterialMessage({ topic, level, style }) },
-      ];
-      const raw = await callLLM({ baseUrl, model, apiKey, messages });
-      let parsed;
-      try {
-        parsed = parseJsonLoose(raw);
-      } catch (e) {
-        return json(res, 502, { error: '模型返回不是有效 JSON，请重试或换模型', raw: raw.slice(0, 800) });
-      }
+      const jobId = randomUUID();
+      saveJob({ jobId, kind: 'material', title: '素材：' + topic, status: 'pending', createdAt: Date.now(), data: null, error: null });
+      runMaterialJob(jobId, { topic, level, style, baseUrl, model, apiKey });
+      return json(res, 200, { ok: true, jobId, status: 'pending' });
+    }
+    const materialMatch = p.match(/^\/api\/generate-material\/([A-Za-z0-9-]{8,64})$/);
+    if (materialMatch && req.method === 'GET') {
+      const job = jobs.get(materialMatch[1]);
+      if (!job || job.kind !== 'material') return json(res, 404, { error: '任务不存在或已过期，请重新提交' });
       return json(res, 200, {
         ok: true,
-        data: {
-          title: String(parsed.title || topic).trim(),
-          original: String(parsed.original || '').trim(),
-          chinese: String(parsed.chinese || '').trim(),
-          keywords: Array.isArray(parsed.keywords) ? parsed.keywords.filter(Boolean) : [],
-        },
+        job: { jobId: job.jobId, status: job.status, data: job.data || null, error: job.error || null },
       });
     }
     if (p === '/api/analyze' && req.method === 'POST') {
@@ -383,7 +449,7 @@ const server = http.createServer(async (req, res) => {
       if (!apiKey) return json(res, 400, { error: '未配置 AI_API_KEY：请复制 .env.example 为 .env 并填写，或在设置面板填入 API Key' });
 
       const jobId = randomUUID();
-      analyzeJobs.set(jobId, { jobId, status: 'pending', createdAt: Date.now(), data: null, error: null });
+      saveJob({ jobId, kind: 'analyze', title, status: 'pending', createdAt: Date.now(), data: null, error: null });
       // 立即返回任务号，后台再调用模型；手机端/弱网不会因长时间占用请求而卡死
       runAnalyzeJob(jobId, {
         title, chinese, draft, original: lesson ? lesson.english : userOriginal,
@@ -393,7 +459,7 @@ const server = http.createServer(async (req, res) => {
     }
     const jobMatch = p.match(/^\/api\/analyze\/([A-Za-z0-9-]{8,64})$/);
     if (jobMatch && req.method === 'GET') {
-      const job = analyzeJobs.get(jobMatch[1]);
+      const job = jobs.get(jobMatch[1]);
       if (!job) return json(res, 404, { error: '任务不存在或已过期，请重新提交' });
       return json(res, 200, {
         ok: true,

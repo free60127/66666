@@ -10,6 +10,7 @@ dist/
 
 # 临时文件
 tmp/
+data/
 .DS_Store
 Thumbs.db
 

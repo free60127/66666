@@ -80,9 +80,12 @@
 | GET | /api/lessons?book=2 | 课次列表（可省略 book） |
 | GET | /api/lessons/2/18 或 /api/lessons/18 | 单课详情（中文 + 原文） |
 | POST | /api/match | 按标题/中文匹配课次 |
-| POST | /api/generate-material | 生成 AI 原创训练素材（topic、level、style；返回 title/original/chinese/keywords） |
+| POST | /api/generate-material | 异步提交 AI 原创素材生成（topic、level、style），立即返回 `{ok, jobId}` |
+| GET | /api/generate-material/:jobId | 轮询素材生成状态：`{ok, job:{jobId, status, data?, error?}}`，status 为 pending / running / done / error |
 | POST | /api/analyze | 异步提交回译作业（chinese、draft + 可选 book、lessonId、title、original、baseUrl、model、apiKey），立即返回 `{ok, jobId}` |
 | GET | /api/analyze/:jobId | 轮询作业状态：`{ok, job:{jobId, status, data?, error?}}`，status 为 pending / running / done / error |
+
+所有任务（分析 + 素材）都会持久化到服务端 `data/jobs.json`（保留 7 天），后端重启不会丢失；结果页「复制分享链接」会生成 `#job=<jobId>` 链接，任何人打开都能恢复同一次批改结果；前端还会在本机浏览器保存最近 20 条历史记录。
 
 `/api/analyze/:jobId` 在 status=done 时 job.data 结构：{ title, chinese, draft, ai, original, overall{score,issues,summary,highlights,advice}, sentences[{cn,draft,ai,original,findings[{category,from,to,level,explanation,dimensions,synonyms,examples,idiom}]}], vocabularyNotes, idiomHighlights, advancedSentences, bonusExpressions }。
 
