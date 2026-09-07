@@ -48,6 +48,7 @@
 | AI_BASE_URL | OpenAI 兼容接口地址 | https://api.deepseek.com/v1 |
 | AI_MODEL | 模型名 | deepseek-chat |
 | AI_API_KEY | 服务端密钥（不要提交到仓库） | sk-... |
+| AI_MAX_TOKENS | 单次生成最大输出 token（默认 20000，输出被截断时自动重试更高上限） | 20000 |
 | PORT | 后端端口 | 8787 |
 
 前端「AI 设置」弹窗也可临时填 Base URL / Model / Key（仅存本机 localStorage，发给本地后端）；正式部署请一律用后端 .env。

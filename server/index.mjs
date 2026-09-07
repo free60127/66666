@@ -139,6 +139,10 @@ async function readBody(req) {
   if (!chunks.length) return {};
   try { return JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { return {}; }
 }
+const DEFAULT_MAX_TOKENS = Number(process.env.AI_MAX_TOKENS || 20000);
+const FALLBACK_MAX_TOKENS = 8192;
+const RETRY_MAX_TOKENS = 32000;
+
 function stripJson(raw) {
   let t = (raw || '').trim();
   const fence = t.match(/```(?:json)?\s*([\s\S]*?)```/i);
@@ -148,29 +152,71 @@ function stripJson(raw) {
   if (start >= 0 && end > start) t = t.slice(start, end + 1);
   return t;
 }
-async function callLLM({ baseUrl, model, apiKey, messages }) {
-  const url = baseUrl.replace(/\/+$/, '') + '/chat/completions';
-  const headers = { 'Content-Type': 'application/json' };
-  if (apiKey) headers['Authorization'] = 'Bearer ' + apiKey;
-  const body = { model, messages, temperature: 0.3, max_tokens: 8192 };
+
+function parseJsonLoose(raw) {
+  const text = stripJson(raw);
+  if (!text) throw new Error('empty');
+  try { return JSON.parse(text); } catch (e) { /* fallthrough */ }
+  // 常见模型小瑕疵：末尾多余的逗号
+  const fixed = text.replace(/,\s*([}\]])/g, '$1');
+  try { return JSON.parse(fixed); } catch (e) { /* fallthrough */ }
+  throw new Error('invalid json');
+}
+
+async function postChat({ url, headers, body, withFormat }) {
   let r;
   try {
     r = await fetch(url, {
       method: 'POST', headers,
-      body: JSON.stringify(Object.assign({}, body, { response_format: { type: 'json_object' } }))
+      body: JSON.stringify(withFormat ? Object.assign({}, body, { response_format: { type: 'json_object' } }) : body),
     });
-    if (!r.ok && /response_format|format/i.test(await r.clone().text())) {
-      r = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
-    }
   } catch (e) {
     throw new Error('无法连接模型接口: ' + e.message);
   }
-  if (!r.ok) {
-    const t = await r.text();
-    throw new Error('模型接口错误 ' + r.status + ': ' + t.slice(0, 500));
+  return r;
+}
+
+async function callLLM({ baseUrl, model, apiKey, messages }) {
+  const url = baseUrl.replace(/\/+$/, '') + '/chat/completions';
+  const headers = { 'Content-Type': 'application/json' };
+  if (apiKey) headers['Authorization'] = 'Bearer ' + apiKey;
+  const baseBody = { model, messages, temperature: 0.3 };
+
+  async function doPost(maxTokens) {
+    const body = Object.assign({}, baseBody, { max_tokens: maxTokens });
+    let r = await postChat({ url, headers, body, withFormat: true });
+    if (!r.ok && /response_format|format/i.test(await r.clone().text())) {
+      r = await postChat({ url, headers, body, withFormat: false });
+    }
+    if (!r.ok) {
+      const t = await r.text();
+      const limit = /max_tokens|output token|exceed|maximum|too large/i.test(t);
+      const err = new Error('模型接口错误 ' + r.status + ': ' + t.slice(0, 500));
+      err.limitTooLarge = limit;
+      throw err;
+    }
+    const data = await r.json();
+    return {
+      content: data?.choices?.[0]?.message?.content || '',
+      finishReason: data?.choices?.[0]?.finish_reason || '',
+    };
   }
-  const data = await r.json();
-  return data?.choices?.[0]?.message?.content || '';
+
+  let result;
+  try {
+    result = await doPost(DEFAULT_MAX_TOKENS);
+  } catch (e) {
+    if (e.limitTooLarge && DEFAULT_MAX_TOKENS !== FALLBACK_MAX_TOKENS) {
+      result = await doPost(FALLBACK_MAX_TOKENS);
+    } else {
+      throw e;
+    }
+  }
+  // 输出被截断（finish_reason=length）时自动用更大的上限重试一次
+  if (result.finishReason === 'length' && DEFAULT_MAX_TOKENS < RETRY_MAX_TOKENS) {
+    result = await doPost(RETRY_MAX_TOKENS);
+  }
+  return result.content;
 }
 
 /* ---------- server ---------- */
@@ -260,7 +306,7 @@ const server = http.createServer(async (req, res) => {
       const raw = await callLLM({ baseUrl, model, apiKey, messages });
       let parsed;
       try {
-        parsed = JSON.parse(stripJson(raw));
+        parsed = parseJsonLoose(raw);
       } catch (e) {
         return json(res, 502, { error: '模型返回不是有效 JSON，请重试或换模型', raw: raw.slice(0, 800) });
       }
@@ -297,7 +343,7 @@ const server = http.createServer(async (req, res) => {
       const raw = await callLLM({ baseUrl, model, apiKey, messages });
       let parsed;
       try {
-        parsed = JSON.parse(stripJson(raw));
+        parsed = parseJsonLoose(raw);
       } catch (e) {
         return json(res, 502, { error: '模型返回不是有效 JSON，请重试或换模型', raw: raw.slice(0, 800) });
       }
