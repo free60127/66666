@@ -26,6 +26,16 @@ function loadHistory() {
 function saveHistory(arr) {
   try { localStorage.setItem(HISTORY_KEY, JSON.stringify(arr.slice(0, 20))); } catch { /* ignore */ }
 }
+function loadResultCache(jobId) {
+  try {
+    const raw = localStorage.getItem('bt-result-' + jobId);
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
+}
+function saveResultCache(jobId, data) {
+  if (!jobId || !data) return;
+  try { localStorage.setItem('bt-result-' + jobId, JSON.stringify(data)); } catch { /* ignore */ }
+}
 function formatTime(ts) {
   if (!ts) return '';
   try { return new Date(ts).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }); } catch { return ''; }
@@ -298,7 +308,18 @@ function App() {
       } else {
         setError('该结果仍在生成中，请稍后刷新查看');
       }
-    }).catch(() => {});
+    }).catch(() => {
+      // 后端任务已清理（重新部署/超 7 天）时，用本机缓存恢复
+      const cached = loadResultCache(jobId);
+      if (cached) {
+        setResult(cached);
+        setCurrentJobId(jobId);
+        setView('result');
+        setError('');
+      } else {
+        setError('任务不存在或已过期，请重新提交');
+      }
+    });
   }, []);
 
   const visibleLessons = useMemo(() => lessons.filter((l) => l.book === book), [lessons, book]);
@@ -457,7 +478,8 @@ function App() {
     }
   };
 
-  const addToHistory = (jobId, jobTitle) => {
+  const addToHistory = (jobId, jobTitle, data) => {
+    saveResultCache(jobId, data);
     setHistoryList((prev) => {
       const next = [{ jobId, title: jobTitle || '回译作业', time: Date.now() }, ...prev.filter((x) => x.jobId !== jobId)].slice(0, 20);
       saveHistory(next);
@@ -471,6 +493,17 @@ function App() {
   };
 
   const loadHistoryJob = async (jobId) => {
+    // 优先用本机缓存，秒开且不受服务器任务清理影响
+    const cached = loadResultCache(jobId);
+    if (cached) {
+      setHistoryOpen(false);
+      setResult(cached);
+      setCurrentJobId(jobId);
+      setView('result');
+      setError('');
+      window.history.replaceState(null, '', '#job=' + jobId);
+      return;
+    }
     try {
       const r = await getAnalyzeJob(jobId);
       const job = r.job;
@@ -488,7 +521,17 @@ function App() {
       }
     } catch (e) {
       setHistoryOpen(false);
-      setError(e.message || '无法读取该结果');
+      // 服务器任务已过期/重新部署丢失时，尝试用本机缓存的结果兜底
+      const cached = loadResultCache(jobId);
+      if (cached) {
+        setResult(cached);
+        setCurrentJobId(jobId);
+        setView('result');
+        setError('');
+        window.history.replaceState(null, '', '#job=' + jobId);
+      } else {
+        setError(e.message || '无法读取该结果');
+      }
     }
   };
 
@@ -548,7 +591,7 @@ function App() {
           setResult(job.data);
           setCurrentJobId(jobId);
           setView('result');
-          addToHistory(jobId, job.data?.title || title);
+          addToHistory(jobId, job.data?.title || title, job.data);
           window.history.replaceState(null, '', '#job=' + jobId);
           return;
         }
