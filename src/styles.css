@@ -206,6 +206,12 @@ mark.hl { background: #ffe9a8; color: inherit; padding: 0 1px; border-radius: 2p
   .summary { break-before: page; page-break-before: always; border-top: none !important; }
   .overall-card { break-inside: auto; page-break-inside: auto; }
   .sentence-card { break-inside: auto; page-break-inside: auto; }
-  .sentence-card p, .v-row p, .summary-quote, .summary-tip { orphans: 2; widows: 2; }
-  .sentence-head, .finding, .v-row, .summary-card { break-inside: avoid; page-break-inside: avoid; }
+  /* 大块内容允许在适宜位置拆开，避免整块搬到下一页造成大面积空白 */
+  .finding, .v-row, .summary-card { break-inside: auto !important; page-break-inside: auto !important; }
+  /* 打印时版本行改为块级排版，让长段落能跨页自然接续 */
+  .v-row { display: block !important; grid-template-columns: none !important; }
+  .v-row .v-label { display: block !important; margin-bottom: 2px; font-weight: 600; }
+  .sentence-card p, .v-row p, .finding-exp, .summary-quote, .summary-tip, .idiom-exp, .vocab-note, .vocab-meaning { orphans: 3; widows: 3; }
+  /* 标题/行首/纠错箭头尽量不脱离上下文 */
+  .sentence-head, .finding-top, .finding-diff, .v-label, .summary-title { break-inside: avoid !important; page-break-inside: avoid !important; break-after: avoid; page-break-after: avoid; }
 }
