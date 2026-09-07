@@ -399,7 +399,9 @@ function App() {
 
   return (
     <div className="app">
+      {sidebarOpen && <div className="sidebar-backdrop" onClick={toggleSidebar} aria-hidden="true" />}
       <aside className={'sidebar' + (sidebarOpen ? '' : ' collapsed')}>
+        <button className="sidebar-close" onClick={toggleSidebar} aria-label="收起侧栏"><X size={18} /></button>
         <div className="brand"><div className="brand-mark">回</div><div><strong>回译本</strong><span>BACK-TRANSLATE STUDIO</span></div></div>
         <button className="primary-btn" onClick={() => { closeSidebarOnMobile(); setView('editor'); setResult(null); }}><Plus size={16} />新建回译作业</button>
         <div className="side-section">
