@@ -14,6 +14,7 @@ export const getLessons = (book) => api('/api/lessons' + (book ? '?book=' + book
 export const getLesson = (book, n) => api('/api/lessons/' + (n == null ? book : book + '/' + n));
 export const matchLesson = (payload) => api('/api/match', { method: 'POST', body: JSON.stringify(payload) });
 export const analyze = (payload) => api('/api/analyze', { method: 'POST', body: JSON.stringify(payload) });
+export const getAnalyzeJob = (jobId) => api('/api/analyze/' + jobId);
 export const generateMaterial = (payload) => api('/api/generate-material', { method: 'POST', body: JSON.stringify(payload) });
 
 // 本地设置（仅个人使用时，key 会随请求发给 localhost 后端）

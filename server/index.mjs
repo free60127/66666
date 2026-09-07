@@ -1,6 +1,7 @@
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { SYSTEM_PROMPT, buildUserMessage, MATERIAL_PROMPT, buildMaterialMessage } from './prompt.mjs';
 
@@ -127,6 +128,9 @@ const stat = {
   hasKey: () => Boolean(process.env.AI_API_KEY),
 };
 
+/* ---------- 异步分析与任务状态 ---------- */
+const analyzeJobs = new Map();
+
 /* ---------- helpers ---------- */
 function json(res, code, obj) {
   const body = JSON.stringify(obj ?? {});
@@ -217,6 +221,48 @@ async function callLLM({ baseUrl, model, apiKey, messages }) {
     result = await doPost(RETRY_MAX_TOKENS);
   }
   return result.content;
+}
+
+/* ---------- 异步分析任务 ---------- */
+async function runAnalyzeJob(jobId, { title, chinese, draft, original, lesson, lessonNo, baseUrl, model, apiKey }) {
+  const job = analyzeJobs.get(jobId);
+  if (!job) return;
+  job.status = 'running';
+  job.startedAt = Date.now();
+  try {
+    const messages = [
+      { role: 'system', content: SYSTEM_PROMPT },
+      { role: 'user', content: buildUserMessage({ title, chinese, draft, original }) },
+    ];
+    const raw = await callLLM({ baseUrl, model, apiKey, messages });
+    let parsed;
+    try {
+      parsed = parseJsonLoose(raw);
+    } catch (e) {
+      throw new Error('模型返回不是有效 JSON，请重试或换模型');
+    }
+    job.data = {
+      title: parsed.title || title,
+      chinese: parsed.chinese || chinese,
+      draft: parsed.draft || draft,
+      ai: parsed.ai || '',
+      original: parsed.original || original,
+      overall: parsed.overall || {},
+      sentences: Array.isArray(parsed.sentences) ? parsed.sentences : [],
+      vocabularyNotes: Array.isArray(parsed.vocabularyNotes) ? parsed.vocabularyNotes : [],
+      idiomHighlights: Array.isArray(parsed.idiomHighlights) ? parsed.idiomHighlights : [],
+      advancedSentences: Array.isArray(parsed.advancedSentences) ? parsed.advancedSentences : [],
+      bonusExpressions: Array.isArray(parsed.bonusExpressions) ? parsed.bonusExpressions : [],
+    };
+    job.status = 'done';
+    job.meta = { book: lesson?.book || null, lessonId: lesson?.lesson || lessonNo, baseUrl, model };
+  } catch (e) {
+    job.status = 'error';
+    job.error = e.message || '生成失败，请重试';
+  } finally {
+    job.finishedAt = Date.now();
+    setTimeout(() => analyzeJobs.delete(jobId), 10 * 60 * 1000);
+  }
 }
 
 /* ---------- server ---------- */
@@ -336,31 +382,23 @@ const server = http.createServer(async (req, res) => {
       const apiKey = String(body.apiKey || '').trim() || process.env.AI_API_KEY || '';
       if (!apiKey) return json(res, 400, { error: '未配置 AI_API_KEY：请复制 .env.example 为 .env 并填写，或在设置面板填入 API Key' });
 
-      const messages = [
-        { role: 'system', content: SYSTEM_PROMPT },
-        { role: 'user', content: buildUserMessage({ title, chinese, draft, original: lesson ? lesson.english : userOriginal }) },
-      ];
-      const raw = await callLLM({ baseUrl, model, apiKey, messages });
-      let parsed;
-      try {
-        parsed = parseJsonLoose(raw);
-      } catch (e) {
-        return json(res, 502, { error: '模型返回不是有效 JSON，请重试或换模型', raw: raw.slice(0, 800) });
-      }
-      parsed = {
-        title: parsed.title || title,
-        chinese: parsed.chinese || chinese,
-        draft: parsed.draft || draft,
-        ai: parsed.ai || '',
-        original: parsed.original || (lesson ? lesson.english : userOriginal),
-        overall: parsed.overall || {},
-        sentences: Array.isArray(parsed.sentences) ? parsed.sentences : [],
-        vocabularyNotes: Array.isArray(parsed.vocabularyNotes) ? parsed.vocabularyNotes : [],
-        idiomHighlights: Array.isArray(parsed.idiomHighlights) ? parsed.idiomHighlights : [],
-        advancedSentences: Array.isArray(parsed.advancedSentences) ? parsed.advancedSentences : [],
-        bonusExpressions: Array.isArray(parsed.bonusExpressions) ? parsed.bonusExpressions : [],
-      };
-      return json(res, 200, { ok: true, data: parsed, meta: { book: lesson?.book || null, lessonId: lesson?.lesson || lessonNo, baseUrl, model } });
+      const jobId = randomUUID();
+      analyzeJobs.set(jobId, { jobId, status: 'pending', createdAt: Date.now(), data: null, error: null });
+      // 立即返回任务号，后台再调用模型；手机端/弱网不会因长时间占用请求而卡死
+      runAnalyzeJob(jobId, {
+        title, chinese, draft, original: lesson ? lesson.english : userOriginal,
+        lesson, lessonNo, baseUrl, model, apiKey,
+      });
+      return json(res, 200, { ok: true, jobId, status: 'pending' });
+    }
+    const jobMatch = p.match(/^\/api\/analyze\/([A-Za-z0-9-]{8,64})$/);
+    if (jobMatch && req.method === 'GET') {
+      const job = analyzeJobs.get(jobMatch[1]);
+      if (!job) return json(res, 404, { error: '任务不存在或已过期，请重新提交' });
+      return json(res, 200, {
+        ok: true,
+        job: { jobId: job.jobId, status: job.status, data: job.data || null, error: job.error || null },
+      });
     }
     if (p.startsWith('/api/')) return json(res, 404, { error: 'unknown api' });
     return serveStatic(res, p);

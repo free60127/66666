@@ -4,7 +4,7 @@ import {
   ArrowLeft, BookOpen, CheckCircle2, ClipboardCopy, Download, FileText, Flame,
   LoaderCircle, PanelLeftClose, PanelLeftOpen, PenLine, Plus, Settings, Sparkles, Upload, WandSparkles, X,
 } from 'lucide-react';
-import { analyze, generateMaterial, getLessons, getLesson, getStatus, loadSettings, matchLesson, saveSettings } from './api.js';
+import { analyze, generateMaterial, getAnalyzeJob, getLessons, getLesson, getStatus, loadSettings, matchLesson, saveSettings } from './api.js';
 import { DEMO_LESSON_18, DEMO_LESSONS } from './demo.js';
 
 const LEVEL_LABEL = { error: '必须改错', improve: '润色升级', study: '对照学习' };
@@ -328,8 +328,36 @@ function App() {
         original: mode === 'free' ? (generatedOriginal || undefined) : undefined,
         baseUrl: settings.baseUrl, model: settings.model, apiKey: settings.apiKey,
       });
-      setResult(resp.data);
-      setView('result');
+      const jobId = resp.jobId;
+      if (!jobId) {
+        if (resp.data) { setResult(resp.data); setView('result'); return; }
+        throw new Error('服务器未返回任务编号，请重试');
+      }
+      const deadline = Date.now() + 10 * 60 * 1000;
+      let pollFailures = 0;
+      while (Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 2500));
+        let r;
+        try {
+          r = await getAnalyzeJob(jobId);
+          pollFailures = 0;
+        } catch (e) {
+          pollFailures += 1;
+          if (pollFailures > 10) throw new Error('网络不稳定，暂时无法获取生成结果，请重试');
+          continue;
+        }
+        const job = r.job;
+        if (!job) continue;
+        if (job.status === 'done') {
+          setResult(job.data);
+          setView('result');
+          return;
+        }
+        if (job.status === 'error') {
+          throw new Error(job.error || '生成失败，请重试');
+        }
+      }
+      throw new Error('生成超时（超过10分钟），请重新提交');
     } catch (e) {
       setError(e.message);
       setView('editor');
@@ -443,10 +471,10 @@ function App() {
             <div className="actions-bar">
               <button className="primary-btn big" onClick={() => runGenerate()} disabled={busy || parsing}>
                 {busy ? <LoaderCircle className="spin" size={17} /> : <WandSparkles size={17} />}
-                {busy ? 'AI 正在逐句分析…' : '生成完整回译训练作业'}
+                {busy ? 'AI 正在后台生成（约1-2分钟）…' : '生成完整回译训练作业'}
               </button>
               {!status?.hasKey && <button className="ghost-btn" onClick={loadDemo}><Sparkles size={15} />离线示例</button>}
-              <span className="muted">生成顺序：标题 → 中文 → 原稿 → AI 修正版 → 原文 → 逐句解析</span>
+              <span className="muted">{busy ? '已提交后台任务，请保持页面打开，完成后自动展示' : '生成顺序：标题 → 中文 → 原稿 → AI 修正版 → 原文 → 逐句解析'}</span>
             </div>
           </section>
         ) : (

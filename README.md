@@ -81,9 +81,10 @@
 | GET | /api/lessons/2/18 或 /api/lessons/18 | 单课详情（中文 + 原文） |
 | POST | /api/match | 按标题/中文匹配课次 |
 | POST | /api/generate-material | 生成 AI 原创训练素材（topic、level、style；返回 title/original/chinese/keywords） |
-| POST | /api/analyze | 生成回译作业（chinese、draft + 可选 book、lessonId、title、original、baseUrl、model、apiKey） |
+| POST | /api/analyze | 异步提交回译作业（chinese、draft + 可选 book、lessonId、title、original、baseUrl、model、apiKey），立即返回 `{ok, jobId}` |
+| GET | /api/analyze/:jobId | 轮询作业状态：`{ok, job:{jobId, status, data?, error?}}`，status 为 pending / running / done / error |
 
-/api/analyze 返回结构：{ title, chinese, draft, ai, original, overall{score,issues,summary,highlights,advice}, sentences[{cn,draft,ai,original,findings[{category,from,to,level,explanation,dimensions,synonyms,examples,idiom}]}], vocabularyNotes, idiomHighlights, advancedSentences, bonusExpressions }。
+`/api/analyze/:jobId` 在 status=done 时 job.data 结构：{ title, chinese, draft, ai, original, overall{score,issues,summary,highlights,advice}, sentences[{cn,draft,ai,original,findings[{category,from,to,level,explanation,dimensions,synonyms,examples,idiom}]}], vocabularyNotes, idiomHighlights, advancedSentences, bonusExpressions }。
 
 ## 导出 PDF
 
