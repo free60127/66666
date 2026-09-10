@@ -309,3 +309,20 @@ mark.hl { background: #ffe9a8; color: inherit; padding: 0 1px; border-radius: 2p
   .cam-modal { width: calc(100vw - 24px); }
   .cam-video { max-height: 50vh; }
 }
+
+/* 计时器（记录一篇课文/一次练习用时） */
+.title-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 0 0 14px; }
+.title-row .title-field { margin: 0; flex: 1 1 340px; }
+.timer-box { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--line); background: #fff; border-radius: 10px; padding: 6px 10px; color: var(--muted); }
+.timer-box.running { border-color: var(--brand); box-shadow: 0 0 0 2px rgba(31, 111, 235, .12); color: var(--brand); }
+.timer-display { font-size: 18px; font-variant-numeric: tabular-nums; letter-spacing: .5px; min-width: 64px; text-align: center; color: var(--text); }
+.timer-box.running .timer-display { color: var(--brand); }
+.timer-box .ghost-btn.sm:disabled { opacity: .45; cursor: not-allowed; }
+.timer-hint { font-size: 12px; color: var(--muted); }
+.sheet-duration { display: inline-block; margin-top: 8px; font-size: 12.5px; color: var(--muted); background: #f2f5f8; border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px; }
+
+@media screen and (max-width: 900px) {
+  .title-row { align-items: stretch; }
+  .timer-box { width: 100%; justify-content: space-between; }
+  .timer-display { min-width: 56px; font-size: 17px; }
+}

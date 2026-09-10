@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import mammoth from 'mammoth/mammoth.browser.js';
 import {
   ArrowLeft, BookOpen, Camera, CheckCircle2, ClipboardCopy, Download, FileText, Flame, History, ImagePlus,
-  Link2, LoaderCircle, PanelLeftClose, PanelLeftOpen, PenLine, Plus, Settings, Sparkles, Upload, WandSparkles, X,
+  Link2, LoaderCircle, PanelLeftClose, PanelLeftOpen, PenLine, Plus, Settings, Sparkles, Timer, Upload, WandSparkles, X,
 } from 'lucide-react';
 import { analyze, generateMaterial, getAnalyzeJob, getLessons, getLesson, getMaterialJob, getOcrJob, getStatus, loadSettings, matchLesson, ocr, saveSettings } from './api.js';
 import { DEMO_LESSON_18, DEMO_LESSONS } from './demo.js';
@@ -92,6 +92,34 @@ async function prepareImage(file, mode) {
 function formatTime(ts) {
   if (!ts) return '';
   try { return new Date(ts).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }); } catch { return ''; }
+}
+
+/* ---------- 计时器：记录一篇课文/一次练习花了多久 ---------- */
+const TIMER_KEY = 'bt-timer';
+function formatDuration(ms) {
+  const total = Math.max(0, Math.floor((Number(ms) || 0) / 1000));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  const pad = (n) => String(n).padStart(2, '0');
+  return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
+}
+function loadTimer() {
+  try {
+    const t = JSON.parse(localStorage.getItem(TIMER_KEY) || 'null');
+    if (t && typeof t === 'object') {
+      return {
+        running: Boolean(t.running),
+        startedAt: Number(t.startedAt) || null,
+        accumulated: Math.max(0, Number(t.accumulated) || 0),
+        lessonKey: String(t.lessonKey || ''),
+      };
+    }
+  } catch { /* ignore */ }
+  return { running: false, startedAt: null, accumulated: 0, lessonKey: '' };
+}
+function saveTimer(t) {
+  try { localStorage.setItem(TIMER_KEY, JSON.stringify(t)); } catch { /* ignore */ }
 }
 
 function isMarker(line) {
@@ -301,6 +329,9 @@ function App() {
   const chineseFileRef = useRef(null);
   const englishCamRef = useRef(null);
   const englishFileRef = useRef(null);
+  // 计时器（记录一篇课文做了多久）
+  const [timer, setTimer] = useState(loadTimer);
+  const [clockNow, setClockNow] = useState(() => Date.now());
 
   const toggleSidebar = () => {
     setSidebarOpen((open) => {
@@ -545,10 +576,10 @@ function App() {
     }
   };
 
-  const addToHistory = (jobId, jobTitle, data) => {
+  const addToHistory = (jobId, jobTitle, data, durationMs) => {
     saveResultCache(jobId, data);
     setHistoryList((prev) => {
-      const next = [{ jobId, title: jobTitle || '回译作业', time: Date.now() }, ...prev.filter((x) => x.jobId !== jobId)].slice(0, 20);
+      const next = [{ jobId, title: jobTitle || '回译作业', time: Date.now(), durationMs: Number(durationMs) || 0 }, ...prev.filter((x) => x.jobId !== jobId)].slice(0, 20);
       saveHistory(next);
       return next;
     });
@@ -613,6 +644,48 @@ function App() {
     } catch {
       setShareTip('复制失败，请手动复制链接：' + url);
     }
+  };
+
+  /* ---------- 计时器 ---------- */
+  const lessonKey = mode === 'lesson' ? `lesson:${book}-${lessonId}` : 'free';
+  const elapsedMs = timer.accumulated + (timer.running && timer.startedAt ? Math.max(0, clockNow - timer.startedAt) : 0);
+
+  // 每秒刷新一次显示（只在计时中走定时器，避免空转）
+  useEffect(() => {
+    if (!timer.running) return undefined;
+    setClockNow(Date.now());
+    const id = setInterval(() => setClockNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [timer.running]);
+
+  // 切换课文 / 模式时，自动归零重新计时
+  useEffect(() => {
+    setTimer((t) => {
+      if (t.lessonKey === lessonKey) return t;
+      const next = { running: false, startedAt: null, accumulated: 0, lessonKey };
+      saveTimer(next);
+      return next;
+    });
+  }, [lessonKey]);
+
+  const toggleTimer = () => {
+    setTimer((t) => {
+      const now = Date.now();
+      const next = t.running
+        ? { ...t, running: false, accumulated: t.accumulated + Math.max(0, now - (t.startedAt || now)), startedAt: null, lessonKey }
+        : { ...t, running: true, startedAt: now, lessonKey };
+      saveTimer(next);
+      setClockNow(now);
+      return next;
+    });
+  };
+
+  const resetTimer = () => {
+    setTimer(() => {
+      const next = { running: false, startedAt: null, accumulated: 0, lessonKey };
+      saveTimer(next);
+      return next;
+    });
   };
 
   /* ---------- 拍照 / 图片识别 ---------- */
@@ -734,6 +807,8 @@ function App() {
     if (!cn) { setError('请先上传包含中文提示的 DOCX，或填入中文提示'); return; }
     if (!df) { setError('请先上传包含英文初稿的 DOCX，或填入英文初稿'); return; }
     setError(''); setBusy(true);
+    // 点击生成时定格用时（本次练习从开始计时到提交用掉的时长）
+    const durationMs = timer.accumulated + (timer.running && timer.startedAt ? Math.max(0, Date.now() - timer.startedAt) : 0);
     setProgressStep(1); setProgressMsg('正在提交后台任务…'); startProgressTimer();
     let finishedOk = false;
     try {
@@ -767,10 +842,11 @@ function App() {
         if (!job) continue;
         if (job.status === 'done') {
           setProgressStep(3); setProgressMsg('生成完成'); finishedOk = true;
-          setResult(job.data);
+          const enriched = { ...(job.data || {}), durationMs };
+          setResult(enriched);
           setCurrentJobId(jobId);
           setView('result');
-          addToHistory(jobId, job.data?.title || title, job.data);
+          addToHistory(jobId, job.data?.title || title, enriched, durationMs);
           window.history.replaceState(null, '', '#job=' + jobId);
           return;
         }
@@ -803,7 +879,7 @@ function App() {
   const copyAll = async () => {
     if (!result) return;
     const text = [
-      result.title, '', '【中文译文】', result.chinese, '', '【原稿】', result.draft, '',
+      result.title, result.durationMs ? '本次练习用时：' + formatDuration(result.durationMs) : '', '', '【中文译文】', result.chinese, '', '【原稿】', result.draft, '',
       '【AI 修正版】', result.ai, '', '【课文原文】', result.original, '',
       '【逐句解析】', result.overall?.summary || '', '',
       '【分项得分】', ...(result.overall?.scoreBreakdown || []).map((b) => '· ' + b.label + '：' + b.score + '/' + (b.max || 20) + (b.comment ? '（' + b.comment + '）' : '')), '',
@@ -903,7 +979,17 @@ function App() {
               <button className={mode === 'lesson' ? 'active' : ''} onClick={() => setMode('lesson')}><BookOpen size={15} />课文模式</button>
               <button className={mode === 'free' ? 'active' : ''} onClick={() => setMode('free')}><PenLine size={15} />自由模式</button>
             </div>
-            <div className="title-field"><label>作业标题</label><input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="例如：新概念2 lesson 11" /></div>
+            <div className="title-row">
+              <div className="title-field"><label>作业标题</label><input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="例如：新概念2 lesson 11" /></div>
+              <div className={'timer-box' + (timer.running ? ' running' : '')}>
+                <Timer size={16} />
+                <strong className="timer-display" title="本次练习用时">{formatDuration(elapsedMs)}</strong>
+                <button className="ghost-btn sm" onClick={toggleTimer}>
+                  {timer.running ? '暂停' : (elapsedMs > 0 ? '继续' : '开始计时')}
+                </button>
+                <button className="ghost-btn sm" onClick={resetTimer} disabled={elapsedMs === 0 && !timer.running}>重置</button>
+              </div>
+            </div>
             <div className="editor-grid">
               <div
                 className={'panel' + (dragOver === 'chinese' ? ' drag-on' : '')}
@@ -1026,7 +1112,7 @@ function App() {
               <div className="history-list">
                 {historyList.map((h) => (
                   <button className="history-item" key={h.jobId} onClick={() => loadHistoryJob(h.jobId)}>
-                    <span className="history-info"><strong>{h.title || '回译作业'}</strong><span className="muted small">{formatTime(h.time)}</span></span>
+                    <span className="history-info"><strong>{h.title || '回译作业'}</strong><span className="muted small">{formatTime(h.time)}{h.durationMs ? ` · 用时 ${formatDuration(h.durationMs)}` : ''}</span></span>
                     <span className="history-link">查看结果</span>
                   </button>
                 ))}
@@ -1068,7 +1154,7 @@ function ResultSheet({ result, onBack, onCopy, onShare, shareTip }) {
         {shareTip ? <span className="share-tip">{shareTip}</span> : null}
       </div>
       <article className="sheet">
-        <header className="sheet-title"><span className="eyebrow">BACK-TRANSLATE TRAINING · 回译训练作业</span><h1>{result.title}</h1></header>
+        <header className="sheet-title"><span className="eyebrow">BACK-TRANSLATE TRAINING · 回译训练作业</span><h1>{result.title}</h1>{result.durationMs ? <span className="sheet-duration">本次练习用时 {formatDuration(result.durationMs)}</span> : null}</header>
         <Section label="中文" tone="cn"><p>{result.chinese}</p></Section>
         <Section label="原稿" tone="draft" note="黄色高亮 = 待改正或可优化的表达"><p><DraftText text={result.draft} findings={allFindings} /></p></Section>
         <Section label="AI 修正版" tone="ai"><p>{result.ai}</p></Section>
