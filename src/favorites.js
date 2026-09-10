@@ -5,7 +5,7 @@
 
 export const FAV_KEY = 'bt-favorites';
 export const FAV_MAX = 2000;
-export const FAV_KIND_LABEL = { finding: '错题/辨析', vocab: '核心词', idiom: '习语' };
+export const FAV_KIND_LABEL = { finding: '错题/辨析', vocab: '核心词', idiom: '习语', expression: '加分表达' };
 
 function store() {
   try { return typeof localStorage === 'undefined' ? null : localStorage; } catch { return null; }
@@ -126,6 +126,25 @@ export function favFromIdiom(it, result) {
       x.example ? '例句：' + x.example : '',
       x.situation ? '场景：' + x.situation : '',
     ].filter(Boolean).join('\n'),
+    source: (result && result.title) || '',
+    sourceLevel: (result && result.aiLevel) || '',
+  };
+}
+
+/** 加分表达 / 高级句式（文案形如 "earn one's living behind the wheel of a taxi · 中文点拨：……"） */
+export function favFromExpression(item, result, category = '加分表达') {
+  const raw = typeof item === 'string' ? item : JSON.stringify(item || '');
+  const parts = String(raw).split(/[·•]\s*中文[点说]拨?\s*[:：]?\s*/i);
+  const en = (parts[0] || '').trim();
+  const tip = parts[1] ? parts[1].trim() : '';
+  return {
+    id: favKey(['expr', result && result.title, category, en]),
+    kind: 'expression',
+    title: en || '加分表达',
+    category,
+    level: '',
+    body: tip,
+    extra: '',
     source: (result && result.title) || '',
     sourceLevel: (result && result.aiLevel) || '',
   };

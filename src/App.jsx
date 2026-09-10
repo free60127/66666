@@ -4,9 +4,10 @@ import {
   ArrowLeft, BookOpen, Camera, CheckCircle2, ClipboardCopy, Download, FileText, Flame, History, ImagePlus,
   Link2, LoaderCircle, PanelLeftClose, PanelLeftOpen, PenLine, Plus, Settings, Sparkles, Star, Timer, Trash2, Upload, WandSparkles, X,
 } from 'lucide-react';
-import { analyze, generateMaterial, getAnalyzeJob, getLessons, getLesson, getMaterialJob, getOcrJob, getPhonetic, getStatus, loadSettings, matchLesson, ocr, saveSettings } from './api.js';
+import { analyze, generateMaterial, getAnalyzeJob, getLessons, getLesson, getMaterialJob, getOcrJob, getPhonetic, getQuizJob, getStatus, loadSettings, matchLesson, ocr, quiz, saveSettings } from './api.js';
 import { DEMO_LESSON_18, DEMO_LESSONS } from './demo.js';
-import { FAV_KIND_LABEL, favoritesToText, favFromFinding, favFromIdiom, favFromVocab, filterFavorites, hasMorphology, loadFavorites, mergeFavorites, morphologyText, saveFavorites } from './favorites.js';
+import { FAV_KIND_LABEL, favoritesToText, favFromExpression, favFromFinding, favFromIdiom, favFromVocab, filterFavorites, hasMorphology, loadFavorites, mergeFavorites, morphologyText, saveFavorites } from './favorites.js';
+import { buildLocalQuiz, favoritesToQuizPoints, quizToText } from './quiz.js';
 
 const LEVEL_LABEL = { error: '必须改错', improve: '润色升级', study: '对照学习' };
 const CATEGORY_COLOR = {
@@ -380,6 +381,12 @@ function App() {
   const [favQuery, setFavQuery] = useState('');
   const [favKind, setFavKind] = useState('all');
   const [favTip, setFavTip] = useState('');
+  // 自测题
+  const [quizData, setQuizData] = useState(null);
+  const [quizBusy, setQuizBusy] = useState(false);
+  const [quizCount, setQuizCount] = useState(10);
+  const [quizShowAnswers, setQuizShowAnswers] = useState(true);
+  const [quizTip, setQuizTip] = useState('');
   const [shareTip, setShareTip] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(() => {
     if (typeof window !== 'undefined' && window.innerWidth <= 900) return false;
@@ -728,6 +735,66 @@ function App() {
     setTimeout(() => setFavTip(''), 3000);
   };
   const visibleFavorites = filterFavorites(favorites, { kind: favKind, query: favQuery });
+
+  /* ---------- 根据收藏生成自测题 ---------- */
+  const generateQuiz = async () => {
+    const pool = favKind === 'all' ? favorites : filterFavorites(favorites, { kind: favKind });
+    if (!pool.length) { setFavTip('还没有可用于出题的收藏'); setTimeout(() => setFavTip(''), 2500); return; }
+    setQuizBusy(true);
+    setQuizTip('');
+    setFavTip('');
+    try {
+      const resp = await quiz({
+        points: favoritesToQuizPoints(pool),
+        count: quizCount,
+        level: polishLevel,
+        baseUrl: settings.baseUrl, model: settings.model, apiKey: settings.apiKey,
+      });
+      const jobId = resp.jobId;
+      if (!jobId) throw new Error('服务器未返回任务编号，请重试');
+      const deadline = Date.now() + 5 * 60 * 1000;
+      let failures = 0;
+      let data = null;
+      while (Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+        let r;
+        try { r = await getQuizJob(jobId); failures = 0; }
+        catch (e) { failures += 1; if (failures > 8) throw new Error('网络不稳定，暂时无法获取题目'); continue; }
+        const job = r.job;
+        if (!job) continue;
+        if (job.status === 'done') { data = job.data; break; }
+        if (job.status === 'error') throw new Error(job.error || '生成失败');
+      }
+      if (!data || !Array.isArray(data.questions) || !data.questions.length) throw new Error('生成超时或题目为空，请重试');
+      setQuizData(data);
+      setQuizShowAnswers(true);
+      setFavOpen(false);
+      setView('quiz');
+    } catch (e) {
+      // AI 出题失败时用本地题库兜底，保证功能始终可用
+      const local = buildLocalQuiz(pool, quizCount);
+      if (local.questions.length) {
+        setQuizData(local);
+        setQuizShowAnswers(true);
+        setQuizTip('AI 出题失败（' + (e.message || '未知错误') + '），已用本地题库兜底生成');
+        setFavOpen(false);
+        setView('quiz');
+      } else {
+        setFavTip('生成失败：' + (e.message || '未知错误'));
+      }
+    } finally {
+      setQuizBusy(false);
+      setTimeout(() => setFavTip(''), 4000);
+    }
+  };
+  const copyQuiz = async () => {
+    if (!quizData) return;
+    try {
+      await navigator.clipboard.writeText(quizToText(quizData, { withAnswers: quizShowAnswers }));
+      setQuizTip('已复制题目' + (quizShowAnswers ? '（含答案）' : '（不含答案）'));
+    } catch { setQuizTip('复制失败，请手动选择文本'); }
+    setTimeout(() => setQuizTip(''), 2500);
+  };
   const favoritedIds = useMemo(() => new Set(favorites.map((x) => x.id)), [favorites]);
   const favHandlers = useMemo(() => ({ has: (id) => favoritedIds.has(id), toggle: toggleFavorite }), [favoritedIds, favorites]);
 
@@ -1212,6 +1279,20 @@ function App() {
               </div>
             )}
           </section>
+        ) : view === 'quiz' ? (
+          <section className="result">
+            {quizData && (
+              <QuizSheet
+                quiz={quizData}
+                showAnswers={quizShowAnswers}
+                onToggleAnswers={() => setQuizShowAnswers((v) => !v)}
+                onBack={() => setView('editor')}
+                onBackToFav={() => setFavOpen(true)}
+                onCopy={copyQuiz}
+                tip={quizTip}
+              />
+            )}
+          </section>
         ) : (
           <section className="result">
             {result && <ResultSheet result={result} onBack={() => setView('editor')} onCopy={copyAll} onShare={shareResult} shareTip={shareTip} fav={favHandlers} />}
@@ -1285,6 +1366,7 @@ function App() {
                 <option value="finding">错题 / 辨析</option>
                 <option value="vocab">核心词</option>
                 <option value="idiom">习语</option>
+                <option value="expression">加分表达</option>
               </select>
             </div>
             {favorites.length === 0 ? (
@@ -1310,6 +1392,21 @@ function App() {
                 ))}
               </div>
             )}
+            <div className="fav-quiz">
+              <div className="fav-quiz-title">根据收藏自测</div>
+              <div className="fav-quiz-row">
+                <label className="fav-quiz-count">题目数量
+                  <select className="ocr-mode" value={quizCount} onChange={(e) => setQuizCount(Number(e.target.value))}>
+                    {[5, 10, 15, 20, 30, 50].map((n) => <option key={n} value={n}>{n} 题</option>)}
+                  </select>
+                </label>
+                <button className="primary-btn" onClick={generateQuiz} disabled={quizBusy || !favorites.length}>
+                  {quizBusy ? <LoaderCircle className="spin" size={15} /> : <WandSparkles size={15} />}
+                  {quizBusy ? 'AI 正在出题…' : '生成自测题'}
+                </button>
+              </div>
+              <p className="muted small">按当前筛选范围出题（{favKind === 'all' ? '全部收藏' : (FAV_KIND_LABEL[favKind] || favKind)}），难度跟随「润色等级 {polishLevel}」；生成后点「导出 PDF」即可打印，答案统一印在最后。</p>
+            </div>
             <div className="fav-footer">
               <button className="ghost-btn sm" onClick={exportFavorites}><Download size={14} />导出备份</button>
               <button className="ghost-btn sm" onClick={() => favFileRef.current?.click()}><Upload size={14} />导入备份</button>
@@ -1396,8 +1493,8 @@ function ResultSheet({ result, onBack, onCopy, onShare, shareTip, fav }) {
         <IdiomHighlights items={result.idiomHighlights} result={result} fav={fav} />
         <section className="sheet-section summary">
           <div className="section-heading"><span className="label-dot" /><h2>学习总结 · 可学习的高级句式与加分表达</h2></div>
-          <SummaryBlock title="高级句式" tone="teal" items={result.advancedSentences} />
-          <SummaryBlock title="加分表达" tone="gold" items={result.bonusExpressions} />
+          <SummaryBlock title="高级句式" tone="teal" items={result.advancedSentences} result={result} fav={fav} />
+          <SummaryBlock title="加分表达" tone="gold" items={result.bonusExpressions} result={result} fav={fav} />
         </section>
       </article>
     </div>
@@ -1510,7 +1607,7 @@ function IdiomHighlights({ items, result, fav }) {
   );
 }
 
-function SummaryBlock({ title, tone, items }) {
+function SummaryBlock({ title, tone, items, result, fav }) {
   const arr = Array.isArray(items) ? items : [];
   if (!arr.length) return null;
   return (
@@ -1519,13 +1616,64 @@ function SummaryBlock({ title, tone, items }) {
       {arr.map((item, i) => {
         const s = typeof item === 'string' ? item : JSON.stringify(item);
         const parts = s.split(/[·•]\s*中文[点说]/i);
+        const favItem = fav ? favFromExpression(item, result, title) : null;
         return (
           <div className={'summary-card ' + tone} key={'sm' + tone + i}>
-            <p className="summary-quote">{parts[0].trim()}</p>
+            <div className="summary-head">
+              <p className="summary-quote">{parts[0].trim()}</p>
+              {fav ? <FavStar active={fav.has(favItem.id)} onToggle={() => fav.toggle(favItem)} /> : null}
+            </div>
             {parts[1] ? <p className="summary-tip">中文点拨：{parts[1].trim()}</p> : null}
           </div>
         );
       })}
+    </div>
+  );
+}
+
+/* ---------- 收藏知识点自测题 ---------- */
+function QuizSheet({ quiz, showAnswers, onToggleAnswers, onBack, onBackToFav, onCopy, tip }) {
+  const qs = quiz && Array.isArray(quiz.questions) ? quiz.questions : [];
+  return (
+    <div className="result-sheet quiz-sheet">
+      <div className="result-toolbar">
+        <button className="ghost-btn" onClick={onBack}><ArrowLeft size={15} />返回编辑</button>
+        <button className="ghost-btn" onClick={onBackToFav}><Star size={15} />收藏夹</button>
+        <button className="ghost-btn" onClick={onToggleAnswers}>{showAnswers ? '隐藏答案' : '显示答案'}</button>
+        <button className="ghost-btn" onClick={onCopy}><ClipboardCopy size={15} />复制题目</button>
+        <button className="ghost-btn" onClick={() => window.print()}><Download size={15} />导出 PDF</button>
+        {tip ? <span className="share-tip">{tip}</span> : null}
+      </div>
+      <article className="sheet">
+        <header className="sheet-title">
+          <span className="eyebrow">SELF-CHECK QUIZ · 收藏知识点自测</span>
+          <h1>{quiz.title}</h1>
+          <span className="sheet-duration">共 {qs.length} 题{quiz.local ? ' · 本地兜底生成' : ''}{quiz.level ? ' · 润色等级 ' + quiz.level : ''}</span>
+        </header>
+        <p className="quiz-hint">先自己做完，再点「显示答案」对照；导出 PDF 时答案会统一印在最后。</p>
+        <ol className="quiz-list">
+          {qs.map((q, i) => (
+            <li className="quiz-item" key={'q' + i}>
+              <div className="quiz-head">
+                <span className="quiz-no">{i + 1}</span>
+                <span className="quiz-type">{q.type || '问答'}</span>
+                {q.source ? <span className="quiz-src">考点：{q.source}</span> : null}
+              </div>
+              <div className="quiz-question">{q.question}</div>
+              {Array.isArray(q.options) && q.options.length ? (
+                <ul className="quiz-options">{q.options.map((o, j) => <li key={'o' + j}>{o}</li>)}</ul>
+              ) : null}
+              {showAnswers ? (
+                <div className="quiz-answer">
+                  <div><strong>答案：</strong>{q.answer}</div>
+                  {q.explanation ? <div className="quiz-exp"><strong>解析：</strong>{q.explanation}</div> : null}
+                </div>
+              ) : null}
+            </li>
+          ))}
+        </ol>
+        {!qs.length ? <p className="muted">还没有题目，请先在收藏夹里收藏一些知识点再生成。</p> : null}
+      </article>
     </div>
   );
 }

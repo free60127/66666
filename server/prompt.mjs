@@ -243,3 +243,44 @@ export function buildUserMessage({ title, chinese, draft, original, level }) {
     '5. vocabularyNotes 与 synonyms 里的每个英文单词都要给 phonetic 音标（IPA，含 / /）；\n' +
     '6. ai 字段必须是完整连贯的英文段落；sentences 必须覆盖每一句中文提示；findings 必须详尽，宁多勿漏。';
 }
+
+/* ---------- 收藏知识点自测题 ---------- */
+export const QUIZ_PROMPT = `你是英语自测题出题老师。用户会给你一份「知识点收藏」清单（内容可能包含：错题/辨析、核心词、习语、加分表达），以及需要出的题目数量。
+你的任务：围绕这些收藏的知识点出题，帮助学生自测复习。
+
+输出必须是严格 JSON（不要 markdown 包装、不要代码块、不要额外说明）：
+{
+  "title": "自测题标题（如：回译本 · 收藏知识点自测（10 题））",
+  "questions": [
+    {
+      "type": "改错 | 填空 | 翻译 | 选择 | 造句",
+      "question": "题干：明确告诉学生要做什么（英文或中文）",
+      "options": ["A. ...", "B. ...", "C. ...", "D. ..."],
+      "answer": "标准答案",
+      "explanation": "中文解析：为什么是这个答案，涉及哪个知识点",
+      "source": "对应的收藏知识点（单词/短语/搭配）"
+    }
+  ]
+}
+
+出题要求：
+1. 只考收藏清单里的知识点，不要引入清单之外的新词或新语法点；可以换语境、换主语、换时态，但考查点必须在清单里。
+2. 题型混搭：改错、填空、翻译（中译英）、选择、造句都要出现；同一个知识点最多出 2 题。
+3. 选择题必须 4 个选项、干扰项合理（用学生常见错误，如搭配错误、语域不符、近义词误用），答案唯一。
+4. 难度匹配用户给出的润色等级；不要越级堆砌。
+5. 每题都要有 explanation（中文、具体，点出考点）和 source（对应收藏里的词或短语）。
+6. 题量严格等于用户要求的数量；知识点不够时可以围绕同一知识点换角度出题，但绝不能编造清单之外的知识点。
+7. 答案必须准确；不确定的搭配不要出题。`;
+
+export function buildQuizMessage({ points, count, level }) {
+  const list = Array.isArray(points) ? points : [];
+  const n = Math.max(1, Math.min(50, Number(count) || 10));
+  const L = levelGuide(level);
+  return '请根据下面这份知识点收藏出 ' + n + ' 道自测题。\n\n' +
+    '【润色等级（决定题目难度）：' + L.key + '】\n' +
+    '- 词汇：' + L.vocab + '\n' +
+    '- 句式：' + L.syntax + '\n\n' +
+    '【知识点收藏（共 ' + list.length + ' 条）】\n' +
+    list.map((p, i) => (i + 1) + '. ' + String(p).replace(/\s+/g, ' ').slice(0, 400)).join('\n') +
+    '\n\n请按要求输出完整 JSON（title + questions），题量 = ' + n + '。';
+}

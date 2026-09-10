@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { SYSTEM_PROMPT, buildUserMessage, MATERIAL_PROMPT, buildMaterialMessage, AI_LEVEL_KEYS, DEFAULT_AI_LEVEL } from './prompt.mjs';
+import { SYSTEM_PROMPT, buildUserMessage, MATERIAL_PROMPT, buildMaterialMessage, QUIZ_PROMPT, buildQuizMessage, AI_LEVEL_KEYS, DEFAULT_AI_LEVEL } from './prompt.mjs';
 import { recognizeImage } from './ocr.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -433,6 +433,55 @@ async function runOcrJob(jobId, { image, side, mode, vision }) {
   }
 }
 
+/* ---------- 自测题任务（根据收藏知识点出题） ---------- */
+async function runQuizJob(jobId, { points, count, level, baseUrl, model, apiKey }) {
+  const job = jobs.get(jobId);
+  if (!job) return;
+  job.status = 'running';
+  job.startedAt = Date.now();
+  saveJob(job);
+  try {
+    const messages = [
+      { role: 'system', content: QUIZ_PROMPT },
+      { role: 'user', content: buildQuizMessage({ points, count, level }) },
+    ];
+    const raw = await callLLM({ baseUrl, model, apiKey, messages });
+    let parsed;
+    try {
+      parsed = parseJsonLoose(raw);
+    } catch (e) {
+      throw new Error('模型返回不是有效 JSON，请重试或换模型');
+    }
+    const questions = (Array.isArray(parsed.questions) ? parsed.questions : [])
+      .filter((q) => q && (q.question || q.answer))
+      .map((q) => ({
+        type: String(q.type || '问答'),
+        question: String(q.question || ''),
+        options: Array.isArray(q.options) ? q.options.map((o) => String(o)) : [],
+        answer: String(q.answer || ''),
+        explanation: String(q.explanation || ''),
+        source: String(q.source || ''),
+      }));
+    if (!questions.length) throw new Error('模型没有生成有效题目，请重试');
+    job.data = {
+      title: parsed.title || ('收藏知识点自测（' + questions.length + ' 题）'),
+      level: level || DEFAULT_AI_LEVEL,
+      count: questions.length,
+      questions,
+    };
+    job.status = 'done';
+    saveJob(job);
+  } catch (e) {
+    job.status = 'error';
+    job.error = e.message || '生成自测题失败，请重试';
+    saveJob(job);
+  } finally {
+    job.finishedAt = Date.now();
+    saveJob(job);
+    setTimeout(() => { jobs.delete(jobId); persistJobs(); }, JOB_TTL);
+  }
+}
+
 /* ---------- server ---------- */
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css',
@@ -569,6 +618,34 @@ const server = http.createServer(async (req, res) => {
     if (ocrMatch && req.method === 'GET') {
       const job = jobs.get(ocrMatch[1]);
       if (!job || job.kind !== 'ocr') return json(res, 404, { error: '任务不存在或已过期，请重新识别' });
+      return json(res, 200, {
+        ok: true,
+        job: { jobId: job.jobId, status: job.status, data: job.data || null, error: job.error || null },
+      });
+    }
+    if (p === '/api/quiz' && req.method === 'POST') {
+      const body = await readBody(req);
+      const points = (Array.isArray(body.points) ? body.points : [])
+        .map((x) => String(x || '').trim())
+        .filter(Boolean)
+        .slice(0, 60);
+      if (!points.length) return json(res, 400, { error: '请先收藏一些知识点，再生成自测题' });
+      const count = Math.max(1, Math.min(50, Number(body.count) || 10));
+      const level = AI_LEVEL_KEYS.includes(String(body.level || '').trim()) ? String(body.level).trim() : DEFAULT_AI_LEVEL;
+      const baseUrl = String(body.baseUrl || '').trim() || stat.baseUrl();
+      const model = String(body.model || '').trim() || stat.model();
+      const apiKey = String(body.apiKey || '').trim() || process.env.AI_API_KEY || '';
+      if (!apiKey) return json(res, 400, { error: '未配置 AI_API_KEY：请复制 .env.example 为 .env 并填写，或在设置面板填入 API Key' });
+
+      const jobId = randomUUID();
+      saveJob({ jobId, kind: 'quiz', title: '自测题 · ' + count + ' 题', status: 'pending', createdAt: Date.now(), data: null, error: null });
+      runQuizJob(jobId, { points, count, level, baseUrl, model, apiKey });
+      return json(res, 200, { ok: true, jobId, status: 'pending' });
+    }
+    const quizMatch = p.match(/^\/api\/quiz\/([A-Za-z0-9-]{8,64})$/);
+    if (quizMatch && req.method === 'GET') {
+      const job = jobs.get(quizMatch[1]);
+      if (!job || job.kind !== 'quiz') return json(res, 404, { error: '任务不存在或已过期，请重新生成' });
       return json(res, 200, {
         ok: true,
         job: { jobId: job.jobId, status: job.status, data: job.data || null, error: job.error || null },

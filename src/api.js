@@ -22,6 +22,9 @@ export const ocr = (payload) => api('/api/ocr', { method: 'POST', body: JSON.str
 export const getOcrJob = (jobId) => api('/api/ocr/' + jobId);
 // 音标兜底查询（模型没返回 phonetic 时用）
 export const getPhonetic = (word) => api('/api/phonetic?word=' + encodeURIComponent(word));
+// 收藏知识点自测题：提交 → 轮询结果
+export const quiz = (payload) => api('/api/quiz', { method: 'POST', body: JSON.stringify(payload ?? {}) });
+export const getQuizJob = (jobId) => api('/api/quiz/' + jobId);
 
 // 本地设置（仅个人使用时，key 会随请求发给 localhost 后端）
 const KEY = 'bt-studio-settings';

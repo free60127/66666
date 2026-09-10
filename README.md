@@ -19,7 +19,8 @@
 - 润色等级梯度：可选 **小初 / 高考英语 / 四六级 / 考研英语 / 专四 / 专八**，AI 润色版（整体 + 逐句）、高级句式、加分表达、以及 findings 里推荐给学生替换的表达，都会匹配该等级的词汇量、句式复杂度、习语密度与篇幅（默认四六级，选择记忆在本机）
 - 音标标注：词汇深度辨析里的核心词与近义词都带 IPA 音标（如 spoil /spɔɪl/、ruin /ˈruːɪn/、damage /ˈdæmɪdʒ/、mar /mɑːr/）；模型未返回时后端会尝试词典兜底查询并缓存
 - 词根词缀拆解（**四六级及以上等级**）：词汇深度辨析里的难词会多一行小字，拆出词根词缀并给出「核心记忆画面」，例如 **enunciate** = `e-（向外）+ nunci（宣布）+ -ate（动词后缀）` → 「把想法清楚地『送出来、说出来』」，还会附同根词（pronounce / announcement / denounce）；模型会自行判断难易，**小初/高考基础词（go / make / happy 等）不拆**，小初与高考等级完全不输出该内容
-- 知识点收藏夹：结果页每条错题/辨析、核心词、习语右上角点 ☆ 即可收藏，之后在顶栏「收藏夹」里直接复习，**不用打开整份作业**；支持搜索、按类型筛选、删除、复制全部、以及导出 / 导入 JSON 备份（纯本机实现，不依赖数据库）
+- 知识点收藏夹：结果页每条错题/辨析、核心词、习语、**加分表达 / 高级句式**右上角点 ☆ 即可收藏，之后在顶栏「收藏夹」里直接复习，**不用打开整份作业**；支持搜索、按类型筛选、删除、复制全部、以及导出 / 导入 JSON 备份（纯本机实现，不依赖数据库）
+- 收藏知识点自测：在收藏夹里选题目数量（5/10/15/20/30/50）一键出题，AI 围绕收藏的考点混搭 **选择 / 填空 / 翻译 / 改错 / 造句** 五种题型，附答案与解析；支持「显示/隐藏答案」、**导出 PDF**（答案统一印在最后）、复制题目；AI 不可用时自动用本地题库兜底出题
 - AI 原创素材：按主题/难度/文体用 AI 生成无版权英文短文 + 完整中文翻译（如时事、中国文化），可直接作为回译训练题源（回应用户「新概念课文有版权、AI 生成文章可商业化」的建议）
 - 逐句级解析：每条错误含 from → to 与中文解释，分 error / improve / study 三级；核心动词/形容词/易混词按「语域、感情色彩、语用、语义轻重、固定搭配、内涵外延」六大维度讲透，并附带近义词对比表（word / meaning / register / tone / strength / usage / example）与例句
 - 地道习语强化：AI 润色版优先使用符合情境的习语（如 suddenly → out of the blue），并在 findings 与「地道习语强化」板块逐条解释气势、场景与普通说法的差异
@@ -132,6 +133,8 @@
 | GET | /api/generate-material/:jobId | 轮询素材生成状态：`{ok, job:{jobId, status, data?, error?}}`，status 为 pending / running / done / error |
 | POST | /api/analyze | 异步提交回译作业（chinese、draft + 可选 book、lessonId、title、original、level、baseUrl、model、apiKey），立即返回 `{ok, jobId}`；level ∈ 小初 / 高考英语 / 四六级 / 考研英语 / 专四 / 专八 |
 | GET | /api/phonetic?word=spoil | 查单词 IPA 音标（模型未返回 phonetic 时的兜底，带内存缓存与熔断） |
+| POST | /api/quiz | 根据收藏知识点出题：提交 `{points[], count, level, baseUrl, model, apiKey}`，返回 `{ok, jobId}` |
+| GET | /api/quiz/:jobId | 轮询自测题：`{ok, job:{jobId, status, data:{title, level, count, questions[{type,question,options,answer,explanation,source}]}, error}}` |
 | GET | /api/analyze/:jobId | 轮询作业状态：`{ok, job:{jobId, status, data?, error?}}`，status 为 pending / running / done / error |
 
 所有任务（分析 + 素材）都会持久化到服务端 `data/jobs.json`（保留 7 天），后端重启不会丢失；结果页「复制分享链接」会生成 `#job=<jobId>` 链接，任何人打开都能恢复同一次批改结果；前端还会在本机浏览器保存最近 20 条历史记录。
