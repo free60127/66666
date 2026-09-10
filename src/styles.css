@@ -364,6 +364,12 @@ mark.hl { background: #ffe3e3; color: inherit; padding: 0 2px; border-radius: 2p
   .fav-toolbar { flex-wrap: wrap; }
 }
 
+/* 词根词缀拆解（四六级及以上等级，基础词不显示） */
+.vocab-morph { margin: 6px 0 8px; padding: 7px 10px; background: #f7f4ff; border-left: 3px solid #7a5ac9; border-radius: 8px; }
+.vocab-morph .morph-line { font-size: 12.5px; line-height: 1.7; color: #4a4258; }
+.vocab-morph .morph-image { color: #5b4a8a; font-weight: 600; }
+.vocab-morph .morph-family { color: var(--muted); font-size: 12px; }
+
 @media print {
   .fav-star, .fav-tip, .fav-modal { display: none !important; }
 }

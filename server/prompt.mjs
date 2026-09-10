@@ -62,6 +62,11 @@ export const SYSTEM_PROMPT = `你是「新概念英语回译训练」王牌导�
       "phonetic": "国际音标（标准 IPA，用 / / 包裹，如 /spɔɪl/；多词短语可留空）",
       "type": "词性（如：动词 / 形容词 / 名词 / 搭配）",
       "meaning": "中文释义",
+      "morphology": {
+        "parts": "词根词缀拆解，如 e-（向外）+ nunci（宣布）+ -ate（使…）；只给能真实拆解的非基础词，否则整个对象留空",
+        "image": "一句话核心记忆画面，如「把信息清楚地『送出来、说出来』」",
+        "family": "可选：同根/同族词，如 pronounce / announcement / denounce"
+      },
       "dimensions": ["辨析维度"],
       "synonyms": [ { "word": "", "phonetic": "", "meaning": "", "register": "", "tone": "", "strength": "", "usage": "", "example": "" } ],
       "examples": [ { "en": "", "cn": "" } ],
@@ -132,6 +137,13 @@ export const SYSTEM_PROMPT = `你是「新概念英语回译训练」王牌导�
 10. vocabularyNotes 至少 2-4 组，idiomHighlights 至少 3 条；若确实没有合适内容，用空数组，不得编造。
 11. 音标：vocabularyNotes 的每个 word、以及 synonyms 里每个英文单词，都必须填 phonetic（标准国际音标 IPA，用 / / 包裹，如 /spɔɪl/、/ˈruːɪn/、/ˈdæmɪdʒ/、/mɑːr/）。音标必须真实准确，英美式统一即可；多词短语（如 get off the bus）可留空字符串，不要硬凑、不要杜撰。
 12. 润色等级：用户消息里会给出【本次润色等级】（小初 / 高考英语 / 四六级 / 考研英语 / 专四 / 专八）。整体 ai、逐句 ai、advancedSentences、bonusExpressions，以及 findings 中推荐给学生替换用的表达，都必须匹配该等级的词汇、句式、习语与篇幅要求；宁可在等级内写得漂亮，也不要越级堆砌学生驾驭不了的高级词。
+13. 词根词缀（仅当润色等级为 四六级 / 考研英语 / 专四 / 专八 时输出）：
+   - vocabularyNotes 中凡是「非基础词 + 有明确词根词缀 + 拆开确实有助于记忆」的词，都要给出 morphology：parts（词根词缀拆解）、image（一句话核心记忆画面），能想到同根词的再给 family。
+   - 反面例子（这些是基础词，一律不拆，morphology 留空或不填）：go、make、happy、big、water、school、book、good、bad、nice、get、take 之类小初/高考基础词。
+   - 正面例子：enunciate → parts: "e-（向外）+ nunci（宣布）+ -ate（动词后缀）"，image: "把信息清楚地『送出来、说出来』"，family: "pronounce / announcement / denounce"；remonstrate → parts: "re-（再、往回）+ monstr（显示、指出）+ -ate"，image: "把问题摆到对方面前『再指给你看』→ 抗议、规劝"。
+   - 拆解必须词源真实，不要为了形式硬拆；不确定、或本来就是外来词/不可拆词，整个 morphology 留空。
+   - image 要具体、口语化、一眼能记住；不要写成抽象定义。
+   - 若等级是 小初 / 高考英语，一律不要输出 morphology。
 `;
 
 export const MATERIAL_PROMPT = `你是「回译本」训练素材生成器，专门为回译训练原创英文短文，避开一切教材与已有作品的版权内容。
@@ -207,6 +219,10 @@ export function levelGuide(level) {
 
 export function buildUserMessage({ title, chinese, draft, original, level }) {
   const L = levelGuide(level);
+  const wantMorphology = ['四六级', '考研英语', '专四', '专八'].includes(L.key);
+  const morphologyRule = wantMorphology
+    ? '- 词根词缀：vocabularyNotes 里凡是「非基础词 + 能真实拆解」的词（优先 AI 润色版/课文原文里的难词，如 enunciate / remonstrate / materialize / irreparable），都必须给 morphology（parts 拆解 + image 核心记忆画面，可选 family 同根词）；小初/高考基础词（go、make、happy、big 等）留空，不要硬拆；不确定词源就留空。\n'
+    : '- 词根词缀：本等级（' + L.key + '）不需要词根词缀拆解，vocabularyNotes 一律不要输出 morphology，讲解保持简单直接。\n';
   return '请为以下回译训练生成完整分析作业。\n\n标题：' + title +
     '\n中文提示：\n' + chinese +
     '\n\n学生英文初稿：\n' + draft +
@@ -217,6 +233,7 @@ export function buildUserMessage({ title, chinese, draft, original, level }) {
     '- 句式：' + L.syntax + '\n' +
     '- 习语：' + L.idiom + '\n' +
     '- 篇幅：' + L.length + '\n' +
+    morphologyRule +
     '不要给出明显超出该等级、学生现阶段驾驭不了的词或句式；也不要低于该等级（不要退回幼稚的简单句）。若学生初稿本身已经超出该等级，请保留其水平并在此基础上精修，不要降级。\n' +
     '\n请按要求输出完整 JSON。本次分析难度升级：\n' +
     '1. 词汇辨析必须按「语域 / 感情色彩 / 语用 / 语义轻重 / 固定搭配 / 内涵外延」六大维度讲透，核心动词、形容词、易混词都要给出近义词对比（synonyms）与例句；\n' +

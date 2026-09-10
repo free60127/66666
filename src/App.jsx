@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { analyze, generateMaterial, getAnalyzeJob, getLessons, getLesson, getMaterialJob, getOcrJob, getPhonetic, getStatus, loadSettings, matchLesson, ocr, saveSettings } from './api.js';
 import { DEMO_LESSON_18, DEMO_LESSONS } from './demo.js';
-import { FAV_KIND_LABEL, favoritesToText, favFromFinding, favFromIdiom, favFromVocab, filterFavorites, loadFavorites, mergeFavorites, saveFavorites } from './favorites.js';
+import { FAV_KIND_LABEL, favoritesToText, favFromFinding, favFromIdiom, favFromVocab, filterFavorites, hasMorphology, loadFavorites, mergeFavorites, morphologyText, saveFavorites } from './favorites.js';
 
 const LEVEL_LABEL = { error: '必须改错', improve: '润色升级', study: '对照学习' };
 const CATEGORY_COLOR = {
@@ -1036,7 +1036,7 @@ function App() {
           return '· [' + f.category + '] ' + f.from + ' → ' + f.to + '：' + f.explanation + dims + syns + idiom;
         }), '',
       ]),
-      '【词汇深度辨析】', ...(result.vocabularyNotes || []).map((v, i) => String(i + 1) + '. ' + v.word + (v.type ? '（' + v.type + '）' : '') + '：' + (v.meaning || '') + (v.note ? ' ' + v.note : '')), '',
+      '【词汇深度辨析】', ...(result.vocabularyNotes || []).map((v, i) => String(i + 1) + '. ' + v.word + (v.type ? '（' + v.type + '）' : '') + '：' + (v.meaning || '') + (v.note ? ' ' + v.note : '') + (hasMorphology(v.morphology) ? ' 【' + morphologyText(v.morphology) + '】' : '')), '',
       '【地道习语】', ...(result.idiomHighlights || []).map((id, i) => String(i + 1) + '. ' + id.idiom + (id.common ? '（普通说法：' + id.common + '）' : '') + '：' + (id.explanation || '')), '',
       '【可学习的高级句式】', ...(result.advancedSentences || []).map((a) => '· ' + a), '',
       '【加分表达】', ...(result.bonusExpressions || []).map((b) => '· ' + b), '',
@@ -1462,6 +1462,19 @@ function VocabularyNotes({ items, result, fav }) {
               {fav ? <FavStar active={fav.has(favItem.id)} onToggle={() => fav.toggle(favItem)} /> : null}
             </div>
             {v.meaning ? <p className="vocab-meaning">{v.meaning}</p> : null}
+            {hasMorphology(v.morphology) ? (
+              <div className="vocab-morph">
+                {typeof v.morphology === 'string'
+                  ? <div className="morph-line">🧩 {v.morphology}</div>
+                  : (
+                    <>
+                      {v.morphology.parts ? <div className="morph-line">🧩 {v.morphology.parts}</div> : null}
+                      {v.morphology.image ? <div className="morph-line morph-image">💡 {v.morphology.image}</div> : null}
+                      {v.morphology.family ? <div className="morph-line morph-family">同根：{v.morphology.family}</div> : null}
+                    </>
+                  )}
+              </div>
+            ) : null}
             {dims.length ? <div className="dim-chips">{dims.map((d, j) => <span className="dim-chip" key={'vd' + j}>{d}</span>)}</div> : null}
             {syns.length ? <div className="syn-block"><span className="ext-label">近义词对比</span><div className="syn-list">{syns.map((s, j) => <SynRow key={'vs' + j} s={s} />)}</div></div> : null}
             {exs.length ? <div className="ex-block"><span className="ext-label">例句</span>{exs.map((x, j) => <div className="example-line" key={'ve' + j}><em>{x?.en || x?.example || ''}</em>{x?.cn ? <span>{x.cn}</span> : null}</div>)}</div> : null}

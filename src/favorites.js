@@ -53,6 +53,24 @@ function wrapPhonetic(p) {
   return v.startsWith('/') ? v : '/' + v + '/';
 }
 
+/** 词根词缀拆解 → 一行文本（morphology 可能是对象，也可能是模型直接给的字符串） */
+export function morphologyText(m) {
+  if (!m) return '';
+  if (typeof m === 'string') return m.trim();
+  return [
+    m.parts ? '拆解：' + m.parts : '',
+    m.image ? '记忆画面：' + m.image : '',
+    m.family ? '同根词：' + m.family : '',
+  ].filter(Boolean).join('；');
+}
+
+/** 判断一个 vocabularyNote 是否真的有可展示的词根词缀内容 */
+export function hasMorphology(m) {
+  if (!m) return false;
+  if (typeof m === 'string') return Boolean(m.trim());
+  return Boolean((m.parts && String(m.parts).trim()) || (m.image && String(m.image).trim()) || (m.family && String(m.family).trim()));
+}
+
 export function favFromFinding(finding, result) {
   const f = finding || {};
   const syns = synWords(f.synonyms);
@@ -86,6 +104,7 @@ export function favFromVocab(v, result) {
     body: [v && v.meaning, v && v.note].filter(Boolean).join('\n'),
     extra: [
       Array.isArray(v && v.dimensions) && v.dimensions.length ? '维度：' + v.dimensions.join('、') : '',
+      hasMorphology(v && v.morphology) ? '词根词缀：' + morphologyText(v.morphology) : '',
       synWords(v && v.synonyms).length ? '近义词：' + synWords(v && v.synonyms).join('、') : '',
       exLines(v && v.examples).length ? '例句：' + exLines(v && v.examples).join(' / ') : '',
     ].filter(Boolean).join('\n'),
