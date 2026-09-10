@@ -386,13 +386,18 @@ mark.hl { background: #ffe3e3; color: inherit; padding: 0 2px; border-radius: 2p
 .quiz-src { font-size: 11.5px; color: var(--muted); }
 .quiz-question { font-size: 14px; line-height: 1.75; white-space: pre-wrap; }
 .quiz-options { margin: 6px 0 0; padding-left: 20px; font-size: 13.5px; line-height: 1.8; }
-.quiz-answer { margin-top: 8px; padding: 8px 10px; background: #effaf7; border-left: 3px solid var(--teal); border-radius: 8px; font-size: 13.5px; line-height: 1.8; }
+/* 答案区：默认隐藏（先自己做），导出 PDF 时一律印在最后 */
+.quiz-answers { margin-top: 22px; border-top: 2px solid var(--teal); padding-top: 14px; }
+.quiz-answers.hidden { display: none; }
+.quiz-answers-title { margin: 0 0 10px; font-size: 15px; color: var(--teal); }
+.quiz-answer-item { border-left: 3px solid var(--teal); background: #effaf7; border-radius: 8px; padding: 8px 11px; margin-bottom: 8px; font-size: 13.5px; line-height: 1.8; }
+.quiz-answer-line { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .quiz-exp { color: #176b62; margin-top: 3px; }
 
 @media print {
   .fav-star, .fav-tip, .fav-modal { display: none !important; }
-  /* 导出自测 PDF 时，答案统一印出来（即使屏幕上隐藏） */
-  .quiz-answer { display: block !important; }
-  .quiz-item { break-inside: avoid; page-break-inside: avoid; }
+  /* 导出自测 PDF 时，答案与解析统一印在最后（即使屏幕上隐藏着） */
+  .quiz-answers, .quiz-answers.hidden { display: block !important; break-before: auto; page-break-before: auto; }
+  .quiz-item, .quiz-answer-item { break-inside: avoid; page-break-inside: avoid; }
   .quiz-list { padding-left: 0 !important; }
 }

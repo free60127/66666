@@ -385,7 +385,7 @@ function App() {
   const [quizData, setQuizData] = useState(null);
   const [quizBusy, setQuizBusy] = useState(false);
   const [quizCount, setQuizCount] = useState(10);
-  const [quizShowAnswers, setQuizShowAnswers] = useState(true);
+  const [quizShowAnswers, setQuizShowAnswers] = useState(false); // 默认隐藏答案，先自己做
   const [quizTip, setQuizTip] = useState('');
   const [shareTip, setShareTip] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(() => {
@@ -767,7 +767,7 @@ function App() {
       }
       if (!data || !Array.isArray(data.questions) || !data.questions.length) throw new Error('生成超时或题目为空，请重试');
       setQuizData(data);
-      setQuizShowAnswers(true);
+      setQuizShowAnswers(false);
       setFavOpen(false);
       setView('quiz');
     } catch (e) {
@@ -775,7 +775,7 @@ function App() {
       const local = buildLocalQuiz(pool, quizCount);
       if (local.questions.length) {
         setQuizData(local);
-        setQuizShowAnswers(true);
+        setQuizShowAnswers(false);
         setQuizTip('AI 出题失败（' + (e.message || '未知错误') + '），已用本地题库兜底生成');
         setFavOpen(false);
         setView('quiz');
@@ -1650,29 +1650,37 @@ function QuizSheet({ quiz, showAnswers, onToggleAnswers, onBack, onBackToFav, on
           <h1>{quiz.title}</h1>
           <span className="sheet-duration">共 {qs.length} 题{quiz.local ? ' · 本地兜底生成' : ''}{quiz.level ? ' · 润色等级 ' + quiz.level : ''}</span>
         </header>
-        <p className="quiz-hint">先自己做完，再点「显示答案」对照；导出 PDF 时答案会统一印在最后。</p>
+        <p className="quiz-hint">先自己做完，再点右上角「显示答案」对照；导出 PDF 时答案与解析会统一印在最后。</p>
         <ol className="quiz-list">
           {qs.map((q, i) => (
             <li className="quiz-item" key={'q' + i}>
               <div className="quiz-head">
                 <span className="quiz-no">{i + 1}</span>
                 <span className="quiz-type">{q.type || '问答'}</span>
-                {q.source ? <span className="quiz-src">考点：{q.source}</span> : null}
               </div>
               <div className="quiz-question">{q.question}</div>
               {Array.isArray(q.options) && q.options.length ? (
                 <ul className="quiz-options">{q.options.map((o, j) => <li key={'o' + j}>{o}</li>)}</ul>
               ) : null}
-              {showAnswers ? (
-                <div className="quiz-answer">
-                  <div><strong>答案：</strong>{q.answer}</div>
-                  {q.explanation ? <div className="quiz-exp"><strong>解析：</strong>{q.explanation}</div> : null}
-                </div>
-              ) : null}
             </li>
           ))}
         </ol>
         {!qs.length ? <p className="muted">还没有题目，请先在收藏夹里收藏一些知识点再生成。</p> : null}
+
+        {/* 答案区：屏幕默认隐藏，导出 PDF 时始终印在最后 */}
+        <section className={'quiz-answers' + (showAnswers ? '' : ' hidden')}>
+          <h2 className="quiz-answers-title">答案与解析</h2>
+          {qs.map((q, i) => (
+            <div className="quiz-answer-item" key={'a' + i}>
+              <div className="quiz-answer-line">
+                <span className="quiz-no">{i + 1}</span>
+                <strong>答案：</strong>{q.answer}
+              </div>
+              {q.explanation ? <div className="quiz-exp"><strong>解析：</strong>{q.explanation}</div> : null}
+              {q.source ? <div className="quiz-src">考点：{q.source}</div> : null}
+            </div>
+          ))}
+        </section>
       </article>
     </div>
   );
