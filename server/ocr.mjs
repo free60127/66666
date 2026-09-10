@@ -143,28 +143,39 @@ export async function recognizeImage({ image, side = 'english', mode = 'auto', v
   const dataUrl = image.startsWith('data:') ? image : 'data:' + mime + ';base64,' + image;
   const attempts = [];
   let last = null;
+  let lastError = null;
 
-  for (let i = 0; i < 2; i += 1) {
-    const prompt = buildPrompt({ side, mode, retry: i > 0 });
-    try {
-      const raw = await callVision({ dataUrl, prompt, vision });
-      const text = tidyOcrText(raw);
-      const quality = textQuality(text);
-      if (text && !quality.garbled) {
-        return { text, engine: 'vision', model: vision.model, quality, attempts };
+  // 依次尝试：主视觉模型 → 兜底视觉模型（例如 DeepSeek 的 deepseek-flash）
+  const models = [vision.model];
+  if (vision.fallbackModel && vision.fallbackModel !== vision.model) models.push(vision.fallbackModel);
+
+  for (const model of models) {
+    let imageUnsupported = false;
+    for (let i = 0; i < 2 && !imageUnsupported; i += 1) {
+      const prompt = buildPrompt({ side, mode, retry: i > 0 });
+      try {
+        const raw = await callVision({ dataUrl, prompt, vision: { ...vision, model } });
+        const text = tidyOcrText(raw);
+        const quality = textQuality(text);
+        if (text && !quality.garbled) {
+          return { text, engine: 'vision', model, quality, attempts };
+        }
+        last = { text, quality, model };
+        attempts.push(model + ': 结果可疑（字数 ' + quality.len + '，乱码率 ' + quality.badRatio.toFixed(2) + '）');
+      } catch (e) {
+        lastError = e;
+        attempts.push(model + ': ' + (e?.message || e));
+        // 模型根本不支持图片：不必重试，直接换下一个候选模型
+        if (/不支持图片|does not support image|image input|multimodal|vision/i.test(String(e?.message || ''))) imageUnsupported = true;
       }
-      last = { text, quality };
-      attempts.push('vision: 结果可疑（字数 ' + quality.len + '，乱码率 ' + quality.badRatio.toFixed(2) + '）');
-    } catch (e) {
-      attempts.push('vision: ' + (e?.message || e));
-      if (i === 1) throw new Error(describeVisionError(e));
     }
   }
 
-  // 两次都不理想：如果至少有文字，就带 garbled 标记返回，让用户自行核对
+  // 都不理想：如果至少有文字，就带 garbled 标记返回，让用户自行核对
   if (last && last.text) {
-    return { text: last.text, engine: 'vision', model: vision.model, quality: last.quality, garbled: true, attempts };
+    return { text: last.text, engine: 'vision', model: last.model, quality: last.quality, garbled: true, attempts };
   }
+  if (lastError) throw new Error(describeVisionError(lastError));
   throw new Error('识别失败：' + attempts.join('；'));
 }
 

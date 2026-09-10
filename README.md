@@ -50,7 +50,7 @@
 | AI_BASE_URL | OpenAI 兼容接口地址 | https://api.deepseek.com/v1 |
 | AI_MODEL | 模型名 | deepseek-chat |
 | AI_API_KEY | 服务端密钥（不要提交到仓库） | sk-... |
-| AI_VISION_MODEL | 拍照/图片识别用的视觉模型（必须支持图片输入；留空则沿用 AI_MODEL） | deepseek-v4-flash-vision-exp |
+| AI_VISION_MODEL | 拍照/图片识别用的视觉模型（必须支持图片输入；留空时 DeepSeek 路由自动用 `deepseek-flash`） | deepseek-flash |
 | AI_VISION_BASE_URL | 视觉模型接口地址（可选，默认与 AI_BASE_URL 相同） | https://api.deepseek.com/v1 |
 | AI_VISION_API_KEY | 视觉模型专用 Key（可选，默认与 AI_API_KEY 相同） | sk-... |
 | AI_MAX_TOKENS | 单次生成最大输出 token（默认 20000，输出被截断时自动重试更高上限） | 20000 |
@@ -76,7 +76,8 @@
 
 注意：
 
-- 必须配置支持图片输入的模型：`.env` 里设置 `AI_VISION_MODEL`，或在「AI 设置」里单独填「视觉模型」；用 `deepseek-chat` 这类纯文本模型会报「当前模型不支持图片输入」。
+- **DeepSeek 用户无需额外配置**：最新的 `deepseek-flash` 已原生支持图片输入，DeepSeek 接口下留空「视觉模型」会自动使用它；如果主模型填的是 `deepseek-chat` 这类纯文本模型，后端识别时会自动回退到 `deepseek-flash`。
+- 换其他厂商时，把 `AI_VISION_MODEL`（或「AI 设置 → 视觉模型」）填成对应多模态模型，例如 `gpt-4o-mini` / `qwen-vl-max`。
 - 图片会上传到你配置的模型服务商用于识别，请勿上传含敏感信息的图片。
 - 识别结果会**追加**到对应输入框末尾（输入框为空则直接填入），生成前请先核对。
 

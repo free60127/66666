@@ -141,6 +141,13 @@ const stat = {
   hasKey: () => Boolean(process.env.AI_API_KEY),
 };
 
+// DeepSeek 最新的 flash 已原生支持图片输入，作为拍照识别（OCR）的默认视觉模型
+const DEEPSEEK_VISION_MODEL = 'deepseek-flash';
+function defaultVisionModel(baseUrl, model) {
+  if (process.env.AI_VISION_MODEL) return process.env.AI_VISION_MODEL;
+  return /deepseek/i.test(String(baseUrl || '')) ? DEEPSEEK_VISION_MODEL : model;
+}
+
 /* ---------- 异步任务（分析/素材）持久化 ---------- */
 const DATA_DIR = path.join(ROOT, 'data');
 const JOBS_FILE = path.join(DATA_DIR, 'jobs.json');
@@ -423,7 +430,7 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/status') {
       return json(res, 200, {
         baseUrl: stat.baseUrl(), model: stat.model(), hasKey: stat.hasKey(),
-        visionModel: process.env.AI_VISION_MODEL || stat.model(),
+        visionModel: defaultVisionModel(stat.baseUrl(), stat.model()),
         ocr: true,
         corpusLessons: allLessons().length,
         books: [...getCorpora().values()].map((c) => ({ book: c.book, lessons: c.lessons.length, source: c.source })),
@@ -493,11 +500,14 @@ const server = http.createServer(async (req, res) => {
       const baseUrl = String(body.baseUrl || '').trim() || stat.baseUrl();
       const model = String(body.model || '').trim() || stat.model();
       const apiKey = String(body.apiKey || '').trim() || process.env.AI_API_KEY || '';
-      // 视觉模型可以单独配置；缺省沿用主模型（但主模型必须支持图片输入）
+      // 视觉模型优先级：请求参数 > AI_VISION_MODEL > DeepSeek 路由默认 deepseek-flash > 主模型
+      const visionModel = String(body.visionModel || '').trim() || defaultVisionModel(baseUrl, model);
       const vision = {
         baseUrl: String(body.visionBaseUrl || '').trim() || process.env.AI_VISION_BASE_URL || baseUrl,
-        model: String(body.visionModel || '').trim() || process.env.AI_VISION_MODEL || model,
+        model: visionModel,
         apiKey: String(body.visionApiKey || '').trim() || process.env.AI_VISION_API_KEY || apiKey,
+        // 主模型是纯文本模型时，自动回退到 DeepSeek 原生多模态的 flash
+        fallbackModel: /deepseek/i.test(baseUrl) && visionModel !== DEEPSEEK_VISION_MODEL ? DEEPSEEK_VISION_MODEL : '',
       };
       if (!vision.apiKey) return json(res, 400, { error: '未配置 AI_API_KEY：请复制 .env.example 为 .env 并填写，或在设置面板填入 API Key' });
 
