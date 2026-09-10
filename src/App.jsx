@@ -205,15 +205,26 @@ function collectMarks(text, findings) {
   return marks.sort((a, b) => a.start - b.start);
 }
 
+// 只有「必须改正的错误」才在原稿上标线；纯润色升级（improve/study）不标，避免学生误以为整句都错了
+const MUST_FIX_CATEGORY = /拼写|标点|语法|时态|语态|专名/;
+function isMustFix(finding) {
+  const f = finding || {};
+  if (typeof f.from !== 'string' || !f.from.trim()) return false;
+  if (f.level === 'error') return true;
+  // 模型偶尔漏填 level：拼写/标点/语法/时态这类硬错误仍按必须改错处理
+  return !f.level && MUST_FIX_CATEGORY.test(String(f.category || ''));
+}
+
 function DraftText({ text, findings }) {
   const src = String(text || '');
-  const marks = collectMarks(text, findings);
+  const errs = (Array.isArray(findings) ? findings : []).filter(isMustFix);
+  const marks = collectMarks(text, errs);
   if (!marks.length) return src;
   const out = [];
   let cursor = 0;
   marks.forEach((m, i) => {
     if (m.start > cursor) out.push(<span key={'t' + i}>{src.slice(cursor, m.start)}</span>);
-    out.push(<mark key={'m' + i} className="hl">{src.slice(m.start, m.end)}</mark>);
+    out.push(<mark key={'m' + i} className="hl" title="必须改正的错误">{src.slice(m.start, m.end)}</mark>);
     cursor = m.end;
   });
   if (cursor < src.length) out.push(<span key="tail">{src.slice(cursor)}</span>);
@@ -1210,7 +1221,7 @@ function ResultSheet({ result, onBack, onCopy, onShare, shareTip }) {
           {result.durationMs ? <span className="sheet-duration">本次练习用时 {formatDuration(result.durationMs)}</span> : null}
         </header>
         <Section label="中文" tone="cn"><p>{result.chinese}</p></Section>
-        <Section label="原稿" tone="draft" note="黄色高亮 = 待改正或可优化的表达"><p><DraftText text={result.draft} findings={allFindings} /></p></Section>
+        <Section label="原稿" tone="draft" note="红色标记 = 必须改正的错误（纯润色升级不再标线，可在下方逐句解析里对照学习）"><p><DraftText text={result.draft} findings={allFindings} /></p></Section>
         <Section label="AI 修正版" tone="ai"><p>{result.ai}</p></Section>
         <Section label="原文" tone="original"><p>{result.original || '（自由模式：未匹配到课文原文）'}</p></Section>
         <section className="sheet-section analysis">
