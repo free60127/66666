@@ -1,10 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import mammoth from 'mammoth/mammoth.browser.js';
 import {
-  ArrowLeft, BookOpen, CheckCircle2, ClipboardCopy, Download, FileText, Flame,
-  History, Link2, LoaderCircle, PanelLeftClose, PanelLeftOpen, PenLine, Plus, Settings, Sparkles, Upload, WandSparkles, X,
+  ArrowLeft, BookOpen, Camera, CheckCircle2, ClipboardCopy, Download, FileText, Flame, History, ImagePlus,
+  Link2, LoaderCircle, PanelLeftClose, PanelLeftOpen, PenLine, Plus, Settings, Sparkles, Upload, WandSparkles, X,
 } from 'lucide-react';
-import { analyze, generateMaterial, getAnalyzeJob, getLessons, getLesson, getMaterialJob, getStatus, loadSettings, matchLesson, saveSettings } from './api.js';
+import { analyze, generateMaterial, getAnalyzeJob, getLessons, getLesson, getMaterialJob, getOcrJob, getStatus, loadSettings, matchLesson, ocr, saveSettings } from './api.js';
 import { DEMO_LESSON_18, DEMO_LESSONS } from './demo.js';
 
 const LEVEL_LABEL = { error: '必须改错', improve: '润色升级', study: '对照学习' };
@@ -35,6 +35,59 @@ function loadResultCache(jobId) {
 function saveResultCache(jobId, data) {
   if (!jobId || !data) return;
   try { localStorage.setItem('bt-result-' + jobId, JSON.stringify(data)); } catch { /* ignore */ }
+}
+
+/* ---------- 拍照 / 图片识别（OCR）前端预处理 ---------- */
+const OCR_MODE_LABEL = { auto: '自动识别', handwriting: '手写体优先', printed: '印刷体优先' };
+
+function fileToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(new Error('读取图片失败，请重试'));
+    reader.readAsDataURL(file);
+  });
+}
+
+function loadImageEl(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('图片解码失败（iPhone 的 HEIC 格式请先转成 JPG）'));
+    img.src = src;
+  });
+}
+
+/**
+ * 客户端预处理：控制长边分辨率（手写体给更高分辨率）、必要时灰度+提对比，再压成 JPEG。
+ * 目标：手写体识别质量更高，同时上传体积可控。
+ */
+async function prepareImage(file, mode) {
+  const raw = await fileToDataUrl(file);
+  const img = await loadImageEl(raw);
+  const longEdge = Math.max(img.width, img.height) || 1;
+  const target = mode === 'handwriting' ? 2400 : 1800;
+  const minEdge = 1200; // 小图放大，避免模型看不清笔画
+  let scale = 1;
+  if (longEdge > target) scale = target / longEdge;
+  else if (longEdge < minEdge) scale = Math.min(2.5, minEdge / longEdge);
+  const w = Math.max(1, Math.round(img.width * scale));
+  const h = Math.max(1, Math.round(img.height * scale));
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  if (mode === 'handwriting') {
+    try { ctx.filter = 'grayscale(1) contrast(1.25)'; } catch { /* 部分浏览器不支持 filter，忽略 */ }
+  }
+  ctx.drawImage(img, 0, 0, w, h);
+  let quality = 0.92;
+  let out = canvas.toDataURL('image/jpeg', quality);
+  while (out.length > 4.2 * 1024 * 1024 && quality > 0.55) {
+    quality -= 0.12;
+    out = canvas.toDataURL('image/jpeg', quality);
+  }
+  return out;
 }
 function formatTime(ts) {
   if (!ts) return '';
@@ -234,6 +287,20 @@ function App() {
     return localStorage.getItem('bt-sidebar') !== 'collapsed';
   });
   const fileRef = useRef(null);
+  // 拍照 / 图片识别
+  const [ocrBusy, setOcrBusy] = useState(null); // null | 'chinese' | 'english'
+  const [ocrMode, setOcrMode] = useState('auto'); // auto | handwriting | printed
+  const [ocrNotes, setOcrNotes] = useState({});
+  const [dragOver, setDragOver] = useState(null); // null | 'chinese' | 'english'
+  const [camOpen, setCamOpen] = useState(false);
+  const [camSide, setCamSide] = useState('english');
+  const [camError, setCamError] = useState('');
+  const camVideoRef = useRef(null);
+  const camStreamRef = useRef(null);
+  const chineseCamRef = useRef(null);
+  const chineseFileRef = useRef(null);
+  const englishCamRef = useRef(null);
+  const englishFileRef = useRef(null);
 
   const toggleSidebar = () => {
     setSidebarOpen((open) => {
@@ -548,6 +615,118 @@ function App() {
     }
   };
 
+  /* ---------- 拍照 / 图片识别 ---------- */
+  const handleOcrFiles = async (side, files) => {
+    const list = Array.from(files || []).filter((f) => f && /^image\//i.test(f.type || ''));
+    if (!list.length) { setError('请选择图片文件（JPG / PNG / WEBP 等）'); return; }
+    if (ocrBusy) return;
+    setError('');
+    setOcrBusy(side);
+    setOcrNotes((n) => ({ ...n, [side]: '正在准备图片…' }));
+    try {
+      const texts = [];
+      for (let i = 0; i < list.length; i += 1) {
+        setOcrNotes((n) => ({ ...n, [side]: `正在识别第 ${i + 1}/${list.length} 张…（约 5-30 秒）` }));
+        const image = await prepareImage(list[i], ocrMode);
+        const resp = await ocr({
+          image, side, mode: ocrMode,
+          baseUrl: settings.baseUrl, model: settings.model, apiKey: settings.apiKey,
+          visionModel: settings.visionModel,
+        });
+        const jobId = resp.jobId;
+        if (!jobId) throw new Error('服务器未返回任务编号，请重试');
+        const deadline = Date.now() + 3 * 60 * 1000;
+        let text = '';
+        let failures = 0;
+        while (Date.now() < deadline) {
+          await new Promise((resolve) => setTimeout(resolve, 1500));
+          let r;
+          try { r = await getOcrJob(jobId); failures = 0; }
+          catch (err) { failures += 1; if (failures > 8) throw new Error('网络不稳定，暂时无法获取识别结果，请重试'); continue; }
+          const job = r.job;
+          if (!job) continue;
+          if (job.status === 'done') { text = (job.data && job.data.text) || ''; break; }
+          if (job.status === 'error') throw new Error(job.error || '图片识别失败');
+        }
+        if (!text) throw new Error('识别超时（超过 3 分钟），请换更清晰的照片或重新拍一张');
+        texts.push(text);
+      }
+      const merged = texts.join('\n\n');
+      const apply = side === 'chinese' ? setChinese : setDraft;
+      apply((prev) => (prev && prev.trim() ? prev.replace(/\s+$/, '') + '\n\n' + merged : merged));
+      setOcrNotes((n) => ({ ...n, [side]: `识别完成：${merged.length} 字，已${side === 'chinese' ? '填入中文提示' : '追加到英文初稿'}，请核对后再生成` }));
+    } catch (e) {
+      setOcrNotes((n) => ({ ...n, [side]: '识别失败：' + (e.message || '未知错误') }));
+    } finally {
+      setOcrBusy(null);
+    }
+  };
+
+  const openCamera = async (side) => {
+    setCamError('');
+    const fallbackInput = side === 'chinese' ? chineseCamRef.current : englishCamRef.current;
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      fallbackInput?.click();
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+        audio: false,
+      });
+      camStreamRef.current = stream;
+      setCamSide(side);
+      setCamOpen(true);
+    } catch (e) {
+      setError('无法打开摄像头（' + (e.message || '权限被拒绝') + '），已打开系统选择器：可拍照或从相册选择');
+      fallbackInput?.click();
+    }
+  };
+
+  const closeCamera = () => {
+    try { camStreamRef.current?.getTracks().forEach((t) => t.stop()); } catch { /* ignore */ }
+    camStreamRef.current = null;
+    setCamOpen(false);
+    setCamError('');
+  };
+
+  const snapPhoto = async () => {
+    const video = camVideoRef.current;
+    if (!video || !video.videoWidth) { setCamError('相机画面尚未就绪，请稍候再点拍照'); return; }
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    canvas.getContext('2d').drawImage(video, 0, 0);
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.95));
+    if (!blob) { setCamError('拍照失败，请重试'); return; }
+    const file = new File([blob], 'camera-' + Date.now() + '.jpg', { type: 'image/jpeg' });
+    const side = camSide;
+    closeCamera();
+    await handleOcrFiles(side, [file]);
+  };
+
+  // 桌面端：防止图片被拖到页面空白处时浏览器直接打开图片；同时负责组件卸载时关掉摄像头
+  useEffect(() => {
+    const prevent = (e) => { e.preventDefault(); };
+    window.addEventListener('dragover', prevent);
+    window.addEventListener('drop', prevent);
+    return () => {
+      window.removeEventListener('dragover', prevent);
+      window.removeEventListener('drop', prevent);
+      try { camStreamRef.current?.getTracks().forEach((t) => t.stop()); } catch { /* ignore */ }
+    };
+  }, []);
+
+  // 摄像头弹窗打开后再绑定视频流（保证 <video> 已挂载）
+  useEffect(() => {
+    if (!camOpen) return;
+    const v = camVideoRef.current;
+    if (v && camStreamRef.current) {
+      v.srcObject = camStreamRef.current;
+      v.play().catch(() => {});
+    }
+  }, [camOpen]);
+
   const runGenerate = async (overrideLessonId) => {
     const id = overrideLessonId ?? lessonId;
     const cn = chinese.trim();
@@ -702,6 +881,13 @@ function App() {
               <button className="ghost-btn" onClick={() => { setMaterialOpen(true); setError(''); }} disabled={materialBusy}>
                 <Sparkles size={16} />AI 生成训练素材
               </button>
+              <label className="ocr-mode-wrap">识别模式
+                <select className="ocr-mode" value={ocrMode} onChange={(e) => setOcrMode(e.target.value)} title="拍照 / 图片识别的模式">
+                  <option value="auto">自动（印刷体/手写体）</option>
+                  <option value="handwriting">手写体优先（更高清）</option>
+                  <option value="printed">印刷体优先</option>
+                </select>
+              </label>
             </div>
             {matchedLesson && (
               <div className={'match-banner' + (mode === 'free' ? ' weak' : '')}>
@@ -719,13 +905,53 @@ function App() {
             </div>
             <div className="title-field"><label>作业标题</label><input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="例如：新概念2 lesson 11" /></div>
             <div className="editor-grid">
-              <div className="panel">
-                <div className="panel-head"><h2>中文提示</h2><span className="hint">由 DOCX 自动读取，也可修改</span></div>
-                <textarea className="big-textarea" value={chinese} onChange={(e) => setChinese(e.target.value)} placeholder="上传 DOCX 后，这里会自动填入中文译文" />
+              <div
+                className={'panel' + (dragOver === 'chinese' ? ' drag-on' : '')}
+                onDragOver={(e) => { e.preventDefault(); setDragOver('chinese'); }}
+                onDragLeave={() => setDragOver(null)}
+                onDrop={(e) => { e.preventDefault(); setDragOver(null); handleOcrFiles('chinese', e.dataTransfer && e.dataTransfer.files); }}
+              >
+                <div className="panel-head">
+                  <h2>中文提示</h2>
+                  <div className="panel-tools">
+                    <button className="ghost-btn sm" onClick={() => openCamera('chinese')} disabled={Boolean(ocrBusy)} title="调用摄像头拍照并识别中文">
+                      {ocrBusy === 'chinese' ? <LoaderCircle className="spin" size={14} /> : <Camera size={14} />}拍照
+                    </button>
+                    <button className="ghost-btn sm" onClick={() => chineseFileRef.current?.click()} disabled={Boolean(ocrBusy)} title="从相册 / 文件选择图片并识别中文">
+                      <ImagePlus size={14} />导入图片
+                    </button>
+                  </div>
+                </div>
+                <textarea className="big-textarea" value={chinese} onChange={(e) => setChinese(e.target.value)} placeholder="上传 DOCX 后自动填入；也可拍照、导入图片，或把图片直接拖到这里识别（印刷体 / 手写体均可）" />
+                <div className={'ocr-note' + (String(ocrNotes.chinese || '').startsWith('识别失败') ? ' err' : '')}>
+                  {ocrNotes.chinese || '支持：拍照 / 导入图片 / 电脑端拖入图片；识别后可先核对再生成'}
+                </div>
+                <input ref={chineseCamRef} type="file" accept="image/*" capture="environment" hidden onChange={(e) => { const f = e.target.files; e.target.value = ''; handleOcrFiles('chinese', f); }} />
+                <input ref={chineseFileRef} type="file" accept="image/*" multiple hidden onChange={(e) => { const f = e.target.files; e.target.value = ''; handleOcrFiles('chinese', f); }} />
               </div>
-              <div className="panel">
-                <div className="panel-head"><h2>你的英文初稿</h2><span className="hint">系统将逐句检查词汇、语法、流畅度和地道程度</span></div>
-                <textarea className="big-textarea" value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="上传 DOCX 后，这里会自动填入英文初稿" />
+              <div
+                className={'panel' + (dragOver === 'english' ? ' drag-on' : '')}
+                onDragOver={(e) => { e.preventDefault(); setDragOver('english'); }}
+                onDragLeave={() => setDragOver(null)}
+                onDrop={(e) => { e.preventDefault(); setDragOver(null); handleOcrFiles('english', e.dataTransfer && e.dataTransfer.files); }}
+              >
+                <div className="panel-head">
+                  <h2>你的英文初稿</h2>
+                  <div className="panel-tools">
+                    <button className="ghost-btn sm" onClick={() => openCamera('english')} disabled={Boolean(ocrBusy)} title="调用摄像头拍照并识别英文">
+                      {ocrBusy === 'english' ? <LoaderCircle className="spin" size={14} /> : <Camera size={14} />}拍照
+                    </button>
+                    <button className="ghost-btn sm" onClick={() => englishFileRef.current?.click()} disabled={Boolean(ocrBusy)} title="从相册 / 文件选择图片并识别英文">
+                      <ImagePlus size={14} />导入图片
+                    </button>
+                  </div>
+                </div>
+                <textarea className="big-textarea" value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="上传 DOCX 后自动填入；也可拍照作文纸、导入图片，或把图片直接拖到这里识别英文（印刷体 / 手写体均可）" />
+                <div className={'ocr-note' + (String(ocrNotes.english || '').startsWith('识别失败') ? ' err' : '')}>
+                  {ocrNotes.english || '支持：拍照 / 导入图片 / 电脑端拖入图片；手写体建议把「识别模式」切到「手写体优先」'}
+                </div>
+                <input ref={englishCamRef} type="file" accept="image/*" capture="environment" hidden onChange={(e) => { const f = e.target.files; e.target.value = ''; handleOcrFiles('english', f); }} />
+                <input ref={englishFileRef} type="file" accept="image/*" multiple hidden onChange={(e) => { const f = e.target.files; e.target.value = ''; handleOcrFiles('english', f); }} />
               </div>
             </div>
             {error && <div className="error-banner"><Flame size={15} /><span className="error-text">{error}</span><button className="link" onClick={loadDemo}>查看离线示例</button><button className="icon-btn err-close" onClick={() => setError('')} aria-label="关闭提示"><X size={15} /></button></div>}
@@ -755,6 +981,21 @@ function App() {
           </section>
         )}
       </main>
+
+      {camOpen && (
+        <div className="modal-mask" onClick={closeCamera}>
+          <div className="modal cam-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head"><h2>拍照识别 · {camSide === 'chinese' ? '中文提示' : '英文初稿'}</h2><button className="icon-btn" onClick={closeCamera}><X size={16} /></button></div>
+            <video ref={camVideoRef} className="cam-video" playsInline muted autoPlay />
+            {camError ? <p className="muted small cam-err">{camError}</p> : null}
+            <p className="muted small">把纸张放平、光线充足、尽量让文字填满画面；手写体建议先把「识别模式」设为「手写体优先」。</p>
+            <div className="modal-actions">
+              <button className="primary-btn" onClick={snapPhoto}><Camera size={16} />拍照并识别</button>
+              <button className="ghost-btn" onClick={() => { const side = camSide; closeCamera(); (side === 'chinese' ? chineseCamRef : englishCamRef).current?.click(); }}>从相册选择</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {materialOpen && (
         <div className="modal-mask" onClick={() => !materialBusy && setMaterialOpen(false)}>
@@ -802,8 +1043,9 @@ function App() {
             <div className="modal-head"><h2>AI 接入设置</h2><button className="icon-btn" onClick={() => setSettingsOpen(false)}><X size={16} /></button></div>
             <label>Base URL（OpenAI 兼容）<input value={settings.baseUrl || 'https://api.deepseek.com/v1'} onChange={(e) => setSettings({ ...settings, baseUrl: e.target.value })} placeholder="https://api.deepseek.com/v1" /></label>
             <label>模型名<input value={settings.model || 'deepseek-chat'} onChange={(e) => setSettings({ ...settings, model: e.target.value })} placeholder="deepseek-chat / gpt-4o-mini / qwen-plus" /></label>
+            <label>视觉模型（可选，拍照/图片识别用）<input value={settings.visionModel || ''} onChange={(e) => setSettings({ ...settings, visionModel: e.target.value })} placeholder="deepseek-v4-flash-vision-exp" /></label>
             <label>API Key<input type="password" value={settings.apiKey || ''} onChange={(e) => setSettings({ ...settings, apiKey: e.target.value })} placeholder="sk-..." /></label>
-            <p className="muted small">Key 只保存在本机浏览器 localStorage（仅你自己可见）；想让所有访问者免填 Key，请在部署平台的环境变量里配置 AI_API_KEY。</p>
+            <p className="muted small">拍照识别必须使用支持图片输入的模型：可在这里单独填「视觉模型」，留空则沿用上面的模型。Key 只保存在本机浏览器 localStorage（仅你自己可见）；想让所有访问者免填 Key，请在部署平台的环境变量里配置 AI_API_KEY / AI_VISION_MODEL。</p>
             <div className="modal-actions"><button className="primary-btn" onClick={onSaveSettings}>保存并重连</button><button className="ghost-btn" onClick={() => setSettingsOpen(false)}>取消</button></div>
           </div>
         </div>

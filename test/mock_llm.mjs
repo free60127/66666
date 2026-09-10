@@ -5,7 +5,15 @@ const server = http.createServer((req, res) => {
   req.on('data', c => body += c);
   req.on('end', () => {
     const payload = JSON.parse(body || '{}');
-    const user = (payload.messages || []).find(m => m.role === 'user')?.content || '';
+    const firstUser = (payload.messages || []).find(m => m.role === 'user');
+    const content = firstUser?.content;
+    // 视觉识别请求：content 是数组（text + image_url），返回纯文本模拟 OCR
+    if (Array.isArray(content) && content.some(part => part && part.type === 'image_url')) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ choices: [{ message: { content: 'Mock OCR: The quick brown fox jumps over the lazy dog.' } }] }));
+      return;
+    }
+    const user = content || '';
     const chinese = user.split('中文提示：')[1]?.split('学生英文初稿')[0]?.trim() || '测试中文';
     const draft = user.split('学生英文初稿：')[1]?.split('教材课文原文')[0]?.trim() || 'Test draft.';
     const sample = {

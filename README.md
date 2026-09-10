@@ -13,6 +13,7 @@
 - 实时生成，不是预先套好的壳子：任意中文 + 任意英文初稿都能生成完整作业
 - 课文模式（自动匹配新概念课次并带入原文）/ 自由模式（无原文也完整分析）
 - DOCX 导入：Mammoth 读取 Word 正文，自动识别标题、中文与英文初稿，并匹配课次（匹配结果显示高/中/低置信度与匹配分；低置信度默认走自由模式，可一键改用候选课文）
+- 拍照 / 图片识别（OCR）：中文提示与英文初稿两栏各自带「拍照」「导入图片」按钮，电脑端可直接把图片拖进对应栏目；走原生多模态视觉模型逐字转写，印刷体与手写体都能识别，手写体可切「手写体优先」提高分辨率与准确率
 - 分项评分与生成进度：结果页展示词汇准确 / 语法时态 / 语境逻辑 / 流畅度 / 地道程度 5 个分项得分条；生成过程显示「已提交 → AI 生成中 → 完成」三步进度与已耗时
 - AI 原创素材：按主题/难度/文体用 AI 生成无版权英文短文 + 完整中文翻译（如时事、中国文化），可直接作为回译训练题源（回应用户「新概念课文有版权、AI 生成文章可商业化」的建议）
 - 逐句级解析：每条错误含 from → to 与中文解释，分 error / improve / study 三级；核心动词/形容词/易混词按「语域、感情色彩、语用、语义轻重、固定搭配、内涵外延」六大维度讲透，并附带近义词对比表（word / meaning / register / tone / strength / usage / example）与例句
@@ -49,10 +50,35 @@
 | AI_BASE_URL | OpenAI 兼容接口地址 | https://api.deepseek.com/v1 |
 | AI_MODEL | 模型名 | deepseek-chat |
 | AI_API_KEY | 服务端密钥（不要提交到仓库） | sk-... |
+| AI_VISION_MODEL | 拍照/图片识别用的视觉模型（必须支持图片输入；留空则沿用 AI_MODEL） | deepseek-v4-flash-vision-exp |
+| AI_VISION_BASE_URL | 视觉模型接口地址（可选，默认与 AI_BASE_URL 相同） | https://api.deepseek.com/v1 |
+| AI_VISION_API_KEY | 视觉模型专用 Key（可选，默认与 AI_API_KEY 相同） | sk-... |
 | AI_MAX_TOKENS | 单次生成最大输出 token（默认 20000，输出被截断时自动重试更高上限） | 20000 |
 | PORT | 后端端口 | 8787 |
 
 前端「AI 设置」弹窗也可临时填 Base URL / Model / Key（仅存本机 localStorage，发给本地后端）；正式部署请一律用后端 .env。
+
+## 拍照 / 图片识别（OCR）
+
+中文提示与英文初稿两栏都支持三种方式：
+
+1. **拍照**：手机端直接调起相机（电脑上也会尝试打开摄像头，失败则回退到系统选择器）；
+2. **导入图片**：从相册 / 文件里选择，支持一次选多张，按顺序识别后合并；
+3. **拖入图片**（电脑端）：把图片直接拖到对应的输入框区域。
+
+识别由**原生多模态视觉模型**完成（逐字转写，不翻译、不纠错）：
+
+| 图片内容 | 建议模式 | 说明 |
+| --- | --- | --- |
+| 印刷体 / 截图 | 自动 或 印刷体优先 | 准确率最高 |
+| 英文手写体 | 手写体优先 | 客户端会放到 2400px 并做灰度 + 对比增强 |
+| 中文手写体 | 手写体优先 | 尽量写工整、光线充足、让文字填满画面 |
+
+注意：
+
+- 必须配置支持图片输入的模型：`.env` 里设置 `AI_VISION_MODEL`，或在「AI 设置」里单独填「视觉模型」；用 `deepseek-chat` 这类纯文本模型会报「当前模型不支持图片输入」。
+- 图片会上传到你配置的模型服务商用于识别，请勿上传含敏感信息的图片。
+- 识别结果会**追加**到对应输入框末尾（输入框为空则直接填入），生成前请先核对。
 
 ## 语料（版权说明）
 
@@ -81,6 +107,8 @@
 | GET | /api/lessons?book=2 | 课次列表（可省略 book） |
 | GET | /api/lessons/2/18 或 /api/lessons/18 | 单课详情（中文 + 原文） |
 | POST | /api/match | 按标题/中文匹配课次，返回 `{match, confidence: high/medium/low/none, score, reason}` |
+| POST | /api/ocr | 拍照 / 图片识别：提交 `{image(dataURL), side: chinese/english, mode: auto/handwriting/printed, baseUrl, model, apiKey, visionModel?}`，立即返回 `{ok, jobId}` |
+| GET | /api/ocr/:jobId | 轮询识别结果：`{ok, job:{jobId, status, data:{text, engine, model, chars, garbled}, error}}`，status 为 pending / running / done / error |
 | POST | /api/generate-material | 异步提交 AI 原创素材生成（topic、level、style），立即返回 `{ok, jobId}` |
 | GET | /api/generate-material/:jobId | 轮询素材生成状态：`{ok, job:{jobId, status, data?, error?}}`，status 为 pending / running / done / error |
 | POST | /api/analyze | 异步提交回译作业（chinese、draft + 可选 book、lessonId、title、original、baseUrl、model、apiKey），立即返回 `{ok, jobId}` |

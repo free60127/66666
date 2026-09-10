@@ -4,6 +4,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { SYSTEM_PROMPT, buildUserMessage, MATERIAL_PROMPT, buildMaterialMessage } from './prompt.mjs';
+import { recognizeImage } from './ocr.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -176,7 +177,13 @@ function json(res, code, obj) {
 }
 async function readBody(req) {
   const chunks = [];
-  for await (const c of req) chunks.push(c);
+  let size = 0;
+  for await (const c of req) {
+    size += c.length;
+    // 拍照识别会上传 base64 图片，放宽到 20MB，避免大图直接把内存打爆
+    if (size > 20 * 1024 * 1024) { req.destroy(); throw new Error('请求体过大（超过 20MB），请压缩图片后重试'); }
+    chunks.push(c);
+  }
   if (!chunks.length) return {};
   try { return JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { return {}; }
 }
@@ -350,6 +357,36 @@ async function runMaterialJob(jobId, { topic, level, style, baseUrl, model, apiK
   }
 }
 
+/* ---------- 图片识别任务（拍照 / 导入图片 → 视觉模型逐字转写） ---------- */
+async function runOcrJob(jobId, { image, side, mode, vision }) {
+  const job = jobs.get(jobId);
+  if (!job) return;
+  job.status = 'running';
+  job.startedAt = Date.now();
+  saveJob(job);
+  try {
+    const result = await recognizeImage({ image, side, mode, vision });
+    job.data = {
+      text: result.text,
+      engine: result.engine,
+      model: result.model,
+      chars: result.text.length,
+      garbled: Boolean(result.garbled),
+      quality: result.quality || null,
+    };
+    job.status = 'done';
+    saveJob(job);
+  } catch (e) {
+    job.status = 'error';
+    job.error = e.message || '图片识别失败，请重试';
+    saveJob(job);
+  } finally {
+    job.finishedAt = Date.now();
+    saveJob(job);
+    setTimeout(() => { jobs.delete(jobId); persistJobs(); }, JOB_TTL);
+  }
+}
+
 /* ---------- server ---------- */
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css',
@@ -386,6 +423,8 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/status') {
       return json(res, 200, {
         baseUrl: stat.baseUrl(), model: stat.model(), hasKey: stat.hasKey(),
+        visionModel: process.env.AI_VISION_MODEL || stat.model(),
+        ocr: true,
         corpusLessons: allLessons().length,
         books: [...getCorpora().values()].map((c) => ({ book: c.book, lessons: c.lessons.length, source: c.source })),
       });
@@ -441,6 +480,38 @@ const server = http.createServer(async (req, res) => {
     if (materialMatch && req.method === 'GET') {
       const job = jobs.get(materialMatch[1]);
       if (!job || job.kind !== 'material') return json(res, 404, { error: '任务不存在或已过期，请重新提交' });
+      return json(res, 200, {
+        ok: true,
+        job: { jobId: job.jobId, status: job.status, data: job.data || null, error: job.error || null },
+      });
+    }
+    if (p === '/api/ocr' && req.method === 'POST') {
+      const body = await readBody(req);
+      const image = String(body.image || '');
+      if (!image) return json(res, 400, { error: '缺少图片（image 字段）' });
+
+      const baseUrl = String(body.baseUrl || '').trim() || stat.baseUrl();
+      const model = String(body.model || '').trim() || stat.model();
+      const apiKey = String(body.apiKey || '').trim() || process.env.AI_API_KEY || '';
+      // 视觉模型可以单独配置；缺省沿用主模型（但主模型必须支持图片输入）
+      const vision = {
+        baseUrl: String(body.visionBaseUrl || '').trim() || process.env.AI_VISION_BASE_URL || baseUrl,
+        model: String(body.visionModel || '').trim() || process.env.AI_VISION_MODEL || model,
+        apiKey: String(body.visionApiKey || '').trim() || process.env.AI_VISION_API_KEY || apiKey,
+      };
+      if (!vision.apiKey) return json(res, 400, { error: '未配置 AI_API_KEY：请复制 .env.example 为 .env 并填写，或在设置面板填入 API Key' });
+
+      const side = body.side === 'chinese' ? 'chinese' : 'english';
+      const mode = ['auto', 'handwriting', 'printed'].includes(body.mode) ? body.mode : 'auto';
+      const jobId = randomUUID();
+      saveJob({ jobId, kind: 'ocr', title: '图片识别 · ' + (side === 'chinese' ? '中文' : '英文'), status: 'pending', createdAt: Date.now(), data: null, error: null });
+      runOcrJob(jobId, { image, side, mode, vision });
+      return json(res, 200, { ok: true, jobId, status: 'pending' });
+    }
+    const ocrMatch = p.match(/^\/api\/ocr\/([A-Za-z0-9-]{8,64})$/);
+    if (ocrMatch && req.method === 'GET') {
+      const job = jobs.get(ocrMatch[1]);
+      if (!job || job.kind !== 'ocr') return json(res, 404, { error: '任务不存在或已过期，请重新识别' });
       return json(res, 200, {
         ok: true,
         job: { jobId: job.jobId, status: job.status, data: job.data || null, error: job.error || null },

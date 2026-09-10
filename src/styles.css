@@ -290,3 +290,22 @@ mark.hl { background: #ffe9a8; color: inherit; padding: 0 1px; border-radius: 2p
 .score-fill { height: 100%; background: var(--brand); border-radius: 999px; }
 .score-num { width: 44px; font-size: 12px; color: var(--muted); text-align: right; flex-shrink: 0; }
 .score-comment { font-size: 12px; color: var(--muted); margin: 0 0 6px 102px; }
+
+/* 拍照 / 图片识别（OCR） */
+.ocr-mode-wrap { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); }
+.ocr-mode { border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; font: inherit; font-size: 12.5px; color: var(--text); background: #fff; }
+.panel-tools { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.ghost-btn.sm { padding: 5px 9px; font-size: 12.5px; gap: 4px; border-radius: 8px; }
+.panel.drag-on { box-shadow: 0 0 0 3px var(--brand); background: #eef4ff; }
+.panel .ocr-note { margin-top: 8px; font-size: 12px; color: var(--muted); line-height: 1.5; }
+.panel .ocr-note.err { color: var(--red); }
+.cam-modal { width: 560px; }
+.cam-video { width: 100%; max-height: 58vh; border-radius: 10px; background: #000; display: block; }
+.cam-err { color: var(--red) !important; }
+
+@media screen and (max-width: 900px) {
+  .panel-head { flex-wrap: wrap; }
+  .panel-tools { justify-content: flex-start; }
+  .cam-modal { width: calc(100vw - 24px); }
+  .cam-video { max-height: 50vh; }
+}
