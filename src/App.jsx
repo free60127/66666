@@ -2,10 +2,11 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import mammoth from 'mammoth/mammoth.browser.js';
 import {
   ArrowLeft, BookOpen, Camera, CheckCircle2, ClipboardCopy, Download, FileText, Flame, History, ImagePlus,
-  Link2, LoaderCircle, PanelLeftClose, PanelLeftOpen, PenLine, Plus, Settings, Sparkles, Timer, Upload, WandSparkles, X,
+  Link2, LoaderCircle, PanelLeftClose, PanelLeftOpen, PenLine, Plus, Settings, Sparkles, Star, Timer, Trash2, Upload, WandSparkles, X,
 } from 'lucide-react';
 import { analyze, generateMaterial, getAnalyzeJob, getLessons, getLesson, getMaterialJob, getOcrJob, getPhonetic, getStatus, loadSettings, matchLesson, ocr, saveSettings } from './api.js';
 import { DEMO_LESSON_18, DEMO_LESSONS } from './demo.js';
+import { FAV_KIND_LABEL, favoritesToText, favFromFinding, favFromIdiom, favFromVocab, filterFavorites, loadFavorites, mergeFavorites, saveFavorites } from './favorites.js';
 
 const LEVEL_LABEL = { error: '必须改错', improve: '润色升级', study: '对照学习' };
 const CATEGORY_COLOR = {
@@ -284,6 +285,21 @@ function Phonetic({ word, phonetic }) {
   return <span className="phonetic">{value.startsWith('/') ? value : '/' + value + '/'}</span>;
 }
 
+/* ---------- 收藏夹（本机 localStorage，无需数据库） ---------- */
+function FavStar({ active, onToggle }) {
+  return (
+    <button
+      type="button"
+      className={'fav-star' + (active ? ' on' : '')}
+      onClick={(e) => { e.stopPropagation(); onToggle(); }}
+      title={active ? '取消收藏' : '收藏这条知识点（可在右上角「收藏夹」快速复习）'}
+      aria-label={active ? '取消收藏' : '收藏'}
+    >
+      <Star size={14} fill={active ? 'currentColor' : 'none'} />
+    </button>
+  );
+}
+
 function FindingExtras({ finding }) {
   const f = finding || {};
   const dims = Array.isArray(f.dimensions) ? f.dimensions : [];
@@ -358,6 +374,12 @@ function App() {
   const [currentJobId, setCurrentJobId] = useState('');
   const [historyList, setHistoryList] = useState(loadHistory);
   const [historyOpen, setHistoryOpen] = useState(false);
+  // 收藏夹（本机 localStorage）
+  const [favorites, setFavorites] = useState(loadFavorites);
+  const [favOpen, setFavOpen] = useState(false);
+  const [favQuery, setFavQuery] = useState('');
+  const [favKind, setFavKind] = useState('all');
+  const [favTip, setFavTip] = useState('');
   const [shareTip, setShareTip] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(() => {
     if (typeof window !== 'undefined' && window.innerWidth <= 900) return false;
@@ -378,6 +400,7 @@ function App() {
   const chineseFileRef = useRef(null);
   const englishCamRef = useRef(null);
   const englishFileRef = useRef(null);
+  const favFileRef = useRef(null);
   // 计时器（记录一篇课文做了多久）
   const [timer, setTimer] = useState(loadTimer);
   const [clockNow, setClockNow] = useState(() => Date.now());
@@ -643,6 +666,70 @@ function App() {
     setHistoryList(loadHistory());
     setHistoryOpen(true);
   };
+
+  /* ---------- 收藏夹（本机保存，无需数据库） ---------- */
+  const toggleFavorite = (item) => {
+    if (!item || !item.id) return;
+    const exists = favorites.some((x) => x.id === item.id);
+    const next = exists
+      ? favorites.filter((x) => x.id !== item.id)
+      : [{ ...item, createdAt: Date.now() }, ...favorites];
+    const ok = saveFavorites(next);
+    setFavorites(next);
+    setFavTip(exists ? '已取消收藏' : (ok ? '已收藏，可在右上角「收藏夹」随时复习' : '收藏失败：本机存储空间可能已满，请先导出备份'));
+    setTimeout(() => setFavTip(''), 2600);
+  };
+  const removeFavorite = (id) => {
+    const next = favorites.filter((x) => x.id !== id);
+    saveFavorites(next);
+    setFavorites(next);
+  };
+  const clearFavorites = () => {
+    if (!favorites.length) return;
+    if (!window.confirm('确定清空全部收藏？建议先「导出备份」。')) return;
+    saveFavorites([]);
+    setFavorites([]);
+    setFavTip('已清空收藏');
+    setTimeout(() => setFavTip(''), 2500);
+  };
+  const exportFavorites = () => {
+    if (!favorites.length) { setFavTip('还没有收藏内容'); setTimeout(() => setFavTip(''), 2000); return; }
+    const blob = new Blob([JSON.stringify({ app: 'back-translate-studio', exportedAt: new Date().toISOString(), favorites }, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'retranslate-favorites-' + new Date().toISOString().slice(0, 10) + '.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+    setFavTip('已导出备份文件，请妥善保存');
+    setTimeout(() => setFavTip(''), 3000);
+  };
+  const importFavorites = async (file) => {
+    if (!file) return;
+    try {
+      const data = JSON.parse(await file.text());
+      const arr = Array.isArray(data) ? data : (Array.isArray(data && data.favorites) ? data.favorites : []);
+      if (!arr.filter((x) => x && x.id && x.title).length) throw new Error('文件里没有可用的收藏数据');
+      const { merged, added } = mergeFavorites(arr, favorites);
+      const ok = saveFavorites(merged);
+      setFavorites(merged);
+      setFavTip('导入完成：新增 ' + added + ' 条' + (ok ? '' : '（本机存储可能已满）'));
+    } catch (e) {
+      setFavTip('导入失败：' + (e.message || '文件格式不正确'));
+    }
+    setTimeout(() => setFavTip(''), 4000);
+  };
+  const copyFavorites = async () => {
+    if (!favorites.length) return;
+    try { await navigator.clipboard.writeText(favoritesToText(favorites)); setFavTip('已复制全部收藏到剪贴板'); }
+    catch { setFavTip('复制失败，请手动选择文本'); }
+    setTimeout(() => setFavTip(''), 3000);
+  };
+  const visibleFavorites = filterFavorites(favorites, { kind: favKind, query: favQuery });
+  const favoritedIds = useMemo(() => new Set(favorites.map((x) => x.id)), [favorites]);
+  const favHandlers = useMemo(() => ({ has: (id) => favoritedIds.has(id), toggle: toggleFavorite }), [favoritedIds, favorites]);
 
   const loadHistoryJob = async (jobId) => {
     // 优先用本机缓存，秒开且不受服务器任务清理影响
@@ -1000,7 +1087,9 @@ function App() {
           </div>
           <button className="ghost-btn" onClick={() => { setView('editor'); setResult(null); }}><X size={15} />编辑器</button>
           <button className="ghost-btn" onClick={openHistoryModal}><History size={15} />历史结果{historyList.length ? ` (${historyList.length})` : ''}</button>
+          <button className="ghost-btn" onClick={() => setFavOpen(true)}><Star size={15} />收藏夹{favorites.length ? ` (${favorites.length})` : ''}</button>
         </header>
+        {favTip ? <div className="fav-tip">{favTip}</div> : null}
 
         {view === 'editor' ? (
           <section className="editor">
@@ -1125,7 +1214,7 @@ function App() {
           </section>
         ) : (
           <section className="result">
-            {result && <ResultSheet result={result} onBack={() => setView('editor')} onCopy={copyAll} onShare={shareResult} shareTip={shareTip} />}
+            {result && <ResultSheet result={result} onBack={() => setView('editor')} onCopy={copyAll} onShare={shareResult} shareTip={shareTip} fav={favHandlers} />}
           </section>
         )}
       </main>
@@ -1185,6 +1274,54 @@ function App() {
         </div>
       )}
 
+      {favOpen && (
+        <div className="modal-mask" onClick={() => setFavOpen(false)}>
+          <div className="modal fav-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head"><h2>收藏夹（{favorites.length}）</h2><button className="icon-btn" onClick={() => setFavOpen(false)}><X size={16} /></button></div>
+            <div className="fav-toolbar">
+              <input className="fav-search" value={favQuery} onChange={(e) => setFavQuery(e.target.value)} placeholder="搜索单词、短语或解释…" />
+              <select className="ocr-mode" value={favKind} onChange={(e) => setFavKind(e.target.value)}>
+                <option value="all">全部</option>
+                <option value="finding">错题 / 辨析</option>
+                <option value="vocab">核心词</option>
+                <option value="idiom">习语</option>
+              </select>
+            </div>
+            {favorites.length === 0 ? (
+              <p className="muted">还没有收藏。在作业结果里点每条知识点右上角的 ☆ 就能收藏，之后在这里直接复习，不用再打开整份作业。</p>
+            ) : visibleFavorites.length === 0 ? (
+              <p className="muted">没有匹配的收藏。</p>
+            ) : (
+              <div className="fav-list">
+                {visibleFavorites.map((x) => (
+                  <div className="fav-item" key={x.id}>
+                    <div className="fav-item-head">
+                      <span className="fav-kind">{FAV_KIND_LABEL[x.kind] || x.kind}</span>
+                      {x.category ? <span className="fav-cat">{x.category}</span> : null}
+                      {x.level ? <span className={'fav-level ' + x.level}>{LEVEL_LABEL[x.level] || x.level}</span> : null}
+                      <span className="fav-date">{formatTime(x.createdAt)}</span>
+                      <button className="icon-btn fav-del" onClick={() => removeFavorite(x.id)} title="删除这条收藏"><Trash2 size={14} /></button>
+                    </div>
+                    <div className="fav-title">{x.title}</div>
+                    {x.body ? <div className="fav-body">{x.body}</div> : null}
+                    {x.extra ? <div className="fav-extra">{x.extra}</div> : null}
+                    {x.source ? <div className="fav-source">来自：{x.source}{x.sourceLevel ? ' · 润色等级 ' + x.sourceLevel : ''}</div> : null}
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="fav-footer">
+              <button className="ghost-btn sm" onClick={exportFavorites}><Download size={14} />导出备份</button>
+              <button className="ghost-btn sm" onClick={() => favFileRef.current?.click()}><Upload size={14} />导入备份</button>
+              <button className="ghost-btn sm" onClick={copyFavorites} disabled={!favorites.length}><ClipboardCopy size={14} />复制全部</button>
+              <button className="ghost-btn sm" onClick={clearFavorites} disabled={!favorites.length}><Trash2 size={14} />清空</button>
+              <input ref={favFileRef} type="file" accept="application/json,.json" hidden onChange={(e) => { const f = e.target.files && e.target.files[0]; e.target.value = ''; importFavorites(f); }} />
+            </div>
+            <p className="muted small">收藏保存在<b>本机浏览器</b>（不依赖数据库）。清除浏览器数据、换浏览器 / 设备、或更换域名都会导致收藏丢失，建议定期「导出备份」。</p>
+          </div>
+        </div>
+      )}
+
       {settingsOpen && (
         <div className="modal-mask" onClick={() => setSettingsOpen(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
@@ -1202,7 +1339,7 @@ function App() {
   );
 }
 
-function ResultSheet({ result, onBack, onCopy, onShare, shareTip }) {
+function ResultSheet({ result, onBack, onCopy, onShare, shareTip, fav }) {
   const overall = result.overall || {};
   const sentences = result.sentences || [];
   const allFindings = sentences.flatMap((s) => s.findings || []);
@@ -1253,10 +1390,10 @@ function ResultSheet({ result, onBack, onCopy, onShare, shareTip }) {
               ) : null}
             </div>
           </div>
-          {sentences.map((sentence, i) => <SentenceCard key={'s' + i} index={i} sentence={sentence} />)}
+          {sentences.map((sentence, i) => <SentenceCard key={'s' + i} index={i} sentence={sentence} result={result} fav={fav} />)}
         </section>
-        <VocabularyNotes items={result.vocabularyNotes} />
-        <IdiomHighlights items={result.idiomHighlights} />
+        <VocabularyNotes items={result.vocabularyNotes} result={result} fav={fav} />
+        <IdiomHighlights items={result.idiomHighlights} result={result} fav={fav} />
         <section className="sheet-section summary">
           <div className="section-heading"><span className="label-dot" /><h2>学习总结 · 可学习的高级句式与加分表达</h2></div>
           <SummaryBlock title="高级句式" tone="teal" items={result.advancedSentences} />
@@ -1271,7 +1408,7 @@ function Section({ label, tone, note, children }) {
   return <section className={'sheet-section v-' + tone}><div className="section-heading"><span className="label-dot" /><h2>{label}</h2>{note ? <span className="section-note">{note}</span> : null}</div>{children}</section>;
 }
 
-function SentenceCard({ index, sentence }) {
+function SentenceCard({ index, sentence, result, fav }) {
   const findings = sentence.findings || [];
   return (
     <div className="sentence-card">
@@ -1282,12 +1419,21 @@ function SentenceCard({ index, sentence }) {
         {sentence.original ? <VersionRow label="课文原文" tone="original" text={sentence.original} /> : null}
       </div>
       <div className="findings">
-        {findings.map((finding, i) => <div className={'finding level-' + (finding.level || 'error')} key={'f' + i}>
-          <div className="finding-top"><span className={'cat cat-' + (CATEGORY_COLOR[finding.category] || 'gray')}>{finding.category}</span><span className="level">{LEVEL_LABEL[finding.level] || finding.level}</span></div>
-          <div className="finding-diff"><span className="from">{finding.from}</span><span className="arrow">→</span><strong className="to">{finding.to}</strong></div>
-          <p className="finding-exp">{finding.explanation}</p>
-          <FindingExtras finding={finding} />
-        </div>)}
+        {findings.map((finding, i) => {
+          const favItem = fav ? favFromFinding(finding, result) : null;
+          return (
+            <div className={'finding level-' + (finding.level || 'error')} key={'f' + i}>
+              <div className="finding-top">
+                <span className={'cat cat-' + (CATEGORY_COLOR[finding.category] || 'gray')}>{finding.category}</span>
+                <span className="level">{LEVEL_LABEL[finding.level] || finding.level}</span>
+                {fav ? <FavStar active={fav.has(favItem.id)} onToggle={() => fav.toggle(favItem)} /> : null}
+              </div>
+              <div className="finding-diff"><span className="from">{finding.from}</span><span className="arrow">→</span><strong className="to">{finding.to}</strong></div>
+              <p className="finding-exp">{finding.explanation}</p>
+              <FindingExtras finding={finding} />
+            </div>
+          );
+        })}
         {findings.length === 0 && <div className="muted small">该句未发现明显问题。</div>}
       </div>
     </div>
@@ -1298,7 +1444,7 @@ function VersionRow({ label, tone, text }) {
   return <div className={'v-row ' + tone}><span className="v-label">{label}</span><p>{text}</p></div>;
 }
 
-function VocabularyNotes({ items }) {
+function VocabularyNotes({ items, result, fav }) {
   const arr = Array.isArray(items) ? items.filter(Boolean) : [];
   if (!arr.length) return null;
   return (
@@ -1308,9 +1454,13 @@ function VocabularyNotes({ items }) {
         const dims = Array.isArray(v.dimensions) ? v.dimensions : [];
         const syns = Array.isArray(v.synonyms) ? v.synonyms : [];
         const exs = Array.isArray(v.examples) ? v.examples : [];
+        const favItem = fav ? favFromVocab(v, result) : null;
         return (
           <div className="vocab-card" key={'vn' + i}>
-            <div className="vocab-head"><strong className="vocab-word">{v.word}</strong><Phonetic word={v.word} phonetic={v.phonetic} />{v.type ? <span className="vocab-type">{v.type}</span> : null}</div>
+            <div className="vocab-head">
+              <strong className="vocab-word">{v.word}</strong><Phonetic word={v.word} phonetic={v.phonetic} />{v.type ? <span className="vocab-type">{v.type}</span> : null}
+              {fav ? <FavStar active={fav.has(favItem.id)} onToggle={() => fav.toggle(favItem)} /> : null}
+            </div>
             {v.meaning ? <p className="vocab-meaning">{v.meaning}</p> : null}
             {dims.length ? <div className="dim-chips">{dims.map((d, j) => <span className="dim-chip" key={'vd' + j}>{d}</span>)}</div> : null}
             {syns.length ? <div className="syn-block"><span className="ext-label">近义词对比</span><div className="syn-list">{syns.map((s, j) => <SynRow key={'vs' + j} s={s} />)}</div></div> : null}
@@ -1323,20 +1473,26 @@ function VocabularyNotes({ items }) {
   );
 }
 
-function IdiomHighlights({ items }) {
+function IdiomHighlights({ items, result, fav }) {
   const arr = Array.isArray(items) ? items.filter(Boolean) : [];
   if (!arr.length) return null;
   return (
     <section className="sheet-section idiom">
       <div className="section-heading"><span className="label-dot" /><h2>地道习语强化</h2><span className="muted small">{arr.length} 条 · 写作与口语加分素材</span></div>
-      {arr.map((id, i) => (
-        <div className="idiom-card" key={'ih' + i}>
-          <div className="idiom-head"><span className="idiom-badge">习语</span><strong>{id.idiom}</strong>{id.situation ? <span className="idiom-situation">{id.situation}</span> : null}</div>
-          {id.common ? <div className="idiom-common">普通说法：{id.common}</div> : null}
-          {id.example ? <div className="idiom-example">{id.example}</div> : null}
-          {id.explanation ? <p className="idiom-exp">{id.explanation}</p> : null}
-        </div>
-      ))}
+      {arr.map((id, i) => {
+        const favItem = fav ? favFromIdiom(id, result) : null;
+        return (
+          <div className="idiom-card" key={'ih' + i}>
+            <div className="idiom-head">
+              <span className="idiom-badge">习语</span><strong>{id.idiom}</strong>{id.situation ? <span className="idiom-situation">{id.situation}</span> : null}
+              {fav ? <FavStar active={fav.has(favItem.id)} onToggle={() => fav.toggle(favItem)} /> : null}
+            </div>
+            {id.common ? <div className="idiom-common">普通说法：{id.common}</div> : null}
+            {id.example ? <div className="idiom-example">{id.example}</div> : null}
+            {id.explanation ? <p className="idiom-exp">{id.explanation}</p> : null}
+          </div>
+        );
+      })}
     </section>
   );
 }
