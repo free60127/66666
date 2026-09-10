@@ -4,7 +4,7 @@ import {
   ArrowLeft, BookOpen, Camera, CheckCircle2, ClipboardCopy, Download, FileText, Flame, History, ImagePlus,
   Link2, LoaderCircle, PanelLeftClose, PanelLeftOpen, PenLine, Plus, Settings, Sparkles, Timer, Upload, WandSparkles, X,
 } from 'lucide-react';
-import { analyze, generateMaterial, getAnalyzeJob, getLessons, getLesson, getMaterialJob, getOcrJob, getStatus, loadSettings, matchLesson, ocr, saveSettings } from './api.js';
+import { analyze, generateMaterial, getAnalyzeJob, getLessons, getLesson, getMaterialJob, getOcrJob, getPhonetic, getStatus, loadSettings, matchLesson, ocr, saveSettings } from './api.js';
 import { DEMO_LESSON_18, DEMO_LESSONS } from './demo.js';
 
 const LEVEL_LABEL = { error: '必须改错', improve: '润色升级', study: '对照学习' };
@@ -16,6 +16,9 @@ const CATEGORY_COLOR = {
 };
 
 const HISTORY_KEY = 'bt-history';
+const AI_LEVELS = ['小初', '高考英语', '四六级', '考研英语', '专四', '专八'];
+const DEFAULT_AI_LEVEL = '四六级';
+const LEVEL_KEY = 'bt-polish-level';
 const CONFIDENCE_LABEL = { high: '高置信度', medium: '中置信度', low: '低置信度', none: '未匹配', manual: '手动选择' };
 function loadHistory() {
   try {
@@ -224,6 +227,7 @@ function SynRow({ s }) {
     <div className="syn-row">
       <div className="syn-head">
         <strong className="syn-word">{s.word}</strong>
+        <Phonetic word={s.word} phonetic={s.phonetic} />
         {s.register ? <span className="syn-meta">{s.register}</span> : null}
         {s.tone ? <span className="syn-meta">{s.tone}</span> : null}
         {s.strength ? <span className="syn-meta">{s.strength}</span> : null}
@@ -233,6 +237,40 @@ function SynRow({ s }) {
       {s.example ? <div className="syn-ex">{s.example}</div> : null}
     </div>
   );
+}
+
+/* 音标：优先用模型返回的 phonetic；缺失时向后端查词典并缓存（内存 + localStorage） */
+const PHONETIC_KEY = 'bt-phonetics';
+let phoneticMem = null;
+function phoneticCacheMap() {
+  if (!phoneticMem) {
+    try { phoneticMem = new Map(Object.entries(JSON.parse(localStorage.getItem(PHONETIC_KEY) || '{}'))); }
+    catch { phoneticMem = new Map(); }
+  }
+  return phoneticMem;
+}
+function persistPhonetic() {
+  try { localStorage.setItem(PHONETIC_KEY, JSON.stringify(Object.fromEntries(phoneticCacheMap()))); } catch { /* ignore */ }
+}
+function Phonetic({ word, phonetic }) {
+  const given = String(phonetic || '').trim();
+  const key = String(word || '').trim().toLowerCase();
+  const [value, setValue] = useState(() => given || (key ? (phoneticCacheMap().get(key) || '') : ''));
+  useEffect(() => {
+    if (given || !key) return undefined;
+    const cache = phoneticCacheMap();
+    if (cache.has(key)) { setValue(cache.get(key) || ''); return undefined; }
+    let alive = true;
+    getPhonetic(key).then((r) => {
+      const v = String((r && r.phonetic) || '').trim();
+      cache.set(key, v);
+      persistPhonetic();
+      if (alive) setValue(v);
+    }).catch(() => { cache.set(key, ''); });
+    return () => { alive = false; };
+  }, [key, given]);
+  if (!value) return null;
+  return <span className="phonetic">{value.startsWith('/') ? value : '/' + value + '/'}</span>;
 }
 
 function FindingExtras({ finding }) {
@@ -332,6 +370,11 @@ function App() {
   // 计时器（记录一篇课文做了多久）
   const [timer, setTimer] = useState(loadTimer);
   const [clockNow, setClockNow] = useState(() => Date.now());
+  // 润色等级：让润色版与推荐表达匹配用户目标考试的难度
+  const [polishLevel, setPolishLevel] = useState(() => {
+    const saved = localStorage.getItem(LEVEL_KEY);
+    return AI_LEVELS.includes(saved) ? saved : DEFAULT_AI_LEVEL;
+  });
 
   const toggleSidebar = () => {
     setSidebarOpen((open) => {
@@ -817,6 +860,7 @@ function App() {
         book: mode === 'lesson' ? book : undefined,
         lessonId: mode === 'lesson' ? id : undefined,
         original: mode === 'free' ? (generatedOriginal || undefined) : undefined,
+        level: polishLevel,
         baseUrl: settings.baseUrl, model: settings.model, apiKey: settings.apiKey,
       });
       const jobId = resp.jobId;
@@ -879,7 +923,9 @@ function App() {
   const copyAll = async () => {
     if (!result) return;
     const text = [
-      result.title, result.durationMs ? '本次练习用时：' + formatDuration(result.durationMs) : '', '', '【中文译文】', result.chinese, '', '【原稿】', result.draft, '',
+      result.title,
+      result.aiLevel ? '润色等级：' + result.aiLevel : '',
+      result.durationMs ? '本次练习用时：' + formatDuration(result.durationMs) : '', '', '【中文译文】', result.chinese, '', '【原稿】', result.draft, '',
       '【AI 修正版】', result.ai, '', '【课文原文】', result.original, '',
       '【逐句解析】', result.overall?.summary || '', '',
       '【分项得分】', ...(result.overall?.scoreBreakdown || []).map((b) => '· ' + b.label + '：' + b.score + '/' + (b.max || 20) + (b.comment ? '（' + b.comment + '）' : '')), '',
@@ -957,6 +1003,11 @@ function App() {
               <button className="ghost-btn" onClick={() => { setMaterialOpen(true); setError(''); }} disabled={materialBusy}>
                 <Sparkles size={16} />AI 生成训练素材
               </button>
+              <label className="ocr-mode-wrap">润色等级
+                <select className="ocr-mode" value={polishLevel} onChange={(e) => { setPolishLevel(e.target.value); localStorage.setItem(LEVEL_KEY, e.target.value); }} title="AI 润色版、高级句式与推荐表达都会匹配该考试难度">
+                  {AI_LEVELS.map((lv) => <option key={lv} value={lv}>{lv}</option>)}
+                </select>
+              </label>
               <label className="ocr-mode-wrap">识别模式
                 <select className="ocr-mode" value={ocrMode} onChange={(e) => setOcrMode(e.target.value)} title="拍照 / 图片识别的模式">
                   <option value="auto">自动（印刷体/手写体）</option>
@@ -1154,7 +1205,10 @@ function ResultSheet({ result, onBack, onCopy, onShare, shareTip }) {
         {shareTip ? <span className="share-tip">{shareTip}</span> : null}
       </div>
       <article className="sheet">
-        <header className="sheet-title"><span className="eyebrow">BACK-TRANSLATE TRAINING · 回译训练作业</span><h1>{result.title}</h1>{result.durationMs ? <span className="sheet-duration">本次练习用时 {formatDuration(result.durationMs)}</span> : null}</header>
+        <header className="sheet-title"><span className="eyebrow">BACK-TRANSLATE TRAINING · 回译训练作业</span><h1>{result.title}</h1>
+          {result.aiLevel ? <span className="sheet-duration">润色等级 {result.aiLevel}</span> : null}
+          {result.durationMs ? <span className="sheet-duration">本次练习用时 {formatDuration(result.durationMs)}</span> : null}
+        </header>
         <Section label="中文" tone="cn"><p>{result.chinese}</p></Section>
         <Section label="原稿" tone="draft" note="黄色高亮 = 待改正或可优化的表达"><p><DraftText text={result.draft} findings={allFindings} /></p></Section>
         <Section label="AI 修正版" tone="ai"><p>{result.ai}</p></Section>
@@ -1245,7 +1299,7 @@ function VocabularyNotes({ items }) {
         const exs = Array.isArray(v.examples) ? v.examples : [];
         return (
           <div className="vocab-card" key={'vn' + i}>
-            <div className="vocab-head"><strong className="vocab-word">{v.word}</strong>{v.type ? <span className="vocab-type">{v.type}</span> : null}</div>
+            <div className="vocab-head"><strong className="vocab-word">{v.word}</strong><Phonetic word={v.word} phonetic={v.phonetic} />{v.type ? <span className="vocab-type">{v.type}</span> : null}</div>
             {v.meaning ? <p className="vocab-meaning">{v.meaning}</p> : null}
             {dims.length ? <div className="dim-chips">{dims.map((d, j) => <span className="dim-chip" key={'vd' + j}>{d}</span>)}</div> : null}
             {syns.length ? <div className="syn-block"><span className="ext-label">近义词对比</span><div className="syn-list">{syns.map((s, j) => <SynRow key={'vs' + j} s={s} />)}</div></div> : null}

@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { SYSTEM_PROMPT, buildUserMessage, MATERIAL_PROMPT, buildMaterialMessage } from './prompt.mjs';
+import { SYSTEM_PROMPT, buildUserMessage, MATERIAL_PROMPT, buildMaterialMessage, AI_LEVEL_KEYS, DEFAULT_AI_LEVEL } from './prompt.mjs';
 import { recognizeImage } from './ocr.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -148,6 +148,44 @@ function defaultVisionModel(baseUrl, model) {
   return /deepseek/i.test(String(baseUrl || '')) ? DEEPSEEK_VISION_MODEL : model;
 }
 
+/* ---------- 音标兜底查询（模型没给 phonetic 时用，带内存缓存 + 熔断） ---------- */
+const phoneticCache = new Map();
+let phoneticFailures = 0;
+let phoneticDown = false; // 词典接口不可达时（例如国内网络）直接放弃，避免每次页面都等超时
+async function lookupPhonetic(rawWord) {
+  const key = String(rawWord || '').trim().toLowerCase();
+  if (!key) return '';
+  if (phoneticCache.has(key)) return phoneticCache.get(key);
+  // 只查单个英文单词；含空格/斜杠的短语直接放弃，避免误查
+  if (!/^[a-z][a-z'’-]{0,40}$/.test(key)) { phoneticCache.set(key, ''); return ''; }
+  if (phoneticDown) { phoneticCache.set(key, ''); return ''; }
+  let phonetic = '';
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 4000);
+    const r = await fetch('https://api.dictionaryapi.dev/api/v2/entries/en/' + encodeURIComponent(key), { signal: controller.signal });
+    clearTimeout(timer);
+    if (r.ok) {
+      const data = await r.json();
+      const list = Array.isArray(data) ? data : [];
+      for (const entry of list) {
+        if (entry && typeof entry.phonetic === 'string' && entry.phonetic.trim()) { phonetic = entry.phonetic.trim(); break; }
+        const arr = Array.isArray(entry?.phonetics) ? entry.phonetics : [];
+        const hit = arr.find((x) => x && typeof x.text === 'string' && x.text.trim());
+        if (hit) { phonetic = hit.text.trim(); break; }
+      }
+      phoneticFailures = 0;
+    } else {
+      phoneticFailures += 1;
+    }
+  } catch {
+    phoneticFailures += 1;
+  }
+  if (phoneticFailures >= 3) phoneticDown = true;
+  phoneticCache.set(key, phonetic);
+  return phonetic;
+}
+
 /* ---------- 异步任务（分析/素材）持久化 ---------- */
 const DATA_DIR = path.join(ROOT, 'data');
 const JOBS_FILE = path.join(DATA_DIR, 'jobs.json');
@@ -281,7 +319,7 @@ async function callLLM({ baseUrl, model, apiKey, messages }) {
 }
 
 /* ---------- 异步分析任务 ---------- */
-async function runAnalyzeJob(jobId, { title, chinese, draft, original, lesson, lessonNo, baseUrl, model, apiKey }) {
+async function runAnalyzeJob(jobId, { title, chinese, draft, original, lesson, lessonNo, baseUrl, model, apiKey, level }) {
   const job = jobs.get(jobId);
   if (!job) return;
   job.status = 'running';
@@ -290,7 +328,7 @@ async function runAnalyzeJob(jobId, { title, chinese, draft, original, lesson, l
   try {
     const messages = [
       { role: 'system', content: SYSTEM_PROMPT },
-      { role: 'user', content: buildUserMessage({ title, chinese, draft, original }) },
+      { role: 'user', content: buildUserMessage({ title, chinese, draft, original, level }) },
     ];
     const raw = await callLLM({ baseUrl, model, apiKey, messages });
     let parsed;
@@ -305,6 +343,7 @@ async function runAnalyzeJob(jobId, { title, chinese, draft, original, lesson, l
       draft: parsed.draft || draft,
       ai: parsed.ai || '',
       original: parsed.original || original,
+      aiLevel: level || DEFAULT_AI_LEVEL,
       overall: parsed.overall || {},
       sentences: Array.isArray(parsed.sentences) ? parsed.sentences : [],
       vocabularyNotes: Array.isArray(parsed.vocabularyNotes) ? parsed.vocabularyNotes : [],
@@ -432,6 +471,8 @@ const server = http.createServer(async (req, res) => {
         baseUrl: stat.baseUrl(), model: stat.model(), hasKey: stat.hasKey(),
         visionModel: defaultVisionModel(stat.baseUrl(), stat.model()),
         ocr: true,
+        aiLevels: AI_LEVEL_KEYS,
+        defaultAiLevel: DEFAULT_AI_LEVEL,
         corpusLessons: allLessons().length,
         books: [...getCorpora().values()].map((c) => ({ book: c.book, lessons: c.lessons.length, source: c.source })),
       });
@@ -492,6 +533,12 @@ const server = http.createServer(async (req, res) => {
         job: { jobId: job.jobId, status: job.status, data: job.data || null, error: job.error || null },
       });
     }
+    if (p === '/api/phonetic' && req.method === 'GET') {
+      const word = url.searchParams.get('word') || '';
+      if (!word.trim()) return json(res, 400, { error: '缺少 word 参数' });
+      const phonetic = await lookupPhonetic(word);
+      return json(res, 200, { ok: true, word: word.trim(), phonetic });
+    }
     if (p === '/api/ocr' && req.method === 'POST') {
       const body = await readBody(req);
       const image = String(body.image || '');
@@ -537,6 +584,8 @@ const server = http.createServer(async (req, res) => {
       const lessonNo = body.lessonId != null ? Number(body.lessonId) : null;
       const lesson = userOriginal ? null : resolveLesson({ book: body.book, lessonId: lessonNo, title: body.title, chinese });
       const title = body.title || (lesson ? 'Lesson ' + lesson.lesson + ' · ' + (lesson.title_en || lesson.title_cn) : '自由回译训练');
+      // 润色等级：小初 / 高考英语 / 四六级 / 考研英语 / 专四 / 专八
+      const level = AI_LEVEL_KEYS.includes(String(body.level || '').trim()) ? String(body.level).trim() : DEFAULT_AI_LEVEL;
 
       const baseUrl = String(body.baseUrl || '').trim() || stat.baseUrl();
       const model = String(body.model || '').trim() || stat.model();
@@ -548,7 +597,7 @@ const server = http.createServer(async (req, res) => {
       // 立即返回任务号，后台再调用模型；手机端/弱网不会因长时间占用请求而卡死
       runAnalyzeJob(jobId, {
         title, chinese, draft, original: lesson ? lesson.english : userOriginal,
-        lesson, lessonNo, baseUrl, model, apiKey,
+        lesson, lessonNo, baseUrl, model, apiKey, level,
       });
       return json(res, 200, { ok: true, jobId, status: 'pending' });
     }

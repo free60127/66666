@@ -16,6 +16,8 @@
 - 拍照 / 图片识别（OCR）：中文提示与英文初稿两栏各自带「拍照」「导入图片」按钮，电脑端可直接把图片拖进对应栏目；走原生多模态视觉模型逐字转写，印刷体与手写体都能识别，手写体可切「手写体优先」提高分辨率与准确率
 - 分项评分与生成进度：结果页展示词汇准确 / 语法时态 / 语境逻辑 / 流畅度 / 地道程度 5 个分项得分条；生成过程显示「已提交 → AI 生成中 → 完成」三步进度与已耗时
 - 练习计时器：编辑区计时控件支持「开始计时 / 暂停 / 继续 / 重置」，切换课文自动归零、刷新页面继续计时；点「生成作业」时会把本次用时写进结果页和历史记录，方便对比自己每篇课文花了多久
+- 润色等级梯度：可选 **小初 / 高考英语 / 四六级 / 考研英语 / 专四 / 专八**，AI 润色版（整体 + 逐句）、高级句式、加分表达、以及 findings 里推荐给学生替换的表达，都会匹配该等级的词汇量、句式复杂度、习语密度与篇幅（默认四六级，选择记忆在本机）
+- 音标标注：词汇深度辨析里的核心词与近义词都带 IPA 音标（如 spoil /spɔɪl/、ruin /ˈruːɪn/、damage /ˈdæmɪdʒ/、mar /mɑːr/）；模型未返回时后端会尝试词典兜底查询并缓存
 - AI 原创素材：按主题/难度/文体用 AI 生成无版权英文短文 + 完整中文翻译（如时事、中国文化），可直接作为回译训练题源（回应用户「新概念课文有版权、AI 生成文章可商业化」的建议）
 - 逐句级解析：每条错误含 from → to 与中文解释，分 error / improve / study 三级；核心动词/形容词/易混词按「语域、感情色彩、语用、语义轻重、固定搭配、内涵外延」六大维度讲透，并附带近义词对比表（word / meaning / register / tone / strength / usage / example）与例句
 - 地道习语强化：AI 润色版优先使用符合情境的习语（如 suddenly → out of the blue），并在 findings 与「地道习语强化」板块逐条解释气势、场景与普通说法的差异
@@ -113,12 +115,26 @@
 | GET | /api/ocr/:jobId | 轮询识别结果：`{ok, job:{jobId, status, data:{text, engine, model, chars, garbled}, error}}`，status 为 pending / running / done / error |
 | POST | /api/generate-material | 异步提交 AI 原创素材生成（topic、level、style），立即返回 `{ok, jobId}` |
 | GET | /api/generate-material/:jobId | 轮询素材生成状态：`{ok, job:{jobId, status, data?, error?}}`，status 为 pending / running / done / error |
-| POST | /api/analyze | 异步提交回译作业（chinese、draft + 可选 book、lessonId、title、original、baseUrl、model、apiKey），立即返回 `{ok, jobId}` |
+| POST | /api/analyze | 异步提交回译作业（chinese、draft + 可选 book、lessonId、title、original、level、baseUrl、model、apiKey），立即返回 `{ok, jobId}`；level ∈ 小初 / 高考英语 / 四六级 / 考研英语 / 专四 / 专八 |
+| GET | /api/phonetic?word=spoil | 查单词 IPA 音标（模型未返回 phonetic 时的兜底，带内存缓存与熔断） |
 | GET | /api/analyze/:jobId | 轮询作业状态：`{ok, job:{jobId, status, data?, error?}}`，status 为 pending / running / done / error |
 
 所有任务（分析 + 素材）都会持久化到服务端 `data/jobs.json`（保留 7 天），后端重启不会丢失；结果页「复制分享链接」会生成 `#job=<jobId>` 链接，任何人打开都能恢复同一次批改结果；前端还会在本机浏览器保存最近 20 条历史记录。
 
-`/api/analyze/:jobId` 在 status=done 时 job.data 结构：{ title, chinese, draft, ai, original, overall{score,scoreBreakdown[{label,score,max,comment}],issues,summary,highlights,advice}, sentences[{cn,draft,ai,original,findings[{category,from,to,level,explanation,dimensions,synonyms,examples,idiom}]}], vocabularyNotes, idiomHighlights, advancedSentences, bonusExpressions }。
+`/api/analyze/:jobId` 在 status=done 时 job.data 结构：{ title, chinese, draft, ai, original, aiLevel, overall{score,scoreBreakdown[{label,score,max,comment}],issues,summary,highlights,advice}, sentences[{cn,draft,ai,original,findings[{category,from,to,level,explanation,dimensions,synonyms[{word,phonetic,meaning,register,tone,strength,usage,example}],examples,idiom}]}], vocabularyNotes[{word,phonetic,type,meaning,dimensions,synonyms,examples,note}], idiomHighlights, advancedSentences, bonusExpressions }。
+
+### 润色等级梯度
+
+用户可在编辑区选择目标阶段，AI 会据此控制润色版的词汇、句式、习语与篇幅：
+
+| 等级 | 词汇 | 句式 | 习语 |
+| --- | --- | --- | --- |
+| 小初 | 中考核心词 1500-2000 | 简单句 + 并列句，最多一个基础定语从句 | 0-1 个最基础搭配 |
+| 高考英语 | 高考 3500 词及派生词 | 三大从句、非谓语、强调句；少量倒装/虚拟 | 1-2 个常见地道短语 |
+| 四六级 | 四六级 5500 词、名词化表达 | 分词状语、with 复合结构、基础倒装 | 1-3 个地道习语 |
+| 考研英语 | 书面语域、学术动词 | 长难句：多重从句、后置定语、插入语 | 克制、偏书面 |
+| 专四 | TEM-4 约 8000 词级 | 复杂句式 + 修辞，节奏感 | 2-4 个 |
+| 专八 | TEM-8 高级/文学词汇 | 文学性再创作、修辞与语气控制 | 3-5 个 |
 
 ## 导出 PDF
 

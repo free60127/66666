@@ -39,6 +39,7 @@ export const SYSTEM_PROMPT = `你是「新概念英语回译训练」王牌导�
           "synonyms": [
             {
               "word": "近义词",
+              "phonetic": "国际音标（标准 IPA，用 / / 包裹，如 /spɔɪl/；短语可留空）",
               "meaning": "中文释义",
               "register": "语域（正式/非正式/书面/口语/学术/新闻等）",
               "tone": "感情色彩（褒义/中性/贬义）",
@@ -58,10 +59,11 @@ export const SYSTEM_PROMPT = `你是「新概念英语回译训练」王牌导�
   "vocabularyNotes": [
     {
       "word": "核心词（名词/动词/形容词/介词搭配均可）",
+      "phonetic": "国际音标（标准 IPA，用 / / 包裹，如 /spɔɪl/；多词短语可留空）",
       "type": "词性（如：动词 / 形容词 / 名词 / 搭配）",
       "meaning": "中文释义",
       "dimensions": ["辨析维度"],
-      "synonyms": [ { "word": "", "meaning": "", "register": "", "tone": "", "strength": "", "usage": "", "example": "" } ],
+      "synonyms": [ { "word": "", "phonetic": "", "meaning": "", "register": "", "tone": "", "strength": "", "usage": "", "example": "" } ],
       "examples": [ { "en": "", "cn": "" } ],
       "note": "教学点拨：为什么这个维度重要、学生应如何记忆"
     }
@@ -128,6 +130,8 @@ export const SYSTEM_PROMPT = `你是「新概念英语回译训练」王牌导�
 8. AI 润色版本（整体 ai 字段及每一句的 ai）必须是能够看出进步的再创作，不是校阅稿：鼓励换词、重组句式、加入文学色彩和地道习语；若课文原文已很精炼，也要在保持原意的前提下做出风格或笔触上的新意；逐句 ai 同样要体现这一点，并在 findings 中说明 AI 版本比原文好在哪里（用 level=study 的条目指出，如「比原文更生动/更紧凑/更有画面感/习语更地道」）。
 9. advancedSentences 与 bonusExpressions：从本次课文原文、AI 润色版或学生初稿中提炼值得学习的高级句式与地道加分表达，每条给出可直接背诵的完整英文例句与中文点拨（说明类别：倒装/虚拟语气/强调句/非谓语/独立主格/后置定语/插入语/习语搭配等）；不得用空数组占位，宁精勿滥。
 10. vocabularyNotes 至少 2-4 组，idiomHighlights 至少 3 条；若确实没有合适内容，用空数组，不得编造。
+11. 音标：vocabularyNotes 的每个 word、以及 synonyms 里每个英文单词，都必须填 phonetic（标准国际音标 IPA，用 / / 包裹，如 /spɔɪl/、/ˈruːɪn/、/ˈdæmɪdʒ/、/mɑːr/）。音标必须真实准确，英美式统一即可；多词短语（如 get off the bus）可留空字符串，不要硬凑、不要杜撰。
+12. 润色等级：用户消息里会给出【本次润色等级】（小初 / 高考英语 / 四六级 / 考研英语 / 专四 / 专八）。整体 ai、逐句 ai、advancedSentences、bonusExpressions，以及 findings 中推荐给学生替换用的表达，都必须匹配该等级的词汇、句式、习语与篇幅要求；宁可在等级内写得漂亮，也不要越级堆砌学生驾驭不了的高级词。
 `;
 
 export const MATERIAL_PROMPT = `你是「回译本」训练素材生成器，专门为回译训练原创英文短文，避开一切教材与已有作品的版权内容。
@@ -155,15 +159,70 @@ export function buildMaterialMessage({ topic, level = '中级', style = '生活�
     '\n\n要求：输出完整 JSON（title / original / chinese / keywords）。original 约 120-220 词，母语地道风格，含 2-4 个可学习的习语或高级表达；chinese 完整对应原文。';
 }
 
-export function buildUserMessage({ title, chinese, draft, original }) {
+/* ---------- 润色等级梯度：让 AI 润色/推荐表达匹配用户的考试阶段 ---------- */
+export const AI_LEVELS = {
+  小初: {
+    vocab: '以中考核心词为主（约 1500-2000 词），只用常见词与最基础的短语动词，不出现生僻词和文学性词汇。',
+    syntax: '以简单句和并列句为主（and / but / so / because / when），最多一个基础定语从句；不用倒装、虚拟语气、独立主格、插入语。',
+    idiom: '只用最基础的固定搭配（have a good time / in the end / take part in），整篇 0-1 个。',
+    length: '单句 8-16 词，整体简短清楚。',
+  },
+  高考英语: {
+    vocab: '控制在高考 3500 词及其常见派生词内；可用 take pride in、make a difference、be faced with 这类高频地道搭配。',
+    syntax: '允许定语从句、状语从句、名词性从句、非谓语（doing / done / to do）、强调句 it is ... that；倒装和虚拟语气只用最基础的。',
+    idiom: '用高考书面表达里常见的地道短语，1-2 个即可，不堆砌。',
+    length: '单句 10-22 词。',
+  },
+  四六级: {
+    vocab: '四六级 5500 词范围，鼓励更精准的书面动词与名词化表达（contribute to / give rise to / a sense of ...）。',
+    syntax: '句式要有变化：分词作状语、with 复合结构、非谓语作后置定语、基础倒装与虚拟语气都可自然使用。',
+    idiom: '可以用 out of the blue、come to terms with 这类地道习语，1-3 个，必须贴合情境。',
+    length: '单句 12-28 词，长短句交错。',
+  },
+  考研英语: {
+    vocab: '考研英语（一/二）的书面语域：抽象名词、逻辑连接词、学术性动词（demonstrate / undermine / give priority to）。',
+    syntax: '以长难句为主：多重从句、后置定语、插入语、非谓语嵌套；结构复杂但逻辑清晰，避免口语化碎片。',
+    idiom: '习语克制、偏书面（at odds with / in the wake of），不用俚语。',
+    length: '单句 15-38 词，可有 2-3 层分句。',
+  },
+  专四: {
+    vocab: 'TEM-4 词汇（约 8000 词级常用书面词），追求精准地道（mar / hamper / reignite 这类有质感的动词）。',
+    syntax: '复杂句式与修辞并用：倒装、虚拟语气、独立主格、分词短语、后置定语，句子有节奏感。',
+    idiom: '地道习语与惯用搭配密度提高（2-4 个），保持语域一致。',
+    length: '单句 15-35 词，长短句交错。',
+  },
+  专八: {
+    vocab: 'TEM-8 级别的高级词汇与低频但精准的表达，允许文学性词汇，但必须有语境支撑、不为难而难。',
+    syntax: '文学性再创作：复杂句式、修辞（隐喻 / 拟人 / 排比 / 通感）、节奏与语气的控制。',
+    idiom: '习语、典故与地道表达可自然嵌入（3-5 个），整体语域统一、偏书面。',
+    length: '不限，但要求读起来是母语者的成熟文笔。',
+  },
+};
+export const DEFAULT_AI_LEVEL = '四六级';
+export const AI_LEVEL_KEYS = Object.keys(AI_LEVELS);
+export function levelGuide(level) {
+  const key = AI_LEVELS[level] ? level : DEFAULT_AI_LEVEL;
+  return { key, ...AI_LEVELS[key] };
+}
+
+export function buildUserMessage({ title, chinese, draft, original, level }) {
+  const L = levelGuide(level);
   return '请为以下回译训练生成完整分析作业。\n\n标题：' + title +
     '\n中文提示：\n' + chinese +
     '\n\n学生英文初稿：\n' + draft +
     '\n\n教材课文原文：\n' + (original || '（无，自由模式）') +
-    '\n\n请按要求输出完整 JSON。本次分析难度升级：\n' +
+    '\n\n【本次润色等级：' + L.key + '】\n' +
+    '请让 AI 润色（整体 ai 与逐句 ai）、advancedSentences、bonusExpressions，以及 findings 里推荐给学生替换用的表达，全部匹配「' + L.key + '」的难度：\n' +
+    '- 词汇：' + L.vocab + '\n' +
+    '- 句式：' + L.syntax + '\n' +
+    '- 习语：' + L.idiom + '\n' +
+    '- 篇幅：' + L.length + '\n' +
+    '不要给出明显超出该等级、学生现阶段驾驭不了的词或句式；也不要低于该等级（不要退回幼稚的简单句）。若学生初稿本身已经超出该等级，请保留其水平并在此基础上精修，不要降级。\n' +
+    '\n请按要求输出完整 JSON。本次分析难度升级：\n' +
     '1. 词汇辨析必须按「语域 / 感情色彩 / 语用 / 语义轻重 / 固定搭配 / 内涵外延」六大维度讲透，核心动词、形容词、易混词都要给出近义词对比（synonyms）与例句；\n' +
     '2. 时态、交通工具搭配（get on/off vs get in/out of）等易错点必须单独且深入地解释；\n' +
-    '3. AI 润色版要优先使用符合情境的地道习语，并在 findings 与 idiomHighlights 中讲清它好在哪里；\n' +
+    '3. AI 润色版要优先使用符合情境的地道习语（且不超出上述等级），并在 findings 与 idiomHighlights 中讲清它好在哪里；\n' +
     '4. AI 自己使用的高级词汇也要逐词讲解（rumbled to a halt、clambered out、lugged 等类比）；\n' +
-    '5. ai 字段必须是完整连贯的英文段落；sentences 必须覆盖每一句中文提示；findings 必须详尽，宁多勿漏。';
+    '5. vocabularyNotes 与 synonyms 里的每个英文单词都要给 phonetic 音标（IPA，含 / /）；\n' +
+    '6. ai 字段必须是完整连贯的英文段落；sentences 必须覆盖每一句中文提示；findings 必须详尽，宁多勿漏。';
 }
