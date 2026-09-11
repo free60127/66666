@@ -24,24 +24,78 @@ const LEVEL_KEY = 'bt-polish-level';
 // 「考研英语」「专四」已合并为「考研/专四」：本机旧设置里可能还是旧值，读出来先归一化，避免被静默降级成默认等级
 const LEVEL_ALIASES = { 考研英语: '考研/专四', 专四: '考研/专四' };
 const CONFIDENCE_LABEL = { high: '高置信度', medium: '中置信度', low: '低置信度', none: '未匹配', manual: '手动选择' };
+/* ---------- 本机存储统一入口 ----------
+ * 裸调 localStorage 在 Safari 无痕 / 禁用站点数据 / 被 iframe 嵌入时会抛 SecurityError，
+ * 而这些调用出现在首次 render 的惰性初始化里 —— 一抛就是整页白屏，且没有任何降级路径。 */
+function safeGet(key, fallback = '') {
+  try {
+    const v = localStorage.getItem(key);
+    return v === null ? fallback : v;
+  } catch { return fallback; }
+}
+function safeSet(key, value) {
+  try { localStorage.setItem(key, value); return true; } catch { return false; }
+}
 function loadHistory() {
   try {
-    const arr = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
+    const arr = JSON.parse(safeGet(HISTORY_KEY, '[]'));
     return Array.isArray(arr) ? arr.filter(Boolean) : [];
   } catch { return []; }
 }
 function saveHistory(arr) {
-  try { localStorage.setItem(HISTORY_KEY, JSON.stringify(arr.slice(0, 20))); } catch { /* ignore */ }
+  safeSet(HISTORY_KEY, JSON.stringify(arr.slice(0, 20)));
 }
+const RESULT_KEY_PREFIX = 'bt-result-';
 function loadResultCache(jobId) {
   try {
-    const raw = localStorage.getItem('bt-result-' + jobId);
+    const raw = safeGet(RESULT_KEY_PREFIX + jobId, '');
     return raw ? JSON.parse(raw) : null;
   } catch { return null; }
 }
+/**
+ * 结果缓存淘汰：只保留最近的历史条目对应的结果。
+ * 原来每生成一次写一份、永不删除（单份几十~上百 KB），几十次练习后 5MB 配额写满，
+ * 之后所有 setItem 都会静默失败（表现为"保存没反应""切等级报错"）。
+ */
+function pruneResultCache(keepJobIds) {
+  const keep = new Set((keepJobIds || []).filter(Boolean).map((id) => RESULT_KEY_PREFIX + id));
+  keep.add(RESULT_KEY_PREFIX);
+  try {
+    for (const key of Object.keys(localStorage)) {
+      if (key.startsWith(RESULT_KEY_PREFIX) && !keep.has(key)) localStorage.removeItem(key);
+    }
+  } catch { /* ignore */ }
+}
 function saveResultCache(jobId, data) {
   if (!jobId || !data) return;
-  try { localStorage.setItem('bt-result-' + jobId, JSON.stringify(data)); } catch { /* ignore */ }
+  if (safeSet(RESULT_KEY_PREFIX + jobId, JSON.stringify(data))) return;
+  pruneResultCache([jobId]); // 配额写满：清掉其它结果缓存再试一次（历史/收藏不动）
+  safeSet(RESULT_KEY_PREFIX + jobId, JSON.stringify(data));
+}
+
+/* ---------- 结果数据归一化（前端兜底）----------
+ * 服务端已经清洗过一次；这里再兜一次是因为分享链接与本机缓存里可能存着历史脏数据，
+ * 而 ResultSheet 会直接索引 sentences[i].findings / notes[i].word —— 脏元素会让整棵树崩掉。 */
+function asObjectArray(value) {
+  return (Array.isArray(value) ? value : []).filter((x) => x && typeof x === 'object' && !Array.isArray(x));
+}
+function normalizeResult(data) {
+  if (!data || typeof data !== 'object') return null;
+  const overall = data.overall && typeof data.overall === 'object' && !Array.isArray(data.overall) ? data.overall : {};
+  return {
+    ...data,
+    overall: { ...overall, scoreBreakdown: asObjectArray(overall.scoreBreakdown) },
+    sentences: asObjectArray(data.sentences).map((s) => ({
+      ...s,
+      findings: asObjectArray(s.findings).map((f) => ({
+        ...f,
+        dimensions: Array.isArray(f.dimensions) ? f.dimensions.filter((x) => typeof x === 'string') : [],
+        synonyms: Array.isArray(f.synonyms) ? f.synonyms.filter((x) => x != null) : [],
+      })),
+    })),
+    vocabularyNotes: asObjectArray(data.vocabularyNotes),
+    idiomHighlights: asObjectArray(data.idiomHighlights),
+  };
 }
 
 /* ---------- 拍照 / 图片识别（OCR）前端预处理 ---------- */
@@ -272,9 +326,13 @@ function Phonetic({ word, phonetic }) {
   const key = String(word || '').trim().toLowerCase();
   const [value, setValue] = useState(() => given || (key ? (phoneticCacheMap().get(key) || '') : ''));
   useEffect(() => {
-    if (given || !key) return undefined;
+    // given 有值时原来直接 return，导致 value 只在挂载时取一次：
+    // 列表用下标 key 复用实例时，切换作业/筛选收藏会让音标停留在上一个词上（串词）。
+    if (given) { setValue(given); return undefined; }
+    if (!key) { setValue(''); return undefined; }
     const cache = phoneticCacheMap();
     if (cache.has(key)) { setValue(cache.get(key) || ''); return undefined; }
+    setValue(''); // 换词先清空，避免旧音标短暂挂在新闻上
     let alive = true;
     getPhonetic(key).then((r) => {
       const v = String((r && r.phonetic) || '').trim();
@@ -341,12 +399,12 @@ function App() {
   const [status, setStatus] = useState(null);
   const [lessons, setLessons] = useState([]);
   const [book, setBook] = useState(() => {
-    const b = Number(localStorage.getItem('bt-book'));
+    const b = Number(safeGet('bt-book', ''));
     return [1, 2, 3, 4].includes(b) ? b : 2;
   });
   const [mode, setMode] = useState('lesson');
   const [lessonId, setLessonId] = useState(() => {
-    const n = Number(localStorage.getItem('bt-lesson'));
+    const n = Number(safeGet('bt-lesson', ''));
     return Number.isFinite(n) && n > 0 ? n : 18;
   });
   const [matchedLesson, setMatchedLesson] = useState(null);
@@ -392,7 +450,7 @@ function App() {
   const [shareTip, setShareTip] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(() => {
     if (typeof window !== 'undefined' && window.innerWidth <= 900) return false;
-    return localStorage.getItem('bt-sidebar') !== 'collapsed';
+    return safeGet('bt-sidebar', '') !== 'collapsed';
   });
   const fileRef = useRef(null);
   // 拍照 / 图片识别
@@ -415,17 +473,36 @@ function App() {
   const [clockNow, setClockNow] = useState(() => Date.now());
   // 润色等级：让润色版与推荐表达匹配用户目标考试的难度
   const [polishLevel, setPolishLevel] = useState(() => {
-    const saved = localStorage.getItem(LEVEL_KEY);
+    const saved = safeGet(LEVEL_KEY, '');
     const level = LEVEL_ALIASES[saved] || saved;
     return AI_LEVELS.includes(level) ? level : DEFAULT_AI_LEVEL;
   });
 
   const toggleSidebar = () => {
-    setSidebarOpen((open) => {
-      localStorage.setItem('bt-sidebar', open ? 'collapsed' : 'open');
-      return !open;
-    });
+    const next = !sidebarOpen;
+    safeSet('bt-sidebar', next ? 'open' : 'collapsed');
+    setSidebarOpen(next);
   };
+
+  // 提示条统一定时器：原来每处各起一个 setTimeout，连续两次操作时先到的 timer
+  // 会把后一条提示提前清掉（提示"闪一下就没了"）。这里改成共用一个，写前先取消。
+  const tipTimerRef = useRef(null);
+  const flashTip = (setter, message, ms = 2600) => {
+    setter(message);
+    clearTimeout(tipTimerRef.current);
+    tipTimerRef.current = setTimeout(() => setter(''), ms);
+  };
+  // 卸载时清掉所有计时器，并让仍在跑的轮询循环自行退出（否则会在后台一直打接口到超时）
+  const aliveRef = useRef(true);
+  useEffect(() => () => {
+    aliveRef.current = false;
+    clearTimeout(tipTimerRef.current);
+    clearInterval(progressTimerRef.current);
+  }, []);
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  // 生成任务令牌：用户在生成过程中切课 / 点「新建」时作废，
+  // 任务完成后就不再强行把视图抢回结果页（结果本身仍然保留并写入历史）。
+  const genTokenRef = useRef(0);
 
   const startProgressTimer = () => {
     const start = Date.now();
@@ -448,8 +525,8 @@ function App() {
 
   // 恢复上次打开的书册/课次；没有记录则默认第一课
   const pickInitialLesson = (list) => {
-    const savedBook = Number(localStorage.getItem('bt-book'));
-    const savedLesson = Number(localStorage.getItem('bt-lesson'));
+    const savedBook = Number(safeGet('bt-book', ''));
+    const savedLesson = Number(safeGet('bt-lesson', ''));
     const targetBook = [1, 2, 3, 4].includes(savedBook) ? savedBook : 2;
     const match = list.find((l) => l.book === targetBook && l.lesson === savedLesson);
     if (match) return match;
@@ -483,8 +560,9 @@ function App() {
     if (!m) return;
     const jobId = m[1];
     getAnalyzeJob(jobId).then((r) => {
+      if (!aliveRef.current) return;
       if (r.job?.status === 'done' && r.job.data) {
-        setResult(r.job.data);
+        setResult(normalizeResult(r.job.data)); // 归一化：坏数据不再让页面白屏，F5 也不会循环崩
         setCurrentJobId(jobId);
         setView('result');
         setError('');
@@ -494,10 +572,11 @@ function App() {
         setError('该结果仍在生成中，请稍后刷新查看');
       }
     }).catch(() => {
+      if (!aliveRef.current) return;
       // 后端任务已清理（重新部署/超 7 天）时，用本机缓存恢复
       const cached = loadResultCache(jobId);
       if (cached) {
-        setResult(cached);
+        setResult(normalizeResult(cached));
         setCurrentJobId(jobId);
         setView('result');
         setError('');
@@ -509,19 +588,23 @@ function App() {
 
   const visibleLessons = useMemo(() => lessons.filter((l) => l.book === book), [lessons, book]);
 
+  // 请求令牌：连点两课时，先发的慢请求若后返回，会把标题/中文覆盖成上一课的内容
+  // （表现为侧栏高亮第 5 课、编辑区却是第 3 课）。挂载时的自动选课也会"迟到覆盖"用户的手动选择。
+  const lessonReqRef = useRef(0);
   const selectLesson = async (nextBook, nextLesson, autoGenerate = false) => {
+    const reqId = (lessonReqRef.current += 1);
+    genTokenRef.current += 1; // 切课即作废正在跑的生成任务，避免它完成时抢回结果页
     setBook(nextBook);
     setLessonId(nextLesson);
     setMatchedLesson(null);
     setMode('lesson');
     setMatchConfidence('manual');
     setMatchScore(null);
-    try {
-      localStorage.setItem('bt-book', String(nextBook));
-      localStorage.setItem('bt-lesson', String(nextLesson));
-    } catch { /* ignore */ }
+    safeSet('bt-book', String(nextBook));
+    safeSet('bt-lesson', String(nextLesson));
     try {
       const lesson = await getLesson(nextBook, nextLesson);
+      if (reqId !== lessonReqRef.current) return; // 已被更晚的选择取代，丢弃这次结果
       setTitle(lessonLabel(lesson));
       setChinese(lesson.chinese || '');
       setDraft('');
@@ -529,6 +612,7 @@ function App() {
       setMaterialKeywords([]);
       setMatchedLesson(lesson);
     } catch {
+      if (reqId !== lessonReqRef.current) return;
       setTitle(`Lesson ${nextLesson}`);
       setChinese('');
       setDraft('');
@@ -623,7 +707,8 @@ function App() {
       const deadline = Date.now() + 10 * 60 * 1000;
       let pollFailures = 0;
       while (Date.now() < deadline) {
-        await new Promise((resolve) => setTimeout(resolve, 2500));
+        await sleep(2500);
+        if (!aliveRef.current) return;
         let r;
         try {
           r = await getMaterialJob(jobId);
@@ -665,11 +750,11 @@ function App() {
 
   const addToHistory = (jobId, jobTitle, data, durationMs) => {
     saveResultCache(jobId, data);
-    setHistoryList((prev) => {
-      const next = [{ jobId, title: jobTitle || '回译作业', time: Date.now(), durationMs: Number(durationMs) || 0 }, ...prev.filter((x) => x.jobId !== jobId)].slice(0, 20);
-      saveHistory(next);
-      return next;
-    });
+    const entry = { jobId, title: jobTitle || '回译作业', time: Date.now(), durationMs: Number(durationMs) || 0 };
+    const next = [entry, ...historyList.filter((x) => x.jobId !== jobId)].slice(0, 20);
+    saveHistory(next);
+    pruneResultCache(next.map((x) => x.jobId)); // 结果缓存跟随历史条数淘汰，否则无限增长写满 5MB 配额
+    setHistoryList(next);
   };
 
   const openHistoryModal = () => {
@@ -686,8 +771,7 @@ function App() {
       : [{ ...item, createdAt: Date.now() }, ...favorites];
     const ok = saveFavorites(next);
     setFavorites(next);
-    setFavTip(exists ? '已取消收藏' : (ok ? '已收藏，可在右上角「收藏夹」随时复习' : '收藏失败：本机存储空间可能已满，请先导出备份'));
-    setTimeout(() => setFavTip(''), 2600);
+    flashTip(setFavTip, exists ? '已取消收藏' : (ok ? '已收藏，可在右上角「收藏夹」随时复习' : '收藏失败：本机存储空间可能已满，请先导出备份'));
   };
   const removeFavorite = (id) => {
     const next = favorites.filter((x) => x.id !== id);
@@ -699,11 +783,10 @@ function App() {
     if (!window.confirm('确定清空全部收藏？建议先「导出备份」。')) return;
     saveFavorites([]);
     setFavorites([]);
-    setFavTip('已清空收藏');
-    setTimeout(() => setFavTip(''), 2500);
+    flashTip(setFavTip, '已清空收藏', 2500);
   };
   const exportFavorites = () => {
-    if (!favorites.length) { setFavTip('还没有收藏内容'); setTimeout(() => setFavTip(''), 2000); return; }
+    if (!favorites.length) { flashTip(setFavTip, '还没有收藏内容', 2000); return; }
     const blob = new Blob([JSON.stringify({ app: 'back-translate-studio', exportedAt: new Date().toISOString(), favorites }, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -713,8 +796,7 @@ function App() {
     a.click();
     document.body.removeChild(a);
     setTimeout(() => URL.revokeObjectURL(url), 1500);
-    setFavTip('已导出备份文件，请妥善保存');
-    setTimeout(() => setFavTip(''), 3000);
+    flashTip(setFavTip, '已导出备份文件，请妥善保存', 3000);
   };
   const importFavorites = async (file) => {
     if (!file) return;
@@ -725,24 +807,22 @@ function App() {
       const { merged, added } = mergeFavorites(arr, favorites);
       const ok = saveFavorites(merged);
       setFavorites(merged);
-      setFavTip('导入完成：新增 ' + added + ' 条' + (ok ? '' : '（本机存储可能已满）'));
+      flashTip(setFavTip, '导入完成：新增 ' + added + ' 条' + (ok ? '' : '（本机存储可能已满）'), 4000);
     } catch (e) {
-      setFavTip('导入失败：' + (e.message || '文件格式不正确'));
+      flashTip(setFavTip, '导入失败：' + (e.message || '文件格式不正确'), 4000);
     }
-    setTimeout(() => setFavTip(''), 4000);
   };
   const copyFavorites = async () => {
     if (!favorites.length) return;
-    try { await navigator.clipboard.writeText(favoritesToText(favorites)); setFavTip('已复制全部收藏到剪贴板'); }
-    catch { setFavTip('复制失败，请手动选择文本'); }
-    setTimeout(() => setFavTip(''), 3000);
+    try { await navigator.clipboard.writeText(favoritesToText(favorites)); flashTip(setFavTip, '已复制全部收藏到剪贴板', 3000); }
+    catch { flashTip(setFavTip, '复制失败，请手动选择文本', 3000); }
   };
   const visibleFavorites = filterFavorites(favorites, { kind: favKind, query: favQuery });
 
   /* ---------- 根据收藏生成自测题 ---------- */
   const generateQuiz = async () => {
     const pool = favKind === 'all' ? favorites : filterFavorites(favorites, { kind: favKind });
-    if (!pool.length) { setFavTip('还没有可用于出题的收藏'); setTimeout(() => setFavTip(''), 2500); return; }
+    if (!pool.length) { flashTip(setFavTip, '还没有可用于出题的收藏', 2500); return; }
     setQuizBusy(true);
     setQuizTip('');
     setFavTip('');
@@ -759,7 +839,8 @@ function App() {
       let failures = 0;
       let data = null;
       while (Date.now() < deadline) {
-        await new Promise((resolve) => setTimeout(resolve, 2000));
+        await sleep(2000);
+        if (!aliveRef.current) return;
         let r;
         try { r = await getQuizJob(jobId); failures = 0; }
         catch (e) { failures += 1; if (failures > 8) throw new Error('网络不稳定，暂时无法获取题目'); continue; }
@@ -783,30 +864,32 @@ function App() {
         setFavOpen(false);
         setView('quiz');
       } else {
-        setFavTip('生成失败：' + (e.message || '未知错误'));
+        flashTip(setFavTip, '生成失败：' + (e.message || '未知错误'), 4000);
       }
     } finally {
       setQuizBusy(false);
-      setTimeout(() => setFavTip(''), 4000);
     }
   };
   const copyQuiz = async () => {
     if (!quizData) return;
     try {
       await navigator.clipboard.writeText(quizToText(quizData, { withAnswers: quizShowAnswers }));
-      setQuizTip('已复制题目' + (quizShowAnswers ? '（含答案）' : '（不含答案）'));
-    } catch { setQuizTip('复制失败，请手动选择文本'); }
-    setTimeout(() => setQuizTip(''), 2500);
+      flashTip(setQuizTip, '已复制题目' + (quizShowAnswers ? '（含答案）' : '（不含答案）'), 2500);
+    } catch { flashTip(setQuizTip, '复制失败，请手动选择文本', 2500); }
   };
   const favoritedIds = useMemo(() => new Set(favorites.map((x) => x.id)), [favorites]);
   const favHandlers = useMemo(() => ({ has: (id) => favoritedIds.has(id), toggle: toggleFavorite }), [favoritedIds, favorites]);
 
+  // 连点两条历史时，先发的慢请求后返回会把后点的那条覆盖掉 —— 用请求令牌丢弃过期结果
+  const historyReqRef = useRef(0);
   const loadHistoryJob = async (jobId) => {
+    const reqId = (historyReqRef.current += 1);
+    genTokenRef.current += 1; // 打开历史结果时作废掉正在跑的生成任务，避免它稍后抢回视图
     // 优先用本机缓存，秒开且不受服务器任务清理影响
     const cached = loadResultCache(jobId);
     if (cached) {
       setHistoryOpen(false);
-      setResult(cached);
+      setResult(normalizeResult(cached));
       setCurrentJobId(jobId);
       setView('result');
       setError('');
@@ -815,10 +898,11 @@ function App() {
     }
     try {
       const r = await getAnalyzeJob(jobId);
+      if (reqId !== historyReqRef.current) return;
       const job = r.job;
       setHistoryOpen(false);
       if (job?.status === 'done' && job.data) {
-        setResult(job.data);
+        setResult(normalizeResult(job.data));
         setCurrentJobId(jobId);
         setView('result');
         setError('');
@@ -829,11 +913,12 @@ function App() {
         setError('该结果仍在生成中或已超时，请稍后再试');
       }
     } catch (e) {
+      if (reqId !== historyReqRef.current) return;
       setHistoryOpen(false);
       // 服务器任务已过期/重新部署丢失时，尝试用本机缓存的结果兜底
-      const cached = loadResultCache(jobId);
-      if (cached) {
-        setResult(cached);
+      const fallback = loadResultCache(jobId);
+      if (fallback) {
+        setResult(normalizeResult(fallback));
         setCurrentJobId(jobId);
         setView('result');
         setError('');
@@ -845,13 +930,12 @@ function App() {
   };
 
   const shareResult = async () => {
-    if (!currentJobId) { setShareTip('当前是离线示例，没有可分享的结果链接'); return; }
+    if (!currentJobId) { flashTip(setShareTip, '当前是离线示例，没有可分享的结果链接', 4000); return; }
     const url = window.location.origin + window.location.pathname + '#job=' + currentJobId;
     try {
       await navigator.clipboard.writeText(url);
-      setShareTip('分享链接已复制，可发给老师或同学');
       setError('');
-      setTimeout(() => setShareTip(''), 4000);
+      flashTip(setShareTip, '分享链接已复制，可发给老师或同学', 4000);
     } catch {
       setShareTip('复制失败，请手动复制链接：' + url);
     }
@@ -923,7 +1007,8 @@ function App() {
         let text = '';
         let failures = 0;
         while (Date.now() < deadline) {
-          await new Promise((resolve) => setTimeout(resolve, 1500));
+          await sleep(1500);
+          if (!aliveRef.current) return;
           let r;
           try { r = await getOcrJob(jobId); failures = 0; }
           catch (err) { failures += 1; if (failures > 8) throw new Error('网络不稳定，暂时无法获取识别结果，请重试'); continue; }
@@ -958,6 +1043,8 @@ function App() {
         video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } },
         audio: false,
       });
+      // 先停掉上一次的流：否则第二次 getUserMedia 之后旧轨道泄漏，摄像头指示灯一直不灭
+      try { camStreamRef.current?.getTracks().forEach((t) => t.stop()); } catch { /* ignore */ }
       camStreamRef.current = stream;
       setCamSide(side);
       setCamOpen(true);
@@ -1018,6 +1105,7 @@ function App() {
     if (!cn) { setError('请先上传包含中文提示的 DOCX，或填入中文提示'); return; }
     if (!df) { setError('请先上传包含英文初稿的 DOCX，或填入英文初稿'); return; }
     setError(''); setBusy(true);
+    const myToken = (genTokenRef.current += 1);
     // 点击生成时定格用时（本次练习从开始计时到提交用掉的时长）
     const durationMs = timer.accumulated + (timer.running && timer.startedAt ? Math.max(0, Date.now() - timer.startedAt) : 0);
     setProgressStep(1); setProgressMsg('正在提交后台任务…'); startProgressTimer();
@@ -1033,14 +1121,15 @@ function App() {
       });
       const jobId = resp.jobId;
       if (!jobId) {
-        if (resp.data) { setResult(resp.data); setView('result'); return; }
+        if (resp.data) { setResult(normalizeResult(resp.data)); setView('result'); return; }
         throw new Error('服务器未返回任务编号，请重试');
       }
       setProgressStep(2); setProgressMsg('AI 正在后台生成（约1-2分钟）…');
       const deadline = Date.now() + 10 * 60 * 1000;
       let pollFailures = 0;
       while (Date.now() < deadline) {
-        await new Promise((resolve) => setTimeout(resolve, 2500));
+        await sleep(2500);
+        if (!aliveRef.current) return;
         let r;
         try {
           r = await getAnalyzeJob(jobId);
@@ -1055,9 +1144,10 @@ function App() {
         if (job.status === 'done') {
           setProgressStep(3); setProgressMsg('生成完成'); finishedOk = true;
           const enriched = { ...(job.data || {}), durationMs };
-          setResult(enriched);
+          setResult(normalizeResult(enriched));
           setCurrentJobId(jobId);
-          setView('result');
+          // 生成期间用户切过课 / 点过「新建」就不再抢回视图；结果照常入历史，可从历史里打开
+          if (myToken === genTokenRef.current) setView('result');
           addToHistory(jobId, job.data?.title || title, enriched, durationMs);
           window.history.replaceState(null, '', '#job=' + jobId);
           return;
@@ -1111,10 +1201,30 @@ function App() {
       '【可学习的高级句式】', ...(result.advancedSentences || []).map((a) => '· ' + a), '',
       '【加分表达】', ...(result.bonusExpressions || []).map((b) => '· ' + b), '',
     ].join('\n');
-    await navigator.clipboard.writeText(text);
+    try {
+      await navigator.clipboard.writeText(text);
+      flashTip(setShareTip, '已复制完整解析到剪贴板', 2500);
+    } catch {
+      // 非 HTTPS / 局域网 http 下 navigator.clipboard 直接是 undefined，原来会静默抛错
+      flashTip(setShareTip, '复制失败：请手动选中文本复制（或改用 https 访问）', 4000);
+    }
   };
 
-  const onSaveSettings = () => { saveSettings(settings); refreshStatus(); setSettingsOpen(false); };
+  // 新建 / 回到编辑器：作废正在跑的生成任务，避免它完成时把视图抢回结果页
+  const resetWorkspace = (closeSidebar) => {
+    genTokenRef.current += 1;
+    if (closeSidebar) closeSidebarOnMobile();
+    setView('editor');
+    setResult(null);
+  };
+
+  const onSaveSettings = () => {
+    const ok = saveSettings(settings);
+    refreshStatus();
+    setSettingsOpen(false);
+    // 配额写满时 setItem 会失败，原来完全静默（表现为"保存并重连点了没反应"）
+    if (!ok) flashTip(setShareTip, '设置没能写入本机存储（空间可能已满）：本次仍然生效，但刷新后需要重填', 5000);
+  };
 
   return (
     <div className="app">
@@ -1122,7 +1232,7 @@ function App() {
       <aside className={'sidebar' + (sidebarOpen ? '' : ' collapsed')}>
         <button className="sidebar-close" onClick={toggleSidebar} aria-label="收起侧栏"><X size={18} /></button>
         <div className="brand"><div className="brand-mark">回</div><div><strong>回译本</strong><span>BACK-TRANSLATE STUDIO</span></div></div>
-        <button className="primary-btn" onClick={() => { closeSidebarOnMobile(); setView('editor'); setResult(null); }}><Plus size={16} />新建回译作业</button>
+        <button className="primary-btn" onClick={() => resetWorkspace(true)}><Plus size={16} />新建回译作业</button>
         <div className="side-section">
           <div className="side-title">课文库</div>
           <div className="book-tabs">
@@ -1155,7 +1265,7 @@ function App() {
             {status ? ((status.hasKey || settings.apiKey) ? 'AI 已配置 · ' + status.model : '未配置 API Key · ' + status.model) : '后端未连接'}
             {status?.corpusLessons ? ' · ' + status.corpusLessons + ' 课' : ''}
           </div>
-          <button className="ghost-btn" onClick={() => { setView('editor'); setResult(null); }}><X size={15} />编辑器</button>
+          <button className="ghost-btn" onClick={() => resetWorkspace(false)}><X size={15} />编辑器</button>
           <button className="ghost-btn" onClick={openHistoryModal}><History size={15} />历史结果{historyList.length ? ` (${historyList.length})` : ''}</button>
           <button className="ghost-btn" onClick={() => setFavOpen(true)}><Star size={15} />收藏夹{favorites.length ? ` (${favorites.length})` : ''}</button>
         </header>
@@ -1430,7 +1540,8 @@ function App() {
             <label>模型名<input value={settings.model || 'deepseek-chat'} onChange={(e) => setSettings({ ...settings, model: e.target.value })} placeholder="deepseek-chat / gpt-4o-mini / qwen-plus" /></label>
             <label>视觉模型（可选，拍照/图片识别用）<input value={settings.visionModel || ''} onChange={(e) => setSettings({ ...settings, visionModel: e.target.value })} placeholder="deepseek-flash（DeepSeek 已原生支持图片）" /></label>
             <label>API Key<input type="password" value={settings.apiKey || ''} onChange={(e) => setSettings({ ...settings, apiKey: e.target.value })} placeholder="sk-..." /></label>
-            <p className="muted small">拍照识别用「视觉模型」：DeepSeek 的 <strong>deepseek-flash</strong> 已原生支持图片输入，留空时 DeepSeek 接口会自动使用它；其他厂商请填对应的多模态模型（如 gpt-4o-mini / qwen-vl-max）。Key 只保存在本机浏览器 localStorage（仅你自己可见）；想让所有访问者免填 Key，请在部署平台的环境变量里配置 AI_API_KEY / AI_VISION_MODEL。</p>
+            <label className="remember-key"><input type="checkbox" checked={Boolean(settings.rememberKey)} onChange={(e) => setSettings({ ...settings, rememberKey: e.target.checked })} /> 在本机记住 Key（关闭浏览器后仍保留）</label>
+            <p className="muted small">默认只保留到<b>关闭标签页</b>为止——Key 存在浏览器会话存储里，不长期落盘；勾选上面的选项才会长期保存（换设备 / 换浏览器需重填）。Key 只会发给你自己部署的这个后端，由它转发给模型接口；<b>自定义 Base URL 时必须同时填该接口的 Key</b>，否则服务端会拒绝（避免把你的密钥发给陌生地址）。想让所有访问者免填 Key，请在部署平台的环境变量里配置 AI_API_KEY / AI_VISION_MODEL。</p>
             <div className="modal-actions"><button className="primary-btn" onClick={onSaveSettings}>保存并重连</button><button className="ghost-btn" onClick={() => setSettingsOpen(false)}>取消</button></div>
           </div>
         </div>

@@ -38,6 +38,17 @@ test/*.docx
 # 打包产物
 *.tgz
 
+# 与本项目无关的本地工具 / 素材（体积很大，误提交会撑爆仓库）
+# tools/models/ 是语音模型（3.4GB），remotion-demo/ 是另一个项目的素材（711MB）
+tools/models/
+tools/shotter/
+remotion-demo/
+tools/vision.mjs
+tools/asr.py
+dsh-ui-diagnostic.mjs
+dsh-*.yml
+%SystemDrive%/
+
 # Python 缓存
 __pycache__/
 *.pyc

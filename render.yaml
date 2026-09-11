@@ -6,7 +6,9 @@ services:
     name: back-translate-studio
     runtime: node
     plan: free
-    buildCommand: npm install && npm run build
+    # --include=dev：vite 属于构建期依赖（devDependencies），
+    # 而 Render 默认会注入 NODE_ENV=production，显式声明可避免装依赖时跳过 devDependencies。
+    buildCommand: npm install --include=dev && npm run build
     startCommand: node server/index.mjs
     healthCheckPath: /api/health
     envVars:
@@ -16,4 +18,12 @@ services:
       - key: AI_MODEL
         value: deepseek-chat
       - key: AI_API_KEY
+        sync: false
+      # 安全相关（可选，留空即用默认值；详见 .env.example 说明）：
+      #   ALLOW_SERVER_KEY=0    强制访客自带 Key，不允许匿名借用服务端 Key（公共站点建议）
+      #   ALLOW_ORIGIN=...      跨域白名单，默认不允许任何跨域来源
+      #   RATE_LIMIT_PER_MIN=30 每个来源 IP 每分钟可提交的模型任务数
+      - key: ALLOW_SERVER_KEY
+        sync: false
+      - key: ALLOW_ORIGIN
         sync: false

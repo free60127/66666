@@ -136,10 +136,84 @@ function resolveLesson({ book, lessonId, title, chinese }) {
 }
 
 const stat = {
-  baseUrl: () => process.env.AI_BASE_URL || 'https://api.deepseek.com/v1',
+  baseUrl: () => String(process.env.AI_BASE_URL || 'https://api.deepseek.com/v1').trim(),
   model: () => process.env.AI_MODEL || 'deepseek-chat',
   hasKey: () => Boolean(process.env.AI_API_KEY),
 };
+
+/* ---------- 接入点安全边界 ----------
+ * 原先 baseUrl / apiKey 都直接取自请求体，等于把服务端做成开放代理：
+ * 攻击者把 baseUrl 指向自己的服务器，本服务就会把 Authorization: Bearer <服务端 key> 主动送过去。
+ * 现在的规则：
+ *   1) 服务端密钥只允许发往服务端自己配置的 baseUrl，绝不发往客户端指定的地址；
+ *   2) 客户端要用自定义接口，必须自带该接口的 key；
+ *   3) 自定义接口默认禁止私网/环回/链路本地地址（防 SSRF）。
+ */
+const ALLOW_SERVER_KEY = process.env.ALLOW_SERVER_KEY !== '0'; // 公共站点可设 0：强制访客自带 key
+const ALLOW_PRIVATE_BASE = process.env.ALLOW_PRIVATE_BASE_URL === '1';
+const envKey = () => String(process.env.AI_API_KEY || '').trim();
+const envVisionBase = () => String(process.env.AI_VISION_BASE_URL || '').trim();
+const envVisionKey = () => String(process.env.AI_VISION_API_KEY || '').trim();
+
+const sameEndpoint = (a, b) => String(a || '').replace(/\/+$/, '') === String(b || '').replace(/\/+$/, '');
+
+function isSafeBaseUrl(raw) {
+  let u;
+  try { u = new URL(raw); } catch { return false; }
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') return false;
+  if (ALLOW_PRIVATE_BASE) return true;
+  const host = u.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local') || host.endsWith('.internal')) return false;
+  if (/^(127\.|10\.|192\.168\.|169\.254\.|0\.)/.test(host)) return false;
+  if (/^172\.(1[6-9]|2\d|3[01])\./.test(host)) return false;
+  if (host === '::1' || /^(fc|fd|fe80)/.test(host)) return false;
+  return true;
+}
+
+/**
+ * 解析一次模型调用的接入点。
+ * @returns {{baseUrl: string, apiKey: string} | {error: string}}
+ */
+function resolveEndpoint({ bodyBase, bodyKey, fallbackBase, fallbackKey }) {
+  const base = String(bodyBase || '').trim();
+  const key = String(bodyKey || '').trim();
+  if (!base || sameEndpoint(base, fallbackBase)) {
+    return { baseUrl: fallbackBase, apiKey: key || (ALLOW_SERVER_KEY ? fallbackKey : '') };
+  }
+  if (!isSafeBaseUrl(base)) {
+    return { error: '该 Base URL 不被允许（仅支持公网 http/https）。如需指向内网地址，请改在服务端 .env 里配置 AI_BASE_URL，或设 ALLOW_PRIVATE_BASE_URL=1' };
+  }
+  if (!key) {
+    return { error: '使用自定义 Base URL 时，必须同时填写该接口的 API Key（服务端密钥不会发往自定义地址）' };
+  }
+  return { baseUrl: base.replace(/\/+$/, ''), apiKey: key };
+}
+
+/* ---------- 限流（内存滑动窗口，按来源 IP） ----------
+ * 只是"减速带"：挡脚本批量刷接口，不承担鉴权职责。 */
+const RATE_MAX = Number(process.env.RATE_LIMIT_PER_MIN || 30);
+const RATE_WINDOW_MS = 60_000;
+const rateBuckets = new Map();
+function clientIp(req) {
+  const sock = req.socket?.remoteAddress || 'unknown';
+  if (process.env.RENDER || process.env.TRUST_PROXY === '1') {
+    const xff = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();
+    if (xff) return xff;
+  }
+  return sock;
+}
+function rateLimited(req) {
+  const now = Date.now();
+  const ip = clientIp(req);
+  const bucket = rateBuckets.get(ip);
+  if (!bucket || now > bucket.resetAt) {
+    rateBuckets.set(ip, { count: 1, resetAt: now + RATE_WINDOW_MS });
+    return false;
+  }
+  bucket.count += 1;
+  if (rateBuckets.size > 5000) for (const [k, v] of rateBuckets) if (now > v.resetAt) rateBuckets.delete(k);
+  return bucket.count > RATE_MAX;
+}
 
 // DeepSeek 最新的 flash 已原生支持图片输入，作为拍照识别（OCR）的默认视觉模型
 const DEEPSEEK_VISION_MODEL = 'deepseek-flash';
@@ -256,6 +330,32 @@ function parseJsonLoose(raw) {
   throw new Error('invalid json');
 }
 
+/* ---------- 模型输出归一化 ----------
+ * 模型偶尔会把 null / 字符串 / 数字混进本应是对象数组的字段，
+ * 前端在渲染期直接索引这些元素（s.findings、v.word …）就会抛 TypeError，
+ * 而 React 没有 ErrorBoundary 时整棵树会被卸载 —— 表现为整页白屏。
+ * 所以入口处一律做元素级清洗，脏元素直接丢弃。 */
+function objectArray(value) {
+  return (Array.isArray(value) ? value : []).filter((x) => x && typeof x === 'object' && !Array.isArray(x));
+}
+function stringArray(value) {
+  return (Array.isArray(value) ? value : []).filter((x) => typeof x === 'string');
+}
+function sanitizeSentences(value) {
+  return objectArray(value).map((s) => ({
+    ...s,
+    findings: objectArray(s.findings).map((f) => ({
+      ...f,
+      dimensions: stringArray(f.dimensions),
+      synonyms: Array.isArray(f.synonyms) ? f.synonyms.filter((x) => x != null) : [],
+    })),
+  }));
+}
+function sanitizeOverall(value) {
+  const o = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  return { ...o, scoreBreakdown: objectArray(o.scoreBreakdown) };
+}
+
 async function postChat({ url, headers, body, withFormat, timeoutMs = 120000 }) {
   let r;
   const controller = new AbortController();
@@ -344,10 +444,10 @@ async function runAnalyzeJob(jobId, { title, chinese, draft, original, lesson, l
       ai: parsed.ai || '',
       original: parsed.original || original,
       aiLevel: level || DEFAULT_AI_LEVEL,
-      overall: parsed.overall || {},
-      sentences: Array.isArray(parsed.sentences) ? parsed.sentences : [],
-      vocabularyNotes: Array.isArray(parsed.vocabularyNotes) ? parsed.vocabularyNotes : [],
-      idiomHighlights: Array.isArray(parsed.idiomHighlights) ? parsed.idiomHighlights : [],
+      overall: sanitizeOverall(parsed.overall),
+      sentences: sanitizeSentences(parsed.sentences),
+      vocabularyNotes: objectArray(parsed.vocabularyNotes),
+      idiomHighlights: objectArray(parsed.idiomHighlights),
       advancedSentences: Array.isArray(parsed.advancedSentences) ? parsed.advancedSentences : [],
       bonusExpressions: Array.isArray(parsed.bonusExpressions) ? parsed.bonusExpressions : [],
     };
@@ -388,7 +488,7 @@ async function runMaterialJob(jobId, { topic, level, style, baseUrl, model, apiK
       title: String(parsed.title || topic).trim(),
       original: String(parsed.original || '').trim(),
       chinese: String(parsed.chinese || '').trim(),
-      keywords: Array.isArray(parsed.keywords) ? parsed.keywords.filter(Boolean) : [],
+      keywords: (Array.isArray(parsed.keywords) ? parsed.keywords : []).filter((k) => typeof k === 'string' || typeof k === 'number').map(String).filter(Boolean),
     };
     job.status = 'done';
     saveJob(job);
@@ -504,16 +604,31 @@ function index(res) {
   res.end('<!doctype html><html><body><h1>回译训练工作室</h1><p>开发模式请访问 Vite 服务（默认 http://localhost:5173）。运行 npm run dev 后打开前端。</p></body></html>');
 }
 
-const server = http.createServer(async (req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
+// 跨域白名单：默认不发送任何 CORS 头（只服务同源页面）。
+// 需要跨域时用 ALLOW_ORIGIN=https://a.com,https://b.com 显式列白名单。
+// 原先无条件 Access-Control-Allow-Origin: *，等于允许任意网站驱动本机后端。
+const ALLOWED_ORIGINS = String(process.env.ALLOW_ORIGIN || '').split(',').map((s) => s.trim()).filter(Boolean);
+function applyCors(req, res) {
+  const origin = req.headers.origin;
+  if (!origin || !ALLOWED_ORIGINS.includes(origin)) return;
+  res.setHeader('Access-Control-Allow-Origin', origin);
+  res.setHeader('Vary', 'Origin');
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
+}
+
+const server = http.createServer(async (req, res) => {
+  applyCors(req, res);
   if (req.method === 'OPTIONS') { res.writeHead(204); return res.end(); }
 
   const url = new URL(req.url, 'http://localhost');
   const p = url.pathname;
 
   try {
+    // 会调用模型的接口先过限流，避免被脚本批量刷（也防匿名白嫖服务端 key）
+    if (req.method === 'POST' && ['/api/analyze', '/api/ocr', '/api/quiz', '/api/generate-material', '/api/match'].includes(p) && rateLimited(req)) {
+      return json(res, 429, { error: '请求过于频繁，请稍后再试（每分钟上限 ' + RATE_MAX + ' 次）' });
+    }
     if (p === '/api/health') return json(res, 200, { ok: true });
     if (p === '/api/status') {
       return json(res, 200, {
@@ -563,9 +678,10 @@ const server = http.createServer(async (req, res) => {
       if (!topic) return json(res, 400, { error: '请填写主题，例如：春节、人工智能、城市通勤' });
       const level = String(body.level || '中级');
       const style = String(body.style || '生活故事');
-      const baseUrl = String(body.baseUrl || '').trim() || stat.baseUrl();
       const model = String(body.model || '').trim() || stat.model();
-      const apiKey = String(body.apiKey || '').trim() || process.env.AI_API_KEY || '';
+      const ep = resolveEndpoint({ bodyBase: body.baseUrl, bodyKey: body.apiKey, fallbackBase: stat.baseUrl(), fallbackKey: envKey() });
+      if (ep.error) return json(res, 400, { error: ep.error });
+      const { baseUrl, apiKey } = ep;
       if (!apiKey) return json(res, 400, { error: '未配置 AI_API_KEY：请复制 .env.example 为 .env 并填写，或在设置面板填入 API Key' });
 
       const jobId = randomUUID();
@@ -593,17 +709,25 @@ const server = http.createServer(async (req, res) => {
       const image = String(body.image || '');
       if (!image) return json(res, 400, { error: '缺少图片（image 字段）' });
 
-      const baseUrl = String(body.baseUrl || '').trim() || stat.baseUrl();
       const model = String(body.model || '').trim() || stat.model();
-      const apiKey = String(body.apiKey || '').trim() || process.env.AI_API_KEY || '';
+      const ep = resolveEndpoint({ bodyBase: body.baseUrl, bodyKey: body.apiKey, fallbackBase: stat.baseUrl(), fallbackKey: envKey() });
+      if (ep.error) return json(res, 400, { error: ep.error });
+      const { baseUrl, apiKey } = ep;
       // 视觉模型优先级：请求参数 > AI_VISION_MODEL > DeepSeek 路由默认 deepseek-flash > 主模型
       const visionModel = String(body.visionModel || '').trim() || defaultVisionModel(baseUrl, model);
+      const visionEp = resolveEndpoint({
+        bodyBase: body.visionBaseUrl,
+        bodyKey: body.visionApiKey || apiKey,
+        fallbackBase: envVisionBase() || baseUrl,
+        fallbackKey: envVisionKey() || apiKey,
+      });
+      if (visionEp.error) return json(res, 400, { error: visionEp.error });
       const vision = {
-        baseUrl: String(body.visionBaseUrl || '').trim() || process.env.AI_VISION_BASE_URL || baseUrl,
+        baseUrl: visionEp.baseUrl,
         model: visionModel,
-        apiKey: String(body.visionApiKey || '').trim() || process.env.AI_VISION_API_KEY || apiKey,
+        apiKey: visionEp.apiKey,
         // 主模型是纯文本模型时，自动回退到 DeepSeek 原生多模态的 flash
-        fallbackModel: /deepseek/i.test(baseUrl) && visionModel !== DEEPSEEK_VISION_MODEL ? DEEPSEEK_VISION_MODEL : '',
+        fallbackModel: /deepseek/i.test(visionEp.baseUrl) && visionModel !== DEEPSEEK_VISION_MODEL ? DEEPSEEK_VISION_MODEL : '',
       };
       if (!vision.apiKey) return json(res, 400, { error: '未配置 AI_API_KEY：请复制 .env.example 为 .env 并填写，或在设置面板填入 API Key' });
 
@@ -632,9 +756,10 @@ const server = http.createServer(async (req, res) => {
       if (!points.length) return json(res, 400, { error: '请先收藏一些知识点，再生成自测题' });
       const count = Math.max(1, Math.min(50, Number(body.count) || 10));
       const level = normalizeLevel(body.level);
-      const baseUrl = String(body.baseUrl || '').trim() || stat.baseUrl();
       const model = String(body.model || '').trim() || stat.model();
-      const apiKey = String(body.apiKey || '').trim() || process.env.AI_API_KEY || '';
+      const ep = resolveEndpoint({ bodyBase: body.baseUrl, bodyKey: body.apiKey, fallbackBase: stat.baseUrl(), fallbackKey: envKey() });
+      if (ep.error) return json(res, 400, { error: ep.error });
+      const { baseUrl, apiKey } = ep;
       if (!apiKey) return json(res, 400, { error: '未配置 AI_API_KEY：请复制 .env.example 为 .env 并填写，或在设置面板填入 API Key' });
 
       const jobId = randomUUID();
@@ -664,9 +789,10 @@ const server = http.createServer(async (req, res) => {
       // 润色等级：小初 / 高考英语 / 四六级 / 考研·专四 / 专八
       const level = normalizeLevel(body.level);
 
-      const baseUrl = String(body.baseUrl || '').trim() || stat.baseUrl();
       const model = String(body.model || '').trim() || stat.model();
-      const apiKey = String(body.apiKey || '').trim() || process.env.AI_API_KEY || '';
+      const ep = resolveEndpoint({ bodyBase: body.baseUrl, bodyKey: body.apiKey, fallbackBase: stat.baseUrl(), fallbackKey: envKey() });
+      if (ep.error) return json(res, 400, { error: ep.error });
+      const { baseUrl, apiKey } = ep;
       if (!apiKey) return json(res, 400, { error: '未配置 AI_API_KEY：请复制 .env.example 为 .env 并填写，或在设置面板填入 API Key' });
 
       const jobId = randomUUID();
