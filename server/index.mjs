@@ -285,7 +285,6 @@ async function lookupPhonetic(rawWord) {
   return phonetic;
 }
 
-/* ---------- 异步任务（分析/素材）持久化 ---------- */
 const DATA_DIR = path.join(ROOT, 'data');
 const JOBS_FILE = path.join(DATA_DIR, 'jobs.json');
 const JOB_TTL = 7 * 24 * 60 * 60 * 1000; // 保留 7 天，避免无限膨胀
@@ -301,15 +300,72 @@ function loadJobs() {
     }
   } catch { /* 首次运行没有文件 */ }
 }
-function persistJobs() {
+
+/* ---------- 任务落盘：合并 + 异步 + 有上限 ----------
+ * 原先每次 saveJob 都同步 writeFileSync 整个 jobs.json。
+ * 一个分析任务从 pending → running → done 至少写 3 次，每次都要把**全部**任务序列化一遍；
+ * 并发几个任务时（OCR + 分析 + 素材 + 测验），每次都同步阻塞 Node 的唯一线程 ——
+ * 期间所有 HTTP 请求都得排队，表现为"整站卡一下"。
+ *
+ * 改法三条：
+ *   1) 合并短时间内的多次写入（200ms 内的连续变更只落盘一次）
+ *   2) 异步写 + 临时文件 rename（不阻塞事件循环，也不会留下半截 JSON）
+ *   3) 给条数和总体积设上限，别让 jobs.json 无限长大 */
+const MAX_JOBS = 300;                      // 保留最近 300 个任务
+const MAX_JOBS_BYTES = 8 * 1024 * 1024;    // 落盘体积上限 8MB
+const PERSIST_DEBOUNCE_MS = 200;
+
+/** 取最近的任务，并按体积上限从旧到新裁剪。 */
+function jobsSnapshot() {
+  const all = [...jobs.values()].slice(-MAX_JOBS);
+  let payload = JSON.stringify({ jobs: all });
+  while (payload.length > MAX_JOBS_BYTES && all.length > 1) {
+    all.splice(0, Math.max(1, Math.floor(all.length / 10))); // 每次砍掉一成，避免逐条循环
+    payload = JSON.stringify({ jobs: all });
+  }
+  return payload;
+}
+
+let persistTimer = null;
+let persistRunning = false;
+let persistDirtyAgain = false;
+
+function schedulePersist() {
+  if (persistTimer) return;
+  persistTimer = setTimeout(() => { persistTimer = null; void flushJobs(); }, PERSIST_DEBOUNCE_MS);
+}
+
+async function flushJobs() {
+  if (persistRunning) { persistDirtyAgain = true; return; }
+  persistRunning = true;
+  try {
+    const payload = jobsSnapshot();
+    await fs.promises.mkdir(DATA_DIR, { recursive: true });
+    const tmp = JOBS_FILE + '.' + process.pid + '.tmp';
+    await fs.promises.writeFile(tmp, payload);
+    await fs.promises.rename(tmp, JOBS_FILE); // 原子替换，不会留下半截文件
+  } catch (e) {
+    console.error('持久化任务失败:', e.message);
+  } finally {
+    persistRunning = false;
+    if (persistDirtyAgain) { persistDirtyAgain = false; schedulePersist(); }
+  }
+}
+
+/** 进程退出前同步落盘一次（Render 部署时会发 SIGTERM，不给时间等异步写完）。 */
+function flushJobsSync() {
+  if (persistTimer) { clearTimeout(persistTimer); persistTimer = null; }
   try {
     fs.mkdirSync(DATA_DIR, { recursive: true });
-    fs.writeFileSync(JOBS_FILE, JSON.stringify({ jobs: [...jobs.values()] }));
-  } catch (e) { console.error('持久化任务失败:', e.message); }
+    const tmp = JOBS_FILE + '.' + process.pid + '.sync.tmp';
+    fs.writeFileSync(tmp, jobsSnapshot());
+    fs.renameSync(tmp, JOBS_FILE);
+  } catch (e) { console.error('退出前持久化失败:', e.message); }
 }
+
 function saveJob(job) {
   jobs.set(job.jobId, job);
-  persistJobs();
+  schedulePersist();
 }
 loadJobs();
 
@@ -328,6 +384,15 @@ function json(res, code, obj) {
   res.end(body);
 }
 const MAX_BODY_BYTES = 20 * 1024 * 1024; // 拍照识别会上传 base64 图片，所以放到 20MB
+/**
+ * 按接口分别设限，而不是全都用 20MB。
+ *
+ * 纯文本接口如果也放开到 20MB，攻击者一次就能塞进几十万个字符 ——
+ * 光是 JSON.parse 和字段校验就能把 CPU 吃满，更别说后面还要拿这些文本去调模型（真金白银）。
+ * 真实用量远小于这里的额度：课文正文 1–3 千字符，主题就一行字。
+ */
+const MAX_TEXT_BYTES = 256 * 1024; // 课文正文类：中文 / 英文原文 / 英文初稿
+const MAX_SMALL_BYTES = 64 * 1024; // 短输入：生成主题、收藏知识点列表
 /**
  * 读取并解析 JSON 请求体。
  * - 超限时不再 req.destroy()：那样客户端收到的是"连接被重置"，看不到原因。
@@ -515,7 +580,7 @@ async function runAnalyzeJob(jobId, { title, chinese, draft, original, lesson, l
   } finally {
     job.finishedAt = Date.now();
     saveJob(job);
-    setTimeout(() => { jobs.delete(jobId); persistJobs(); }, JOB_TTL);
+    setTimeout(() => { jobs.delete(jobId); schedulePersist(); }, JOB_TTL);
   }
 }
 
@@ -553,7 +618,7 @@ async function runMaterialJob(jobId, { topic, level, style, baseUrl, model, apiK
   } finally {
     job.finishedAt = Date.now();
     saveJob(job);
-    setTimeout(() => { jobs.delete(jobId); persistJobs(); }, JOB_TTL);
+    setTimeout(() => { jobs.delete(jobId); schedulePersist(); }, JOB_TTL);
   }
 }
 
@@ -583,7 +648,7 @@ async function runOcrJob(jobId, { image, side, mode, vision }) {
   } finally {
     job.finishedAt = Date.now();
     saveJob(job);
-    setTimeout(() => { jobs.delete(jobId); persistJobs(); }, JOB_TTL);
+    setTimeout(() => { jobs.delete(jobId); schedulePersist(); }, JOB_TTL);
   }
 }
 
@@ -632,7 +697,7 @@ async function runQuizJob(jobId, { points, count, level, baseUrl, model, apiKey 
   } finally {
     job.finishedAt = Date.now();
     saveJob(job);
-    setTimeout(() => { jobs.delete(jobId); persistJobs(); }, JOB_TTL);
+    setTimeout(() => { jobs.delete(jobId); schedulePersist(); }, JOB_TTL);
   }
 }
 
@@ -741,18 +806,31 @@ const server = http.createServer(async (req, res) => {
         //
         // 这样会不会把"打错码"也静默接受？不会 —— 手填新码时前端会先探一次（见 useExistingCode），
         // 打错的码在输入那一刻就被拦下了。
-        const cur = (await syncStore.read(code))
-          || { version: 0, updatedAt: 0, device: '', data: emptySnapshot() };
-        const baseVersion = Number(body.baseVersion);
-        if (Number.isFinite(baseVersion) && baseVersion !== cur.version) {
-          // 云端已被其它设备改过：把最新数据带回去，让前端合并后重试
-          return json(res, 409, { error: '云端已被其它设备更新', version: cur.version, updatedAt: cur.updatedAt, data: cur.data });
-        }
         if (check.dropped && (check.dropped.favorites || check.dropped.history)) {
           console.warn('同步快照丢弃了超限条目:', JSON.stringify(check.dropped));
         }
-        const next = { version: cur.version + 1, updatedAt: Date.now(), device: String(body.device || '').slice(0, 40), data };
-        await syncStore.write(code, next);
+        // 用**原子的**比较并写入，而不是「先读版本 → 判断 → 再写」。
+        //
+        // 后者两次调用之间隔着一次网络往返（几十毫秒），两台设备同时提交时都可能读到
+        // 同一个版本、都通过检查，然后后写的把先写的覆盖掉 —— **先写的那次更新永久丢失**，
+        // 而且两边都不会收到 409，前端的重试也就救不回来。
+        //
+        // 云端没有这串码时直接建（版本从 0 起）：换过存储后端（或免费托管的临时磁盘被清）
+        // 之后老用户的码在云端就"不存在"了，但他们本机数据完好、每台设备用的都是同一串码。
+        // 这时候回 404 等于把用户卡死。让第一台推送的设备把槽位建起来，多设备自动恢复。
+        // 打错的码不会因此被静默接受 —— 手填新码时前端会先探一次（见 useExistingCode）。
+        const baseVersion = Number(body.baseVersion);
+        const next = {
+          version: (Number.isFinite(baseVersion) ? baseVersion : 0) + 1,
+          updatedAt: Date.now(),
+          device: String(body.device || '').slice(0, 40),
+          data,
+        };
+        const cas = await syncStore.compareAndSwap(code, Number.isFinite(baseVersion) ? baseVersion : 0, next);
+        if (!cas.ok) {
+          const cur = cas.current || { version: 0, updatedAt: 0, data: emptySnapshot() };
+          return json(res, 409, { error: '云端已被其它设备更新', version: cur.version, updatedAt: cur.updatedAt, data: cur.data });
+        }
         return json(res, 200, { ok: true, version: next.version, updatedAt: next.updatedAt });
       }
     }
@@ -833,7 +911,7 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, l);
     }
     if (p === '/api/match' && req.method === 'POST') {
-      const body = await readBody(req);
+      const body = await readBody(req, MAX_TEXT_BYTES);
       const m = matchLesson({
         title: String(body.title || ''),
         chinese: String(body.chinese || ''),
@@ -847,7 +925,7 @@ const server = http.createServer(async (req, res) => {
       });
     }
     if (p === '/api/generate-material' && req.method === 'POST') {
-      const body = await readBody(req);
+      const body = await readBody(req, MAX_SMALL_BYTES);
       const topic = String(body.topic || '').trim();
       if (!topic) return json(res, 400, { error: '请填写主题，例如：春节、人工智能、城市通勤' });
       const level = String(body.level || '中级');
@@ -922,7 +1000,7 @@ const server = http.createServer(async (req, res) => {
       });
     }
     if (p === '/api/quiz' && req.method === 'POST') {
-      const body = await readBody(req);
+      const body = await readBody(req, MAX_SMALL_BYTES);
       const points = (Array.isArray(body.points) ? body.points : [])
         .map((x) => String(x || '').trim())
         .filter(Boolean)
@@ -951,7 +1029,7 @@ const server = http.createServer(async (req, res) => {
       });
     }
     if (p === '/api/analyze' && req.method === 'POST') {
-      const body = await readBody(req);
+      const body = await readBody(req, MAX_TEXT_BYTES);
       const chinese = String(body.chinese || '').trim();
       const draft = String(body.draft || '').trim();
       if (!chinese || !draft) return json(res, 400, { error: '缺少中文提示或英文初稿' });
@@ -1015,3 +1093,19 @@ server.listen(PORT, () => {
     console.warn('⚠️  未配置 SMTP_USER / SMTP_PASS：注册登录可用，但「找回密码」发不出邮件。');
   }
 });
+
+/* ---------- 退出前落盘 ----------
+ * 任务落盘改成了防抖 + 异步，好处是不阻塞；代价是「最后一次变更」可能还在 200ms 的窗口里。
+ * 部署平台（Render 等）重启时会先发 SIGTERM，正好用这个信号同步补写一次。
+ * 只处理一次，避免重复触发；写完就正常退出。 */
+let shuttingDown = false;
+for (const sig of ['SIGTERM', 'SIGINT']) {
+  process.on(sig, () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log(`收到 ${sig}，正在落盘任务状态…`);
+    flushJobsSync();
+    server.close(() => process.exit(0));
+    setTimeout(() => process.exit(0), 3000).unref(); // 兜底：连接没断干净也别卡住
+  });
+}

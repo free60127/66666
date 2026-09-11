@@ -117,6 +117,32 @@ export function sanitizeSnapshot(raw) {
   return { ok: true, data, dropped };
 }
 
+/**
+ * 原子比较并写入的 Lua 脚本。
+ *
+ * 为什么非要用 Lua：HTTP 层的「先 GET 读版本 → 比较 → 再 SET 写」不是原子的 ——
+ * 两次调用之间隔着一次网络往返（几十毫秒），两台设备同时提交时都可能读到同一个版本、
+ * 都通过检查、然后后写的把先写的覆盖掉，**先写的那次更新就永久丢了**。
+ * 前端的 409 重试救不了这种情况，因为两边都没收到 409。
+ *
+ * 放在 Redis 里执行就没有这个窗口：读、比较、写是同一个原子操作。
+ * 返回 {1, 新文档} 表示成功；{0, 云端当前文档} 表示版本对不上，调用方据此回 409。
+ */
+const CAS_LUA = [
+  "local raw = redis.call('GET', KEYS[1])",
+  'local cur = 0',
+  'if raw then',
+  "  local ok, doc = pcall(cjson.decode, raw)",
+  "  if ok and type(doc) == 'table' and doc['version'] then cur = tonumber(doc['version']) or 0 end",
+  'end',
+  'local base = tonumber(ARGV[1])',
+  'if base >= 0 and cur ~= base then',
+  "  return {0, raw or ''}",
+  'end',
+  "redis.call('SET', KEYS[1], ARGV[2])",
+  'return {1, ARGV[2]}',
+].join('\n');
+
 /** Upstash Redis REST 驱动（用 JSON 数组形式发命令）。 */
 export function createUpstashStore({ url, token, prefix = 'bts:sync:' }) {
   const endpoint = String(url).replace(/\/+$/, '');
@@ -133,16 +159,57 @@ export function createUpstashStore({ url, token, prefix = 'bts:sync:' }) {
     if (parsed.error) throw new Error('Upstash 错误：' + parsed.error);
     return parsed.result;
   };
+  // EVAL 万一在这个实例上不可用（权限/版本差异），退回带短锁的实现，
+  // 并且**只告警一次** —— 静默降级成非原子写入是最糟的结果。
+  let casMode = 'lua';
+  let warned = false;
+  const parse = (raw) => { try { return raw ? JSON.parse(raw) : null; } catch { return null; } };
+
   return {
     kind: 'upstash',
     durable: true,
+    get casMode() { return casMode; },
     async read(code) {
-      const raw = await call(['GET', prefix + code]);
-      if (!raw) return null;
-      try { return JSON.parse(raw); } catch { return null; }
+      return parse(await call(['GET', prefix + code]));
     },
     async write(code, doc) {
       await call(['SET', prefix + code, JSON.stringify(doc)]);
+    },
+    /**
+     * 原子「版本对得上才写」。
+     * @returns {{ok:true} | {ok:false, current: object|null}}
+     */
+    async compareAndSwap(code, baseVersion, doc) {
+      const key = prefix + code;
+      const base = Number.isFinite(Number(baseVersion)) ? Number(baseVersion) : -1;
+      if (casMode === 'lua') {
+        try {
+          const res = await call(['EVAL', CAS_LUA, '1', key, String(base), JSON.stringify(doc)]);
+          if (Array.isArray(res) && Number(res[0]) === 1) return { ok: true };
+          return { ok: false, current: parse(Array.isArray(res) ? res[1] : '') };
+        } catch (e) {
+          casMode = 'lock';
+          if (!warned) { warned = true; console.warn('⚠️  Upstash 不支持 EVAL，已退回加锁写入（原子性稍弱但仍正确）：', e.message); }
+        }
+      }
+      // 兜底：SET NX 抢短锁 → 读改写 → 释放。锁过期时间给足一次往返，且只有拿不到锁才重试。
+      const lockKey = key + ':lock';
+      for (let i = 0; i < 20; i += 1) {
+        const got = await call(['SET', lockKey, '1', 'NX', 'EX', '5']);
+        if (got !== null) {
+          try {
+            const cur = parse(await call(['GET', key]));
+            const curV = cur && Number.isFinite(Number(cur.version)) ? Number(cur.version) : 0;
+            if (base >= 0 && curV !== base) return { ok: false, current: cur };
+            await call(['SET', key, JSON.stringify(doc)]);
+            return { ok: true };
+          } finally {
+            await call(['DEL', lockKey]).catch(() => {});
+          }
+        }
+        await new Promise((r) => setTimeout(r, 25 + i * 10));
+      }
+      return { ok: false, current: parse(await call(['GET', key])) };
     },
   };
 }
@@ -152,24 +219,55 @@ export function createFileStore(dir) {
   const ensure = () => fs.mkdirSync(dir, { recursive: true });
   ensure();
   const fileOf = (code) => path.join(dir, code + '.json');
+  /**
+   * 原子落盘：先写临时文件再 rename。
+   * 直接 writeFileSync 覆盖时进程被杀（部署重启、OOM）会留下**半截 JSON**，
+   * 那份数据就永久坏了；rename 在同一文件系统内是原子的，要么旧的要么新的。
+   */
+  const writeAtomic = (file, text) => {
+    const tmp = file + '.' + process.pid + '.' + Math.random().toString(36).slice(2, 8) + '.tmp';
+    try {
+      fs.writeFileSync(tmp, text);
+      fs.renameSync(tmp, file);
+    } catch (e) {
+      try { fs.unlinkSync(tmp); } catch { /* 清不掉就算了，别盖住原始错误 */ }
+      // 目录可能在运行期被清掉（平台重置磁盘 / 手工清理）——自愈一次，别直接把 500 抛给用户
+      if (e && (e.code === 'ENOENT' || e.code === 'ENOTDIR')) {
+        ensure();
+        fs.writeFileSync(tmp, text);
+        fs.renameSync(tmp, file);
+        return;
+      }
+      throw e;
+    }
+  };
+  const readRaw = (file) => { try { return fs.readFileSync(file, 'utf8'); } catch { return null; } };
+
   return {
     kind: 'file',
     durable: false,
+    casMode: 'sync',
     async read(code) {
-      try { return JSON.parse(fs.readFileSync(fileOf(code), 'utf8')); } catch { return null; }
+      try { return JSON.parse(readRaw(fileOf(code))); } catch { return null; }
     },
     async write(code, doc) {
-      try {
-        fs.writeFileSync(fileOf(code), JSON.stringify(doc));
-      } catch (e) {
-        // 目录可能在运行期被清掉（平台重置磁盘 / 手工清理）——自愈一次，别直接把 500 抛给用户
-        if (e && (e.code === 'ENOENT' || e.code === 'ENOTDIR')) {
-          ensure();
-          fs.writeFileSync(fileOf(code), JSON.stringify(doc));
-          return;
-        }
-        throw e;
-      }
+      writeAtomic(fileOf(code), JSON.stringify(doc));
+    },
+    /**
+     * 原子「版本对得上才写」。
+     * 方法体内**没有任何 await** —— Node 是单线程，同步读改写之间不会让出事件循环，
+     * 所以同一个进程里天然原子。
+     */
+    async compareAndSwap(code, baseVersion, doc) {
+      const file = fileOf(code);
+      const raw = readRaw(file);
+      let cur = null;
+      try { cur = raw ? JSON.parse(raw) : null; } catch { cur = null; } // 损坏文件当"不存在"，可被重建
+      const curV = cur && Number.isFinite(Number(cur.version)) ? Number(cur.version) : 0;
+      const base = Number.isFinite(Number(baseVersion)) ? Number(baseVersion) : -1;
+      if (base >= 0 && curV !== base) return { ok: false, current: cur };
+      writeAtomic(file, JSON.stringify(doc));
+      return { ok: true };
     },
   };
 }
