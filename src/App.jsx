@@ -491,6 +491,9 @@ function App() {
   const [favQuery, setFavQuery] = useState('');
   const [favKind, setFavKind] = useState('all');
   const [favTip, setFavTip] = useState('');
+  // 全局提示条：编辑器页也能看到（shareTip 只在结果页渲染，
+  // 之前把"已保存课文/已新建作业"这类反馈发给了它，等于用户什么都看不到）
+  const [toast, setToast] = useState('');
   // 自测题
   const [quizData, setQuizData] = useState(null);
   const [quizBusy, setQuizBusy] = useState(false);
@@ -534,6 +537,9 @@ function App() {
   const [backupOpen, setBackupOpen] = useState(false);
   const [backupTip, setBackupTip] = useState('');
   const backupFileRef = useRef(null);
+  // 最近一次「载入 / 保存」时的内容指纹：用来判断当前作业有没有改动过，
+  // 避免在"打开库里的课文后直接点新建"时让用户重复保存一份完全相同的内容。
+  const savedSnapshotRef = useRef('');
   // 自由模式的「英文原文（标准答案）」：填了才能在结果里做原文对照
   const [manualOriginal, setManualOriginal] = useState('');
   const [originalOpen, setOriginalOpen] = useState(false);
@@ -552,18 +558,21 @@ function App() {
 
   // 提示条统一定时器：原来每处各起一个 setTimeout，连续两次操作时先到的 timer
   // 会把后一条提示提前清掉（提示"闪一下就没了"）。这里改成共用一个，写前先取消。
-  const tipTimerRef = useRef(null);
+  // 提示条定时器：按 setter 分开记，避免"收藏提示"把"作业提示"的定时器清掉
+  const tipTimersRef = useRef(new Map());
   const flashTip = (setter, message, ms = 2600) => {
     setter(message);
-    clearTimeout(tipTimerRef.current);
-    tipTimerRef.current = setTimeout(() => setter(''), ms);
+    const prev = tipTimersRef.current.get(setter);
+    if (prev) clearTimeout(prev);
+    tipTimersRef.current.set(setter, setTimeout(() => setter(''), ms));
   };
   // 卸载时清掉所有计时器，并让仍在跑的轮询循环自行退出（否则会在后台一直打接口到超时）
   const aliveRef = useRef(true);
   useEffect(() => () => {
     aliveRef.current = false;
-    clearTimeout(tipTimerRef.current);
     clearInterval(progressTimerRef.current);
+    for (const t of tipTimersRef.current.values()) clearTimeout(t);
+    tipTimersRef.current.clear();
   }, []);
   // 生成任务令牌：用户在生成过程中切课 / 点「新建」时作废，
   // 任务完成后就不再强行把视图抢回结果页（结果本身仍然保留并写入历史）。
@@ -697,6 +706,7 @@ function App() {
       setManualOriginal(lesson.english || '');
       setMaterialKeywords([]);
       setMatchedLesson(lesson);
+      // 注意：内置课文不写 savedSnapshot —— 它还没进过课文库，用户随时可能想存进去
     } catch {
       if (reqId !== lessonReqRef.current) return;
       setTitle(`Lesson ${nextLesson}`);
@@ -721,7 +731,7 @@ function App() {
     setMyLibId(libId);
     setError('');
     const lib = myLibs.find((l) => l.id === libId);
-    if (lib && !lib.lessons.length) flashTip(setShareTip, `「${lib.name}」还是空的：把当前作业存进去就能在这里选出来练习`, 4500);
+    if (lib && !lib.lessons.length) flashTip(setToast, `「${lib.name}」还是空的：把当前作业存进去就能在这里选出来练习`, 4500);
   };
 
   /** 从自建库载入一节课（本地数据，不发请求）。 */
@@ -744,6 +754,7 @@ function App() {
     setManualOriginal(lesson.english || '');
     setMaterialKeywords([]);
     setError('');
+    savedSnapshotRef.current = fingerprintOf(lesson.title_cn || lessonLabel(lesson), lesson.chinese || '', '', lesson.english || '');
   };
 
   /* ---------- 自建课文库：新建 / 保存 ---------- */
@@ -789,7 +800,8 @@ function App() {
     setMyLibs(next);
     if (!saveLibraries(next)) { setLibTip('写入本机存储失败（空间可能已满），请先清理浏览器数据'); return false; }
     setMyLibId(targetId);
-    flashTip(setShareTip, (replaced ? '已更新课文：' : '已保存课文：') + entry.title_cn
+    savedSnapshotRef.current = fingerprintOf(title, chinese, draft, manualOriginal);
+    flashTip(setToast, (replaced ? '已更新课文：' : '已保存课文：') + entry.title_cn
       + (entry.english ? '' : '（没填英文原文，练习时无法做原文对照）'), 4200);
     return true;
   };
@@ -799,6 +811,9 @@ function App() {
   };
 
   const hasJobContent = () => Boolean(title.trim() || chinese.trim() || draft.trim() || manualOriginal.trim());
+  const fingerprintOf = (t, c, d, o) => [t, c, d, o].map((s) => String(s || '').trim()).join('\u0001');
+  const jobFingerprint = fingerprintOf(title, chinese, draft, manualOriginal);
+  const jobDirty = jobFingerprint !== savedSnapshotRef.current;
 
   /** 真正开一份空白作业（调用前请先处理"当前作业要不要保存"）。 */
   const doStartNewJob = (closeSidebar) => {
@@ -821,7 +836,9 @@ function App() {
     setMode('free');       // 全新作业默认自由模式
     setMyLibId('');
     setOriginalOpen(true); // 展开原文栏，引导先填标准答案
+    savedSnapshotRef.current = fingerprintOf('', '', '', '');
     window.history.replaceState(null, '', window.location.pathname + window.location.search);
+    flashTip(setToast, '已新建一份空白作业', 3000);
   };
 
   /**
@@ -927,7 +944,7 @@ function App() {
     setMyLibs(next);
     saveLibraries(next);
     if (myLibId === libId) setMyLibId('');
-    flashTip(setShareTip, '已删除课文库「' + libName + '」', 3000);
+    flashTip(setToast, '已删除课文库「' + libName + '」', 3000);
   };
 
   const deleteMyLesson = (libId, lessonNo, label) => {
@@ -935,7 +952,7 @@ function App() {
     const next = removeLesson(myLibs, libId, lessonNo);
     setMyLibs(next);
     saveLibraries(next);
-    flashTip(setShareTip, '已删除课文「' + label + '」', 3000);
+    flashTip(setToast, '已删除课文「' + label + '」', 3000);
   };
 
   const handleDocx = async (event) => {
@@ -1494,7 +1511,7 @@ function App() {
     refreshStatus();
     setSettingsOpen(false);
     // 配额写满时 setItem 会失败，原来完全静默（表现为"保存并重连点了没反应"）
-    if (!ok) flashTip(setShareTip, '设置没能写入本机存储（空间可能已满）：本次仍然生效，但刷新后需要重填', 5000);
+    if (!ok) flashTip(setToast, '设置没能写入本机存储（空间可能已满）：本次仍然生效，但刷新后需要重填', 5000);
   };
 
   /* ---------- 弹窗可访问性：role=dialog + Esc 关闭 + 焦点陷阱 ----------
@@ -1635,6 +1652,7 @@ function App() {
           <button className="ghost-btn" onClick={() => setFavOpen(true)}><Star size={15} />收藏夹{favorites.length ? ` (${favorites.length})` : ''}</button>
         </header>
         {favTip ? <div className="fav-tip" role="status" aria-live="polite">{favTip}</div> : null}
+        {toast ? <div className="fav-tip toast" role="status" aria-live="polite">{toast}</div> : null}
 
         {view === 'editor' ? (
           <section className="editor">
@@ -1667,7 +1685,12 @@ function App() {
             {matchedLesson && (
               <div className={'match-banner' + (mode === 'free' ? ' weak' : '')}>
                 <BookOpen size={15} />
-                <span className="match-text">已识别可能有课文：新概念英语第 {matchedLesson.book} 册 · Lesson {matchedLesson.lesson} · {matchedLesson.title_en}（{CONFIDENCE_LABEL[matchConfidence] || matchConfidence || '未匹配'}{matchScore != null ? ` · 匹配分 ${matchScore}` : ''}）{mode === 'free' ? '，当前按自由模式' : '，原文将自动带入分析'}</span>
+                {matchedLesson.book === 'my' ? (
+                  // 自建库课文：book 是 'my' 这个标记值，不能当成册号渲染（原来会显示"第 my 册"）
+                  <span className="match-text">当前课文：<b>我的课文库</b> · 第 {matchedLesson.lesson} 课{matchedLesson.title_cn ? ' · ' + matchedLesson.title_cn : ''}（{CONFIDENCE_LABEL[matchConfidence] || matchConfidence || '手动选择'}）{mode === 'free' ? '，当前按自由模式' : '，原文将自动带入分析'}</span>
+                ) : (
+                  <span className="match-text">已识别可能有课文：新概念英语第 {matchedLesson.book} 册 · Lesson {matchedLesson.lesson} · {matchedLesson.title_en}（{CONFIDENCE_LABEL[matchConfidence] || matchConfidence || '未匹配'}{matchScore != null ? ` · 匹配分 ${matchScore}` : ''}）{mode === 'free' ? '，当前按自由模式' : '，原文将自动带入分析'}</span>
+                )}
                 {mode === 'free'
                   ? <button className="link" onClick={applyMatchedLesson}>改用这个课文</button>
                   : <button className="link" onClick={() => { setMode('free'); setMatchConfidence('manual'); }}>改用自由模式</button>}
@@ -1962,18 +1985,31 @@ function App() {
         <div className="modal-mask" onClick={() => setNewJobOpen(false)}>
           <div className="modal" ref={(el) => { modalRefs.current.newjob = el; }} role="dialog" aria-modal="true" aria-label="新建回译作业" onClick={(e) => e.stopPropagation()}>
             <div className="modal-head"><h2>新建回译作业</h2><button className="icon-btn" onClick={() => setNewJobOpen(false)} aria-label="关闭"><X size={16} /></button></div>
-            <p className="muted small">这会打开一份<b>空白作业</b>，当前这份不会自动保留。建议先存进课文库——以后可以随时从左侧「我的课文库」里选出来继续练。</p>
-            <div className="lib-preview">
-              <div><span className="muted">标题</span><strong>{title.trim() || (chinese.trim() ? chinese.trim().slice(0, 12) + '…' : '未命名作业')}</strong></div>
-              <div><span className="muted">中文提示</span><strong className={chinese.trim() ? '' : 'warn'}>{chinese.trim() ? chinese.trim().length + ' 字' : '空'}</strong></div>
-              <div><span className="muted">英文初稿</span><strong className={draft.trim() ? '' : 'warn'}>{draft.trim() ? draft.trim().split(/\s+/).filter(Boolean).length + ' 词' : '还没写'}</strong></div>
-              <div><span className="muted">英文原文</span><strong className={currentOriginal.trim() ? '' : 'warn'}>{currentOriginal.trim() ? currentOriginal.trim().split(/\s+/).filter(Boolean).length + ' 词' : '空'}</strong></div>
-            </div>
-            {libPickerFields}
-            {libTip ? <div className="lib-tip" role="alert">{libTip}</div> : null}
+            <p className="muted small">这会打开一份<b>空白作业</b>，当前这份不会自动保留。</p>
+            {jobDirty ? (
+              <>
+                <p className="muted small">建议先把当前作业存进课文库——以后可以随时从左侧「我的课文库」里选出来继续练。</p>
+                <div className="lib-preview">
+                  <div><span className="muted">标题</span><strong>{title.trim() || (chinese.trim() ? chinese.trim().slice(0, 12) + '…' : '未命名作业')}</strong></div>
+                  <div><span className="muted">中文提示</span><strong className={chinese.trim() ? '' : 'warn'}>{chinese.trim() ? chinese.trim().length + ' 字' : '空'}</strong></div>
+                  <div><span className="muted">英文初稿</span><strong className={draft.trim() ? '' : 'warn'}>{draft.trim() ? draft.trim().split(/\s+/).filter(Boolean).length + ' 词' : '还没写'}</strong></div>
+                  <div><span className="muted">英文原文</span><strong className={currentOriginal.trim() ? '' : 'warn'}>{currentOriginal.trim() ? currentOriginal.trim().split(/\s+/).filter(Boolean).length + ' 词' : '空'}</strong></div>
+                </div>
+                {libPickerFields}
+                {libTip ? <div className="lib-tip" role="alert">{libTip}</div> : null}
+              </>
+            ) : (
+              <p className="muted small">这份内容<b>已经在课文库里、且没有改动</b>，不需要重复保存，直接新建即可。（想另存到别的库，请用编辑器工具栏的「保存到课文库」。）</p>
+            )}
             <div className="modal-actions">
-              <button className="primary-btn" onClick={saveAndStartNew}>存进课文库并新建</button>
-              <button className="ghost-btn" onClick={discardAndStartNew}>不保存，直接新建</button>
+              {jobDirty ? (
+                <>
+                  <button className="primary-btn" onClick={saveAndStartNew}>存进课文库并新建</button>
+                  <button className="ghost-btn" onClick={discardAndStartNew}>不保存，直接新建</button>
+                </>
+              ) : (
+                <button className="primary-btn" onClick={discardAndStartNew}>新建空白作业</button>
+              )}
               <button className="ghost-btn" onClick={() => setNewJobOpen(false)}>取消</button>
             </div>
           </div>

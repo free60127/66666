@@ -344,6 +344,8 @@ mark.hl { background: #ffe3e3; color: inherit; padding: 0 2px; border-radius: 2p
 .fav-star:hover { background: #fff5d6; color: var(--gold); }
 .fav-star.on { color: var(--gold); }
 .fav-tip { position: fixed; top: 66px; right: 18px; z-index: 60; background: #10222e; color: #eaf3f8; font-size: 12.5px; padding: 8px 12px; border-radius: 10px; box-shadow: 0 6px 18px rgba(0, 0, 0, .18); }
+/* 全局提示条（保存课文 / 新建作业 / 删除 等）：错开收藏提示，避免叠在一起 */
+.fav-tip.toast { top: 108px; max-width: min(420px, calc(100vw - 36px)); line-height: 1.6; }
 .fav-modal { width: 720px; }
 .fav-toolbar { display: flex; gap: 8px; margin-bottom: 10px; }
 .fav-search { flex: 1; min-width: 0; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font: inherit; }
