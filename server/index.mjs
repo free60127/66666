@@ -5,11 +5,14 @@ import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { SYSTEM_PROMPT, buildUserMessage, MATERIAL_PROMPT, buildMaterialMessage, QUIZ_PROMPT, buildQuizMessage, AI_LEVEL_KEYS, DEFAULT_AI_LEVEL, normalizeLevel } from './prompt.mjs';
 import { recognizeImage } from './ocr.mjs';
+import { createSyncStore, emptySnapshot, isValidSyncCode, newSyncCode, sanitizeSnapshot } from './sync.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
 const PORT = Number(process.env.PORT || 8787);
 const DIST = path.join(ROOT, 'dist');
+// 云同步存储：配了 Upstash 就用它（持久），否则退回本地文件（托管平台上重启会丢）
+const syncStore = createSyncStore(ROOT);
 
 /* ---------- .env loader ---------- */
 function loadEnv() {
@@ -645,6 +648,45 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && ['/api/analyze', '/api/ocr', '/api/quiz', '/api/generate-material', '/api/match'].includes(p) && rateLimited(req)) {
       return json(res, 429, { error: '请求过于频繁，请稍后再试（每分钟上限 ' + RATE_MAX + ' 次）' });
     }
+
+    /* ---------- 云同步：同步码 → 一份快照 JSON ----------
+     * 同步码本身就是凭证（128 位随机），拿到码的人可以读写这份数据。
+     * 推送用乐观锁（baseVersion），版本对不上就返回 409 + 云端最新数据，由前端合并后重试。 */
+    if (p === '/api/sync/info') {
+      return json(res, 200, { ok: true, store: syncStore.kind, durable: syncStore.durable });
+    }
+    if (p === '/api/sync/new' && req.method === 'POST') {
+      if (rateLimited(req)) return json(res, 429, { error: '请求过于频繁，请稍后再试' });
+      const code = newSyncCode();
+      await syncStore.write(code, { version: 1, updatedAt: Date.now(), device: '', data: emptySnapshot() });
+      return json(res, 200, { ok: true, code, version: 1 });
+    }
+    const syncMatch = p.match(/^\/api\/sync\/(.+)$/);
+    if (syncMatch) {
+      const code = String(syncMatch[1] || '').toLowerCase();
+      if (!isValidSyncCode(code)) return json(res, 400, { error: '同步码格式不正确（应为 32 位十六进制）' });
+      if (req.method === 'GET') {
+        const doc = await syncStore.read(code);
+        if (!doc) return json(res, 404, { error: '同步码不存在，请检查是否输错' });
+        return json(res, 200, { ok: true, version: doc.version, updatedAt: doc.updatedAt, data: doc.data });
+      }
+      if (req.method === 'POST') {
+        if (rateLimited(req)) return json(res, 429, { error: '同步过于频繁，请稍后再试' });
+        const body = await readBody(req);
+        const data = sanitizeSnapshot(body.data);
+        if (!data) return json(res, 413, { error: '同步数据过大或格式不正确（上限 2MB）' });
+        const doc = await syncStore.read(code);
+        if (!doc) return json(res, 404, { error: '同步码不存在，请检查是否输错' });
+        const baseVersion = Number(body.baseVersion);
+        if (Number.isFinite(baseVersion) && baseVersion !== doc.version) {
+          // 云端已被其它设备改过：把最新数据带回去，让前端合并后重试
+          return json(res, 409, { error: '云端已被其它设备更新', version: doc.version, updatedAt: doc.updatedAt, data: doc.data });
+        }
+        const next = { version: doc.version + 1, updatedAt: Date.now(), device: String(body.device || '').slice(0, 40), data };
+        await syncStore.write(code, next);
+        return json(res, 200, { ok: true, version: next.version, updatedAt: next.updatedAt });
+      }
+    }
     if (p === '/api/health') return json(res, 200, { ok: true });
     if (p === '/api/status') {
       return json(res, 200, {
@@ -655,6 +697,7 @@ const server = http.createServer(async (req, res) => {
         defaultAiLevel: DEFAULT_AI_LEVEL,
         corpusLessons: allLessons().length,
         books: [...getCorpora().values()].map((c) => ({ book: c.book, lessons: c.lessons.length, source: c.source })),
+        sync: { store: syncStore.kind, durable: syncStore.durable },
       });
     }
     if (p === '/api/lessons' && req.method === 'GET') {
@@ -843,4 +886,9 @@ server.listen(PORT, () => {
   console.log('回译训练工作室后端已启动: http://localhost:' + PORT);
   console.log('模型: ' + stat.model() + ' @ ' + stat.baseUrl() + '  key: ' + (stat.hasKey() ? '已配置' : '未配置'));
   console.log('语料: ' + getCorpus().lessons.length + ' 课');
+  console.log('云同步存储: ' + syncStore.kind + (syncStore.durable ? '（持久）' : '（本机文件）'));
+  if (!syncStore.durable && (process.env.RENDER || process.env.NODE_ENV === 'production')) {
+    console.warn('⚠️  未配置 UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN：同步数据写在容器本地磁盘，'
+      + '托管平台重新部署或重启后会丢失。生产环境请按 .env.example 配置云端存储。');
+  }
 });

@@ -469,6 +469,14 @@ mark.hl { background: #ffe3e3; color: inherit; padding: 0 2px; border-radius: 2p
 .modal .lib-option input { width: auto; margin: 0; }
 .lib-tip { color: var(--red); font-size: 12.5px; margin: -4px 0 10px; }
 .backup-tip { margin-top: 12px; font-size: 12.5px; line-height: 1.7; color: #176b62; background: #effaf7; border: 1px solid #b9e1d8; border-radius: 8px; padding: 9px 11px; }
+
+/* ---------- 云同步 ---------- */
+.sync-block { margin-top: 18px; padding-top: 14px; border-top: 1px dashed var(--line); }
+.sync-title { display: flex; align-items: center; gap: 6px; font-weight: 600; font-size: 13.5px; margin-bottom: 8px; }
+.sync-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+.modal .sync-row input { flex: 1; min-width: 180px; margin-top: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; }
+.sync-code { flex: 1; min-width: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; background: #f2f5f8; border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; overflow-wrap: anywhere; }
+.sync-block .modal-actions { margin-top: 4px; }
 .side-footer { display: flex; gap: 6px; }
 .side-footer .ghost-btn { flex: 1; justify-content: center; }
 

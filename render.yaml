@@ -27,3 +27,9 @@ services:
         sync: false
       - key: ALLOW_ORIGIN
         sync: false
+      # 云同步（多设备同步）用的持久存储：不配的话同步数据写在容器临时磁盘上，重新部署会丢。
+      # 申请：https://console.upstash.com → Create Database → 复制 REST URL / REST Token
+      - key: UPSTASH_REDIS_REST_URL
+        sync: false
+      - key: UPSTASH_REDIS_REST_TOKEN
+        sync: false

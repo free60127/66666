@@ -9,6 +9,16 @@ export async function api(path, options = {}) {
   return data;
 }
 
+/** 与 api() 相同，但把 HTTP 状态码一并返回 —— 同步推送需要区分 409（版本冲突）。 */
+async function apiRaw(path, options = {}) {
+  const res = await fetch(path, {
+    headers: { 'Content-Type': 'application/json' },
+    ...options,
+  });
+  const data = await res.json().catch(() => ({}));
+  return { ok: res.ok, status: res.status, data };
+}
+
 export const getStatus = () => api('/api/status');
 export const getLessons = (book) => api('/api/lessons' + (book ? '?book=' + book : ''));
 export const getLesson = (book, n) => api('/api/lessons/' + (n == null ? book : book + '/' + n));
@@ -25,6 +35,13 @@ export const getPhonetic = (word) => api('/api/phonetic?word=' + encodeURICompon
 // 收藏知识点自测题：提交 → 轮询结果
 export const quiz = (payload) => api('/api/quiz', { method: 'POST', body: JSON.stringify(payload ?? {}) });
 export const getQuizJob = (jobId) => api('/api/quiz/' + jobId);
+
+/* ---------- 云同步（同步码） ---------- */
+export const getSyncInfo = () => api('/api/sync/info');
+export const createSyncCode = () => api('/api/sync/new', { method: 'POST' });
+export const pullCloudSync = (code) => api('/api/sync/' + encodeURIComponent(code));
+export const pushCloudSync = (code, payload) =>
+  apiRaw('/api/sync/' + encodeURIComponent(code), { method: 'POST', body: JSON.stringify(payload) });
 
 // 本地设置（仅个人使用时，key 会随请求发给你自己部署的后端）
 const KEY = 'bt-studio-settings';

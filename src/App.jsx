@@ -2,11 +2,12 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 // mammoth（894 KB 源码）只在"上传 DOCX"这一个功能里用到，
 // 改为 handleDocx 内动态 import，避免它被打进首屏主包。
 import {
-  ArrowLeft, BookOpen, Camera, CheckCircle2, ChevronDown, ChevronRight, ClipboardCopy, Download, FileText, Flame,
-  FolderPlus, History, ImagePlus, Library, Link2, LoaderCircle, PanelLeftClose, PanelLeftOpen, PenLine, Plus,
-  Settings, Sparkles, Star, Timer, Trash2, Upload, WandSparkles, X,
+  ArrowLeft, BookOpen, Camera, CheckCircle2, ChevronDown, ChevronRight, ClipboardCopy, Cloud, Copy, Download,
+  FileText, Flame, FolderPlus, History, ImagePlus, Library, Link2, LoaderCircle, PanelLeftClose, PanelLeftOpen,
+  PenLine, Plus, Settings, Sparkles, Star, Timer, Trash2, Upload, WandSparkles, X,
 } from 'lucide-react';
 import { createLibrary, loadLibraries, mergeLibraries, removeLesson, removeLibrary, saveLibraries, upsertLesson } from './lessonLibrary.js';
+import { createNewSyncCode, loadSyncCode, loadSyncMeta, mergeHistory, saveSyncCode, saveSyncMeta, syncOnce } from './sync.js';
 import { analyze, generateMaterial, getAnalyzeJob, getLessons, getLesson, getMaterialJob, getOcrJob, getPhonetic, getQuizJob, getStatus, loadSettings, matchLesson, ocr, quiz, saveSettings } from './api.js';
 import { DEMO_LESSON_18, DEMO_LESSONS } from './demo.js';
 import { FAV_KIND_LABEL, favoritesToText, favFromExpression, favFromFinding, favFromIdiom, favFromVocab, filterFavorites, hasMorphology, loadFavorites, mergeFavorites, morphologyText, saveFavorites } from './favorites.js';
@@ -541,6 +542,14 @@ function App() {
   const [backupOpen, setBackupOpen] = useState(false);
   const [backupTip, setBackupTip] = useState('');
   const backupFileRef = useRef(null);
+  // 云同步（同步码）
+  const [syncCode, setSyncCode] = useState(loadSyncCode);
+  const [syncMeta, setSyncMeta] = useState(loadSyncMeta);
+  const [syncBusy, setSyncBusy] = useState(false);
+  const [syncTip, setSyncTip] = useState('');
+  const [codeInput, setCodeInput] = useState('');
+  const syncBusyRef = useRef(false);
+  const lastSyncAtRef = useRef(0);
   // 最近一次「载入 / 保存」时的内容指纹：用来判断当前作业有没有改动过，
   // 避免在"打开库里的课文后直接点新建"时让用户重复保存一份完全相同的内容。
   const savedSnapshotRef = useRef('');
@@ -921,26 +930,107 @@ function App() {
         if (added) { setFavorites(merged); saveFavorites(merged); }
       }
 
-      let histAdded = 0;
-      if (hist.length) {
-        const merged = [...historyList];
-        for (const h of hist) {
-          if (!h || !h.jobId || merged.some((x) => x.jobId === h.jobId)) continue;
-          merged.push(h);
-          histAdded += 1;
-        }
-        if (histAdded) {
-          const top = merged.sort((a, b) => (Number(b.time) || 0) - (Number(a.time) || 0)).slice(0, 20);
-          setHistoryList(top);
-          saveHistory(top);
-        }
-      }
+      // 历史合并与云同步共用同一套逻辑（按 jobId 去重、按时间倒序、只留 20 条）
+      const mergedHistory = mergeHistory(historyList, hist);
+      const histAdded = Math.max(0, mergedHistory.length - historyList.length);
+      if (histAdded) { setHistoryList(mergedHistory); saveHistory(mergedHistory); }
 
       setBackupTip(`导入完成：新增 ${libsAdded} 个课文库、${lessonsAdded} 篇课文、${favAdded} 条收藏、${histAdded} 条历史（同名课文自动去重）。`);
     } catch (e) {
       setBackupTip('导入失败：' + (e.message || '文件格式不正确'));
     }
   };
+
+  /* ---------- 云同步（同步码） ---------- */
+  /** 把合并结果写回本机；只有真的变了才 setState（避免触发自动推送形成回环）。 */
+  const applyMergedSnapshot = (merged) => {
+    let changed = false;
+    if (JSON.stringify(myLibs) !== JSON.stringify(merged.libraries)) { setMyLibs(merged.libraries); saveLibraries(merged.libraries); changed = true; }
+    if (JSON.stringify(favorites) !== JSON.stringify(merged.favorites)) { setFavorites(merged.favorites); saveFavorites(merged.favorites); changed = true; }
+    if (JSON.stringify(historyList) !== JSON.stringify(merged.history)) { setHistoryList(merged.history); saveHistory(merged.history); changed = true; }
+    return changed;
+  };
+
+  const runSync = async (manual = true, codeOverride) => {
+    const code = codeOverride || syncCode;
+    if (!code) { if (manual) setSyncTip('还没有同步码：先生成一个，或在另一台设备上把码填进来'); return; }
+    if (syncBusyRef.current) return;
+    syncBusyRef.current = true;
+    setSyncBusy(true);
+    if (manual) setSyncTip('正在同步…');
+    try {
+      const res = await syncOnce({ code, local: { libraries: myLibs, favorites, history: historyList } });
+      if (!res.ok) { setSyncTip(res.error || '同步失败'); return; }
+      lastSyncAtRef.current = Date.now();
+      const changed = applyMergedSnapshot(res.merged);
+      const meta = { ...loadSyncMeta(), lastSyncAt: lastSyncAtRef.current, version: res.version };
+      saveSyncMeta(meta); setSyncMeta(meta);
+      const a = res.added || {};
+      const gained = (a.libsAdded || 0) + (a.lessonsAdded || 0) + (a.favAdded || 0) + (a.histAdded || 0);
+      if (manual) {
+        setSyncTip(gained
+          ? `同步完成：新增 ${a.libsAdded || 0} 个课文库、${a.lessonsAdded || 0} 篇课文、${a.favAdded || 0} 条收藏、${a.histAdded || 0} 条历史`
+          : '同步完成：已是最新，没有新增内容');
+      } else if (changed) {
+        flashTip(setToast, '已从云端同步到新内容', 3200);
+      }
+    } catch (e) {
+      setSyncTip('同步失败：' + (e.message || '网络错误'));
+    } finally {
+      syncBusyRef.current = false;
+      setSyncBusy(false);
+    }
+  };
+
+  const startNewSync = async () => {
+    if (syncBusyRef.current) return;
+    syncBusyRef.current = true;
+    setSyncBusy(true);
+    setSyncTip('');
+    try {
+      const code = await createNewSyncCode();
+      saveSyncCode(code); setSyncCode(code);
+      syncBusyRef.current = false;
+      await runSync(true, code);
+    } catch (e) {
+      setSyncTip('生成同步码失败：' + (e.message || '网络错误'));
+    } finally {
+      syncBusyRef.current = false;
+      setSyncBusy(false);
+    }
+  };
+
+  const useExistingCode = async () => {
+    const code = codeInput.trim().toLowerCase();
+    if (!/^[a-f0-9]{32}$/.test(code)) { setSyncTip('同步码应为 32 位十六进制字符，请检查是否复制完整'); return; }
+    saveSyncCode(code); setSyncCode(code); setCodeInput('');
+    await runSync(true, code);
+  };
+
+  const copySyncCode = async () => {
+    try { await navigator.clipboard.writeText(syncCode); setSyncTip('同步码已复制 —— 在另一台设备的「备份 → 云同步」里粘贴即可'); }
+    catch { setSyncTip('复制失败，请手动选中复制'); }
+  };
+
+  const stopSync = () => {
+    if (!window.confirm('停用云同步？\n\n本机数据不受影响；云端那份数据也还在，以后把这串码填回来就能继续用。')) return;
+    saveSyncCode(''); setSyncCode(''); setSyncTip('已停用云同步（本机数据保留）');
+  };
+
+  // 打开页面时自动同步一次（把云端新增内容合并进来）
+  useEffect(() => {
+    if (syncCode) runSync(false, syncCode);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 本机数据变化后防抖推送（刚同步完的 3 秒内不触发，避免自己触发自己）
+  useEffect(() => {
+    if (!syncCode) return undefined;
+    if (Date.now() - lastSyncAtRef.current < 3000) return undefined;
+    const t = setTimeout(() => { runSync(false); }, 8000);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [myLibs, favorites, historyList, syncCode]);
 
   const deleteLibrary = (libId, libName) => {
     if (!window.confirm(`删除课文库「${libName}」？库里的课文会一起删掉，此操作不可撤销。`)) return;
@@ -2068,6 +2158,47 @@ function App() {
               <button className="ghost-btn" onClick={() => setBackupOpen(false)}>关闭</button>
             </div>
             {backupTip ? <div className="backup-tip" role="status" aria-live="polite">{backupTip}</div> : null}
+
+            {/* 云同步：多设备之间合并同步（课文库 + 收藏夹 + 历史） */}
+            <div className="sync-block">
+              <div className="sync-title"><Cloud size={15} />云同步（多设备）</div>
+              {!syncCode ? (
+                <>
+                  <p className="muted small">
+                    生成一串同步码，在另一台设备上填同一串码，练习记录 / 收藏夹 / 课文库就会<b>双向合并</b>同步。
+                    <b>同步码等于密码</b>——拿到的人可以读写你的数据，请勿外传。
+                  </p>
+                  <div className="sync-row">
+                    <input value={codeInput} onChange={(e) => setCodeInput(e.target.value.trim())} placeholder="已有同步码？粘贴到这里" aria-label="输入已有同步码" />
+                    <button className="ghost-btn" onClick={useExistingCode} disabled={syncBusy || !codeInput}>使用该码</button>
+                  </div>
+                  <div className="modal-actions">
+                    <button className="primary-btn" onClick={startNewSync} disabled={syncBusy}>{syncBusy ? '处理中…' : '生成新同步码'}</button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="sync-row">
+                    <code className="sync-code">{syncCode}</code>
+                    <button className="ghost-btn sm" onClick={copySyncCode}><Copy size={13} />复制</button>
+                    <button className="ghost-btn sm" onClick={stopSync}>停用</button>
+                  </div>
+                  <p className="muted small">
+                    {syncMeta.lastSyncAt
+                      ? `上次同步：${new Date(syncMeta.lastSyncAt).toLocaleString('zh-CN', { hour12: false })}`
+                      : '还没有同步过'}
+                    {status?.sync && !status.sync.durable
+                      ? ' · ⚠️ 服务端当前用本机文件存储，平台重新部署会丢，建议按 .env.example 配置云端存储'
+                      : ''}
+                  </p>
+                  <p className="muted small">在另一台设备上：打开「备份」→ 把这串码粘进输入框 → 使用该码，之后会自动同步。</p>
+                  <div className="modal-actions">
+                    <button className="primary-btn" onClick={() => runSync(true)} disabled={syncBusy}>{syncBusy ? '同步中…' : '立即同步'}</button>
+                  </div>
+                </>
+              )}
+              {syncTip ? <div className="backup-tip" role="status" aria-live="polite">{syncTip}</div> : null}
+            </div>
           </div>
         </div>
       )}
