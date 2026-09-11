@@ -16,7 +16,7 @@
 - 拍照 / 图片识别（OCR）：中文提示与英文初稿两栏各自带「拍照」「导入图片」按钮，电脑端可直接把图片拖进对应栏目；走原生多模态视觉模型逐字转写，印刷体与手写体都能识别，手写体可切「手写体优先」提高分辨率与准确率
 - 分项评分与生成进度：结果页展示词汇准确 / 语法时态 / 语境逻辑 / 流畅度 / 地道程度 5 个分项得分条；生成过程显示「已提交 → AI 生成中 → 完成」三步进度与已耗时
 - 练习计时器：编辑区计时控件支持「开始计时 / 暂停 / 继续 / 重置」，切换课文自动归零、刷新页面继续计时；点「生成作业」时会把本次用时写进结果页和历史记录，方便对比自己每篇课文花了多久
-- 润色等级梯度：可选 **小初 / 高考英语 / 四六级 / 考研英语 / 专四 / 专八**，AI 润色版（整体 + 逐句）、高级句式、加分表达、以及 findings 里推荐给学生替换的表达，都会匹配该等级的词汇量、句式复杂度、习语密度与篇幅（默认四六级，选择记忆在本机）
+- 润色等级梯度：可选 **小初 / 高考英语 / 四六级 / 考研·专四 / 专八**，AI 润色版（整体 + 逐句）、高级句式、加分表达、以及 findings 里推荐给学生替换的表达，都会匹配该等级的词汇量、句式复杂度、习语密度与篇幅（默认四六级，选择记忆在本机）
 - 音标标注：词汇深度辨析里的核心词与近义词都带 IPA 音标（如 spoil /spɔɪl/、ruin /ˈruːɪn/、damage /ˈdæmɪdʒ/、mar /mɑːr/）；模型未返回时后端会尝试词典兜底查询并缓存
 - 词根词缀拆解（**四六级及以上等级**）：词汇深度辨析里的难词会多一行小字，拆出词根词缀并给出「核心记忆画面」，例如 **enunciate** = `e-（向外）+ nunci（宣布）+ -ate（动词后缀）` → 「把想法清楚地『送出来、说出来』」，还会附同根词（pronounce / announcement / denounce）；模型会自行判断难易，**小初/高考基础词（go / make / happy 等）不拆**，小初与高考等级完全不输出该内容
 - 知识点收藏夹：结果页每条错题/辨析、核心词、习语、**加分表达 / 高级句式**右上角点 ☆ 即可收藏，之后在顶栏「收藏夹」里直接复习，**不用打开整份作业**；支持搜索、按类型筛选、删除、复制全部、以及导出 / 导入 JSON 备份（纯本机实现，不依赖数据库）
@@ -131,7 +131,7 @@
 | GET | /api/ocr/:jobId | 轮询识别结果：`{ok, job:{jobId, status, data:{text, engine, model, chars, garbled}, error}}`，status 为 pending / running / done / error |
 | POST | /api/generate-material | 异步提交 AI 原创素材生成（topic、level、style），立即返回 `{ok, jobId}` |
 | GET | /api/generate-material/:jobId | 轮询素材生成状态：`{ok, job:{jobId, status, data?, error?}}`，status 为 pending / running / done / error |
-| POST | /api/analyze | 异步提交回译作业（chinese、draft + 可选 book、lessonId、title、original、level、baseUrl、model、apiKey），立即返回 `{ok, jobId}`；level ∈ 小初 / 高考英语 / 四六级 / 考研英语 / 专四 / 专八 |
+| POST | /api/analyze | 异步提交回译作业（chinese、draft + 可选 book、lessonId、title、original、level、baseUrl、model、apiKey），立即返回 `{ok, jobId}`；level ∈ 小初 / 高考英语 / 四六级 / 考研·专四 / 专八（旧的「考研英语」「专四」会自动归一化为「考研·专四」） |
 | GET | /api/phonetic?word=spoil | 查单词 IPA 音标（模型未返回 phonetic 时的兜底，带内存缓存与熔断） |
 | POST | /api/quiz | 根据收藏知识点出题：提交 `{points[], count, level, baseUrl, model, apiKey}`，返回 `{ok, jobId}` |
 | GET | /api/quiz/:jobId | 轮询自测题：`{ok, job:{jobId, status, data:{title, level, count, questions[{type,question,options,answer,explanation,source}]}, error}}` |
@@ -150,8 +150,7 @@
 | 小初 | 中考核心词 1500-2000 | 简单句 + 并列句，最多一个基础定语从句 | 0-1 个最基础搭配 |
 | 高考英语 | 高考 3500 词及派生词 | 三大从句、非谓语、强调句；少量倒装/虚拟 | 1-2 个常见地道短语 |
 | 四六级 | 四六级 5500 词、名词化表达 | 分词状语、with 复合结构、基础倒装 | 1-3 个地道习语 |
-| 考研英语 | 书面语域、学术动词 | 长难句：多重从句、后置定语、插入语 | 克制、偏书面 |
-| 专四 | TEM-4 约 8000 词级 | 复杂句式 + 修辞，节奏感 | 2-4 个 |
+| 考研/专四 | 学术书面语域 + TEM-4 约 8000 词级精准用词 | 长难句为主，可并用倒装/虚拟/独立主格/分词 | 2-4 个，克制偏书面 |
 | 专八 | TEM-8 高级/文学词汇 | 文学性再创作、修辞与语气控制 | 3-5 个 |
 
 ## 导出 PDF

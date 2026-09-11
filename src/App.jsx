@@ -18,9 +18,11 @@ const CATEGORY_COLOR = {
 };
 
 const HISTORY_KEY = 'bt-history';
-const AI_LEVELS = ['小初', '高考英语', '四六级', '考研英语', '专四', '专八'];
+const AI_LEVELS = ['小初', '高考英语', '四六级', '考研/专四', '专八'];
 const DEFAULT_AI_LEVEL = '四六级';
 const LEVEL_KEY = 'bt-polish-level';
+// 「考研英语」「专四」已合并为「考研/专四」：本机旧设置里可能还是旧值，读出来先归一化，避免被静默降级成默认等级
+const LEVEL_ALIASES = { 考研英语: '考研/专四', 专四: '考研/专四' };
 const CONFIDENCE_LABEL = { high: '高置信度', medium: '中置信度', low: '低置信度', none: '未匹配', manual: '手动选择' };
 function loadHistory() {
   try {
@@ -414,7 +416,8 @@ function App() {
   // 润色等级：让润色版与推荐表达匹配用户目标考试的难度
   const [polishLevel, setPolishLevel] = useState(() => {
     const saved = localStorage.getItem(LEVEL_KEY);
-    return AI_LEVELS.includes(saved) ? saved : DEFAULT_AI_LEVEL;
+    const level = LEVEL_ALIASES[saved] || saved;
+    return AI_LEVELS.includes(level) ? level : DEFAULT_AI_LEVEL;
   });
 
   const toggleSidebar = () => {

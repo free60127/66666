@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { SYSTEM_PROMPT, buildUserMessage, MATERIAL_PROMPT, buildMaterialMessage, QUIZ_PROMPT, buildQuizMessage, AI_LEVEL_KEYS, DEFAULT_AI_LEVEL } from './prompt.mjs';
+import { SYSTEM_PROMPT, buildUserMessage, MATERIAL_PROMPT, buildMaterialMessage, QUIZ_PROMPT, buildQuizMessage, AI_LEVEL_KEYS, DEFAULT_AI_LEVEL, normalizeLevel } from './prompt.mjs';
 import { recognizeImage } from './ocr.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -631,7 +631,7 @@ const server = http.createServer(async (req, res) => {
         .slice(0, 60);
       if (!points.length) return json(res, 400, { error: '请先收藏一些知识点，再生成自测题' });
       const count = Math.max(1, Math.min(50, Number(body.count) || 10));
-      const level = AI_LEVEL_KEYS.includes(String(body.level || '').trim()) ? String(body.level).trim() : DEFAULT_AI_LEVEL;
+      const level = normalizeLevel(body.level);
       const baseUrl = String(body.baseUrl || '').trim() || stat.baseUrl();
       const model = String(body.model || '').trim() || stat.model();
       const apiKey = String(body.apiKey || '').trim() || process.env.AI_API_KEY || '';
@@ -661,8 +661,8 @@ const server = http.createServer(async (req, res) => {
       const lessonNo = body.lessonId != null ? Number(body.lessonId) : null;
       const lesson = userOriginal ? null : resolveLesson({ book: body.book, lessonId: lessonNo, title: body.title, chinese });
       const title = body.title || (lesson ? 'Lesson ' + lesson.lesson + ' · ' + (lesson.title_en || lesson.title_cn) : '自由回译训练');
-      // 润色等级：小初 / 高考英语 / 四六级 / 考研英语 / 专四 / 专八
-      const level = AI_LEVEL_KEYS.includes(String(body.level || '').trim()) ? String(body.level).trim() : DEFAULT_AI_LEVEL;
+      // 润色等级：小初 / 高考英语 / 四六级 / 考研·专四 / 专八
+      const level = normalizeLevel(body.level);
 
       const baseUrl = String(body.baseUrl || '').trim() || stat.baseUrl();
       const model = String(body.model || '').trim() || stat.model();

@@ -136,8 +136,8 @@ export const SYSTEM_PROMPT = `你是「新概念英语回译训练」王牌导�
 9. advancedSentences 与 bonusExpressions：从本次课文原文、AI 润色版或学生初稿中提炼值得学习的高级句式与地道加分表达，每条给出可直接背诵的完整英文例句与中文点拨（说明类别：倒装/虚拟语气/强调句/非谓语/独立主格/后置定语/插入语/习语搭配等）；不得用空数组占位，宁精勿滥。
 10. vocabularyNotes 至少 2-4 组，idiomHighlights 至少 3 条；若确实没有合适内容，用空数组，不得编造。
 11. 音标：vocabularyNotes 的每个 word、以及 synonyms 里每个英文单词，都必须填 phonetic（标准国际音标 IPA，用 / / 包裹，如 /spɔɪl/、/ˈruːɪn/、/ˈdæmɪdʒ/、/mɑːr/）。音标必须真实准确，英美式统一即可；多词短语（如 get off the bus）可留空字符串，不要硬凑、不要杜撰。
-12. 润色等级：用户消息里会给出【本次润色等级】（小初 / 高考英语 / 四六级 / 考研英语 / 专四 / 专八）。整体 ai、逐句 ai、advancedSentences、bonusExpressions，以及 findings 中推荐给学生替换用的表达，都必须匹配该等级的词汇、句式、习语与篇幅要求；宁可在等级内写得漂亮，也不要越级堆砌学生驾驭不了的高级词。
-13. 词根词缀（仅当润色等级为 四六级 / 考研英语 / 专四 / 专八 时输出）：
+12. 润色等级：用户消息里会给出【本次润色等级】（小初 / 高考英语 / 四六级 / 考研/专四 / 专八）。整体 ai、逐句 ai、advancedSentences、bonusExpressions，以及 findings 中推荐给学生替换用的表达，都必须匹配该等级的词汇、句式、习语与篇幅要求；宁可在等级内写得漂亮，也不要越级堆砌学生驾驭不了的高级词。
+13. 词根词缀（仅当润色等级为 四六级 / 考研/专四 / 专八 时输出）：
    - vocabularyNotes 中凡是「非基础词 + 有明确词根词缀 + 拆开确实有助于记忆」的词，都要给出 morphology：parts（词根词缀拆解）、image（一句话核心记忆画面），能想到同根词的再给 family。
    - 反面例子（这些是基础词，一律不拆，morphology 留空或不填）：go、make、happy、big、water、school、book、good、bad、nice、get、take 之类小初/高考基础词。
    - 正面例子：enunciate → parts: "e-（向外）+ nunci（宣布）+ -ate（动词后缀）"，image: "把信息清楚地『送出来、说出来』"，family: "pronounce / announcement / denounce"；remonstrate → parts: "re-（再、往回）+ monstr（显示、指出）+ -ate"，image: "把问题摆到对方面前『再指给你看』→ 抗议、规劝"。
@@ -191,17 +191,11 @@ export const AI_LEVELS = {
     idiom: '可以用 out of the blue、come to terms with 这类地道习语，1-3 个，必须贴合情境。',
     length: '单句 12-28 词，长短句交错。',
   },
-  考研英语: {
-    vocab: '考研英语（一/二）的书面语域：抽象名词、逻辑连接词、学术性动词（demonstrate / undermine / give priority to）。',
-    syntax: '以长难句为主：多重从句、后置定语、插入语、非谓语嵌套；结构复杂但逻辑清晰，避免口语化碎片。',
-    idiom: '习语克制、偏书面（at odds with / in the wake of），不用俚语。',
-    length: '单句 15-38 词，可有 2-3 层分句。',
-  },
-  专四: {
-    vocab: 'TEM-4 词汇（约 8000 词级常用书面词），追求精准地道（mar / hamper / reignite 这类有质感的动词）。',
-    syntax: '复杂句式与修辞并用：倒装、虚拟语气、独立主格、分词短语、后置定语，句子有节奏感。',
-    idiom: '地道习语与惯用搭配密度提高（2-4 个），保持语域一致。',
-    length: '单句 15-35 词，长短句交错。',
+  '考研/专四': {
+    vocab: '考研英语的学术书面语域 + TEM-4 的精准用词：抽象名词、逻辑连接词、学术性动词（demonstrate / undermine / give priority to），以及 mar / hamper / reignite 这类有质感、辨析度高的动词；上限约 TEM-4 8000 词级，但以「精准」为第一优先，不为难而难、不堆砌生僻词。',
+    syntax: '长难句与复杂句式为主：多重从句、后置定语、插入语、非谓语嵌套，并可用倒装、虚拟语气、独立主格、分词短语；结构复杂但逻辑清晰，句子有节奏感，避免口语化碎片。',
+    idiom: '习语克制、偏书面（at odds with / in the wake of），密度 2-4 个，必须贴合情境、语域一致；不用俚语。',
+    length: '单句 15-38 词，长短句交错，可有 2-3 层分句。',
   },
   专八: {
     vocab: 'TEM-8 级别的高级词汇与低频但精准的表达，允许文学性词汇，但必须有语境支撑、不为难而难。',
@@ -212,14 +206,22 @@ export const AI_LEVELS = {
 };
 export const DEFAULT_AI_LEVEL = '四六级';
 export const AI_LEVEL_KEYS = Object.keys(AI_LEVELS);
+// 「考研英语」「专四」已合并为「考研/专四」：两档素材同源（都喂真题）、水平同档，
+// 对应课程梯度里的 61-80（100 课版）/ 121-160（200 课版）档。
+// 旧前端缓存与本机旧设置仍可能传旧值，统一归一化，避免被静默降级成默认等级。
+const LEGACY_LEVEL_ALIASES = { 考研英语: '考研/专四', 专四: '考研/专四' };
+export function normalizeLevel(level) {
+  const key = String(level == null ? '' : level).trim();
+  return LEGACY_LEVEL_ALIASES[key] || (AI_LEVELS[key] ? key : DEFAULT_AI_LEVEL);
+}
 export function levelGuide(level) {
-  const key = AI_LEVELS[level] ? level : DEFAULT_AI_LEVEL;
+  const key = normalizeLevel(level);
   return { key, ...AI_LEVELS[key] };
 }
 
 export function buildUserMessage({ title, chinese, draft, original, level }) {
   const L = levelGuide(level);
-  const wantMorphology = ['四六级', '考研英语', '专四', '专八'].includes(L.key);
+  const wantMorphology = ['四六级', '考研/专四', '专八'].includes(L.key);
   const morphologyRule = wantMorphology
     ? '- 词根词缀：vocabularyNotes 里凡是「非基础词 + 能真实拆解」的词（优先 AI 润色版/课文原文里的难词，如 enunciate / remonstrate / materialize / irreparable），都必须给 morphology（parts 拆解 + image 核心记忆画面，可选 family 同根词）；小初/高考基础词（go、make、happy、big 等）留空，不要硬拆；不确定词源就留空。\n'
     : '- 词根词缀：本等级（' + L.key + '）不需要词根词缀拆解，vocabularyNotes 一律不要输出 morphology，讲解保持简单直接。\n';
