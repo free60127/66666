@@ -716,6 +716,15 @@ function App() {
 
   const activeLib = useMemo(() => myLibs.find((l) => l.id === myLibId) || null, [myLibs, myLibId]);
   /**
+   * 有没有可用的 AI Key：**服务端配了，或者用户自己填了**。
+   *
+   * 这个判断必须全项目只有一处 —— 之前状态栏用「服务端 || 自己填」、
+   * 而新加的引导块只看「服务端」，于是本地填了 Key 的用户会看到
+   * 「上面说已配置、下面说还差一步」的自相矛盾。
+   */
+  const hasAiKey = Boolean(status?.hasKey || settings.apiKey);
+
+  /**
    * 课文搜索：课号、中英标题、关键词都能命中。
    * 一册就 96 课（全书 348 课），靠翻列表找「Lesson 47」或「那篇讲春节的」都很痛苦。
    * 纯数字按课号优先 —— 输入 47 应该直接命中 Lesson 47，而不是标题里恰好含 47 的那几篇。
@@ -2062,7 +2071,7 @@ function App() {
           <div className="topbar-left"><BookOpen size={18} /><strong>{mode === 'lesson' ? '课文回译训练' : '自由回译训练'}</strong></div>
           <div className="status-chip" title={status ? (status.model + ' @ ' + status.baseUrl) : '请先启动后端 npm run server'}>
             <span className={'dot ' + (status ? 'ok' : 'err')} />
-            {status ? ((status.hasKey || settings.apiKey) ? 'AI 已配置 · ' + status.model : '未配置 API Key · ' + status.model) : '后端未连接'}
+            {status ? (hasAiKey ? 'AI 已配置 · ' + status.model : '未配置 API Key · ' + status.model) : '后端未连接'}
             {status?.corpusLessons ? ' · ' + status.corpusLessons + ' 课' : ''}
           </div>
           <button className="ghost-btn" onClick={backToEditor}><X size={15} />编辑器</button>
@@ -2233,7 +2242,7 @@ function App() {
             </div>
             {error && <div className="error-banner" role="alert"><Flame size={15} /><span className="error-text">{error}</span><button className="link" onClick={loadDemo}>查看离线示例</button><button className="icon-btn err-close" onClick={() => setError('')} aria-label="关闭提示"><X size={15} /></button></div>}
             {/* 没有 Key 时不只是一句"未配置"，而是说清楚为什么需要、去哪弄、以及不配也能干什么 */}
-            {!status?.hasKey && !busy && (
+            {!hasAiKey && !busy && (
               <div className="key-hint" role="note">
                 <div className="key-hint-title"><Settings size={15} />还差一步：配置 AI 接口</div>
                 <p>
@@ -2255,7 +2264,7 @@ function App() {
                 {busy ? <LoaderCircle className="spin" size={17} /> : <WandSparkles size={17} />}
                 {busy ? 'AI 正在后台生成（约1-2分钟）…' : '生成完整回译训练作业'}
               </button>
-              {!status?.hasKey && <button className="ghost-btn" onClick={loadDemo}><Sparkles size={15} />离线示例</button>}
+              {!hasAiKey && <button className="ghost-btn" onClick={loadDemo}><Sparkles size={15} />离线示例</button>}
               <span className="muted actions-hint">{busy ? '已提交后台任务，请保持页面打开，完成后自动展示' : '生成顺序：标题 → 中文 → 原稿 → AI 修正版 → 原文 → 逐句解析'}</span>
             </div>
             {busy && (
