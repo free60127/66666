@@ -120,6 +120,18 @@ const readJson = (raw, fb = null) => { try { return raw ? JSON.parse(raw) : fb; 
 export function createAccounts({ kv, mail, env = process.env, sent }) {
   /** 发验证码失败的统一兜底文案 */
   const MAIL_FAIL = '邮件发送失败，请稍后重试或联系管理员';
+  /**
+   * 按失败原因给出**能直接照着修**的提示。
+   * 之前一律回"发送失败"，服务端日志又是空的，排查全靠猜 —— 这几种原因的处理方式完全不同，
+   * 所以必须分开说。这些文案不涉及任何用户数据，公开展示也无风险。
+   */
+  const MAIL_REASON = {
+    not_configured: '邮件服务未配置：服务端缺少 SMTP_USER / SMTP_PASS 环境变量',
+    auth: '邮件服务认证失败：SMTP_PASS 应该是邮箱「授权码」而不是登录密码，且需先在邮箱设置里开启 SMTP 服务',
+    connect: '连不上邮件服务器：465 与 587 端口都试过了，可能是网络或托管平台限制了出站 SMTP',
+    timeout: '连接邮件服务器超时，请稍后重试',
+    refused: '邮件服务器拒绝了该收件地址，请确认邮箱地址是否正确',
+  };
 
   async function loadUserById(id) {
     return readJson(await kv.get(K_USER(id)));
@@ -321,9 +333,11 @@ export function createAccounts({ kv, mail, env = process.env, sent }) {
         env, sent,
       });
       if (!r || !r.ok) {
-        console.error('forgot mail error:', r && r.error);
+        // 用 JSON.stringify 打日志：空字符串也会显示成 {"error":""}，
+        // 不会再出现"forgot mail error: " 后面什么都没有、没法排查的情况。
+        console.error('forgot mail error:', JSON.stringify(r));
         await kv.del(K_RESET(e)); // 发不出去就把码撤掉，避免"用户没收到但库里占着"
-        return { ok: false, status: 503, error: MAIL_FAIL };
+        return { ok: false, status: 503, error: MAIL_REASON[r && r.code] || MAIL_FAIL };
       }
       return { ok: true, status: 200 };
     },
