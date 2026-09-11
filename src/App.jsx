@@ -10,7 +10,7 @@ import { createLibrary, loadLibraries, mergeLibraries, removeLesson, removeLibra
 import { createNewSyncCode, loadSyncCode, loadSyncMeta, mergeHistory, saveSyncCode, saveSyncMeta, syncOnce } from './sync.js';
 // 账号：命名空间式导入，避免和同步那一堆同名函数（changePassword / deleteAccount 之类）打架
 import * as acct from './account.js';
-import { analyze, generateMaterial, getAnalyzeJob, getLessons, getLesson, getMaterialJob, getOcrJob, getPhonetic, getQuizJob, getStatus, loadSettings, matchLesson, ocr, quiz, saveSettings, wakeUp } from './api.js';
+import { analyze, generateMaterial, getAnalyzeJob, getLessons, getLesson, getMaterialJob, getOcrJob, getPhonetic, getQuizJob, getStatus, loadSettings, matchLesson, ocr, pullCloudSync, quiz, saveSettings, wakeUp } from './api.js';
 import { DEMO_LESSON_18, DEMO_LESSONS } from './demo.js';
 import { FAV_KIND_LABEL, favoritesToText, favFromExpression, favFromFinding, favFromIdiom, favFromVocab, filterFavorites, hasMorphology, loadFavorites, mergeFavorites, morphologyText, saveFavorites } from './favorites.js';
 import { buildLocalQuiz, favoritesToQuizPoints, quizToText } from './quiz.js';
@@ -556,6 +556,7 @@ function App() {
   // 同步码仍然是数据主键 —— 没有账号时一切照旧，有了账号换设备就不用抄码。
   const [account, setAccount] = useState(acct.loadAccount);
   const [accountsOn, setAccountsOn] = useState(false); // 服务端是否启用了账号功能
+  const [accountHasSync, setAccountHasSync] = useState(false); // 账号里是否已存有同步码（没存就得绑，否则多设备各用各的）
   const [authOpen, setAuthOpen] = useState(false);
   const [authMode, setAuthMode] = useState('login'); // login | register | forgot
   const [authBusy, setAuthBusy] = useState(false);
@@ -998,6 +999,9 @@ function App() {
         return;
       }
       setSyncLost(false);
+      // 云端原本没有这串码（换过存储后端 / 临时磁盘被清），刚用本机数据把它重建起来了。
+      // 必须明确告诉用户 —— 否则他以为还是坏的，会去点「换码」把好端端的码换掉。
+      if (res.recovered) flashTip(setToast, '云端原本没有这串同步码，已用本机数据重建；其它设备下次同步会自动恢复', 6000);
       lastSyncAtRef.current = Date.now();
       const changed = applyMergedSnapshot(res.merged);
       const meta = { ...loadSyncMeta(), lastSyncAt: lastSyncAtRef.current, version: res.version };
@@ -1043,6 +1047,19 @@ function App() {
     const code = codeInput.trim().toLowerCase();
     if (!/^[a-f0-9]{32}$/.test(code)) { setSyncTip('同步码应为 32 位十六进制字符，请检查是否复制完整'); return; }
     manualActionAtRef.current = Date.now();
+    // 先探一次：云端不存在的码在**输入这一刻**就拦下来。
+    // 这一步是"云端没有就自动重建"能成立的前提 —— 否则打错一个字符
+    // 会被静默接受，新开一个空槽位，用户还以为同步成功了。
+    setSyncBusy(true);
+    try {
+      await pullCloudSync(code);
+    } catch (e) {
+      setSyncBusy(false);
+      if (e && e.status === 404) { setSyncTip('云端没有这串码 —— 请确认是否复制完整（32 位），以及它是不是在当前服务端生成的'); return; }
+      setSyncTip('读取云端失败：' + (e.message || '网络错误'));
+      return;
+    }
+    setSyncBusy(false);
     saveSyncCode(code); setSyncCode(code); setCodeInput('');
     await runSync(true, code);
   };
@@ -1117,6 +1134,7 @@ function App() {
       if (!alive) return;
       if (!r.ok) { setAccount(null); return; }
       setAccount({ token: saved.token, user: r.user || saved.user });
+      setAccountHasSync(Boolean(r.hasSync));
     })();
     return () => { alive = false; };
   }, []);
@@ -1132,13 +1150,25 @@ function App() {
   /** 登录/注册成功后：账号里带回同步码就切过去并同步一次。 */
   const applyAccountSync = async (code) => {
     if (!code) return;
-    if (code === syncCode) { flashTip(setToast, '已登录；账号里的同步码与本机一致', 3200); return; }
-    if (syncCode && !window.confirm('账号里存着另一串同步码。\n\n用账号里的那串覆盖本机当前的同步码？\n（本机数据不会丢，两边会自动合并）')) return;
+    if (code === syncCode) {
+      // 码相同也要跑一次同步 —— 用户点"登录"的意图就是"把数据对上"。
+      // 原先这里直接 return，导致本机攒着没推上去的数据在登录后依然不动。
+      flashTip(setToast, '已登录；正在同步…', 2600);
+      await runSync(true);
+      return;
+    }
+    if (syncCode && !window.confirm(
+      '账号里存着另一串同步码。\n\n'
+      + '用账号里的那串吗？\n\n'
+      + '本机数据不会丢 —— 两边的课文库 / 收藏 / 历史会自动合并，'
+      + '然后一起传到账号的那串码上。\n'
+      + '（如果两台设备本来就该同步，选「确定」）'
+    )) return;
     saveSyncCode(code);
     setSyncCode(code);
     setSyncLost(false);
     flashTip(setToast, '已从账号取回同步码，正在同步…', 3000);
-    await runSync(false, code); // runSync 闭包里的 syncCode 还是旧的，显式传新码
+    await runSync(true, code); // runSync 闭包里的 syncCode 还是旧的，显式传新码
   };
 
   const doSignIn = async () => {
@@ -1147,9 +1177,23 @@ function App() {
     try {
       const r = await acct.signIn({ email: authForm.email.trim(), password: authForm.password });
       if (!r.ok) { setAuthTip(r.error || '登录失败'); return; }
-      setAccount(acct.loadAccount());
+      const acc = acct.loadAccount();
+      setAccount(acc);
+      setAccountHasSync(r.hasSync);
       setAuthOpen(false);
       flashTip(setToast, '已登录：' + r.user.email, 3200);
+
+      // 账号里从没存过同步码，而本机有 —— 立刻绑上去。
+      // 不绑的后果很隐蔽：两台设备各自保留自己的码，各同步各的，永远碰不上面（实测复现过）。
+      // 此刻手上正好有密码，不用再让用户输一次。
+      if (!r.hasSync && syncCode && acc) {
+        const b = await acct.bindSyncCode(acc.token, syncCode, authForm.password);
+        setAccountHasSync(b.ok);
+        flashTip(setToast, b.ok
+          ? '已把本机同步码存进账号 —— 别的设备登录后会用它'
+          : '同步码存入账号失败：' + (b.error || '未知原因'), 5000);
+      }
+
       if (r.syncError) flashTip(setToast, r.syncError, 6000);
       await applyAccountSync(r.syncCode);
     } catch (e) {
@@ -1170,6 +1214,7 @@ function App() {
       });
       if (!r.ok) { setAuthTip(r.error || '注册失败'); return; }
       setAccount(acct.loadAccount());
+      setAccountHasSync(Boolean(syncCode));
       setAuthOpen(false);
       flashTip(setToast, syncCode ? '注册成功；本机同步码已存进账号' : '注册成功', 3600);
     } catch (e) {

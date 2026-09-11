@@ -90,19 +90,26 @@ export async function createNewSyncCode() {
 export async function syncOnce({ code, local, device, maxAttempts = 3 }) {
   if (!code) return { ok: false, error: '还没有同步码' };
   let remote;
+  let recovered = false;
   try {
     remote = await pullCloudSync(code);
   } catch (e) {
-    // 404 = 云端没有这串码：免费托管重新部署会清空磁盘，是最常见的原因。
-    // 这和"网络故障"必须分开报，否则用户会以为是自己填错了码。
+    // 404 = 云端没有这串码。以前这里直接返回失败，把用户卡死：
+    // 换过存储后端（或免费托管的临时磁盘被清）之后，老用户的码在云端就"不存在"了，
+    // 但他们本机数据完好、每台设备用的是同一串码 —— 结果就是**两台设备都推不上去也拉不下来**，
+    // 一直显示"云端找不到这串同步码"，怎么点都不动。
+    //
+    // 现在改成当成"空云端"继续走：本机数据会被推上去，把这串码在云端重建起来，
+    // 其它设备下一次同步就自动恢复了（码不用换，别的设备什么都不用改）。
+    //
+    // 打错码的担忧不成立：手填新码时界面会先探一次（见 useExistingCode），
+    // 不存在的码在输入那一刻就被拦下了，走不到这里。
     if (e && e.status === 404) {
-      return {
-        ok: false,
-        code: 'NOT_FOUND',
-        error: '云端找不到这串同步码的数据（服务端可能重新部署过）。本机数据不受影响，重新生成同步码即可恢复。',
-      };
+      remote = { version: 0, updatedAt: 0, data: { libraries: [], favorites: [], history: [] } };
+      recovered = true;
+    } else {
+      throw e;
     }
-    throw e;
   }
   let baseVersion = remote.version;
   let payload = mergeSnapshot(local, remote.data);
@@ -113,13 +120,11 @@ export async function syncOnce({ code, local, device, maxAttempts = 3 }) {
       device: device || deviceId(),
       data: { libraries: payload.libraries, favorites: payload.favorites, history: payload.history },
     });
-    if (r.ok) return { ok: true, version: r.data.version, merged: payload, added: payload.added };
-    if (r.status === 404) {
-      return { ok: false, code: 'NOT_FOUND', error: '云端找不到这串同步码的数据（服务端可能重新部署过）' };
-    }
+    if (r.ok) return { ok: true, version: r.data.version, merged: payload, added: payload.added, recovered };
     if (r.status === 409 && r.data) {
       // 其它设备抢先写了：拿云端最新数据重新合并后再推
       baseVersion = r.data.version;
+      recovered = false; // 已经有人在写这串码了，不算"重建"
       payload = mergeSnapshot({ libraries: payload.libraries, favorites: payload.favorites, history: payload.history }, r.data.data);
       continue;
     }

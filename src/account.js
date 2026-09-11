@@ -74,7 +74,9 @@ export async function signUp({ email, password, nickname, syncCode }) {
 
 /**
  * 登录 → 用密码解开账号里存的同步码。
- * @returns {{ok:true, user, syncCode:string, syncError?:string}}
+ * @returns {{ok:true, user, syncCode:string, hasSync:boolean, syncError?:string}}
+ *   hasSync=false 表示**账号里压根没存过同步码** —— 调用方应当立刻把本机的码绑上去，
+ *   否则这台设备会一直用自己那串，和别的设备永远碰不上面（实测踩过）。
  *   syncError 有值表示"登录成功但同步码解不开"（通常是上次重置过密码），
  *   这时不要让用户以为账号坏了 —— 照常登录，只是同步要重新设置。
  */
@@ -85,12 +87,13 @@ export async function signIn({ email, password }) {
 
   let syncCode = '';
   let syncError = '';
-  if (isBox(r.sync)) {
+  const hasSync = isBox(r.sync);
+  if (hasSync) {
     const plain = await openText(r.sync, password);
     if (plain) syncCode = plain;
     else syncError = '账号里的同步码解不开（可能是重置过密码）。已登录，但需要重新设置同步码。';
   }
-  return { ok: true, user: r.user, syncCode, syncError };
+  return { ok: true, user: r.user, syncCode, hasSync, syncError };
 }
 
 export async function signOut(token) {
@@ -105,7 +108,8 @@ export async function verifySession(token) {
   if (r.ok) {
     const u = r.data && r.data.user;
     if (u) saveAccount(token, u);
-    return { ok: true, user: u, sync: (r.data && r.data.sync) || null };
+    const sync = (r.data && r.data.sync) || null;
+    return { ok: true, user: u, sync, hasSync: isBox(sync) };
   }
   if (r.status === 401) clearAccount();
   return { ok: false, status: r.status };

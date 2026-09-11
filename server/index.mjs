@@ -732,17 +732,26 @@ const server = http.createServer(async (req, res) => {
         const check = sanitizeSnapshot(body.data);
         if (!check.ok) return json(res, 413, { error: check.error });
         const data = check.data;
-        const doc = await syncStore.read(code);
-        if (!doc) return json(res, 404, { error: '同步码不存在，请检查是否输错' });
+        // 云端没有这串码时**直接建**，而不是 404 让客户端放弃。
+        //
+        // 实测踩到的场景：换过存储后端（或免费托管的临时磁盘被清）之后，老用户的码在云端就
+        // "不存在"了 —— 但他们本机数据完好，而且**每台设备用的都是同一串码**。
+        // 这时候回 404 等于把用户卡死：每台设备都推不上去也拉不下来，一直显示"云端找不到"。
+        // 让第一台推送的设备把槽位建起来，多设备就自动恢复了，码也不用换。
+        //
+        // 这样会不会把"打错码"也静默接受？不会 —— 手填新码时前端会先探一次（见 useExistingCode），
+        // 打错的码在输入那一刻就被拦下了。
+        const cur = (await syncStore.read(code))
+          || { version: 0, updatedAt: 0, device: '', data: emptySnapshot() };
         const baseVersion = Number(body.baseVersion);
-        if (Number.isFinite(baseVersion) && baseVersion !== doc.version) {
+        if (Number.isFinite(baseVersion) && baseVersion !== cur.version) {
           // 云端已被其它设备改过：把最新数据带回去，让前端合并后重试
-          return json(res, 409, { error: '云端已被其它设备更新', version: doc.version, updatedAt: doc.updatedAt, data: doc.data });
+          return json(res, 409, { error: '云端已被其它设备更新', version: cur.version, updatedAt: cur.updatedAt, data: cur.data });
         }
         if (check.dropped && (check.dropped.favorites || check.dropped.history)) {
           console.warn('同步快照丢弃了超限条目:', JSON.stringify(check.dropped));
         }
-        const next = { version: doc.version + 1, updatedAt: Date.now(), device: String(body.device || '').slice(0, 40), data };
+        const next = { version: cur.version + 1, updatedAt: Date.now(), device: String(body.device || '').slice(0, 40), data };
         await syncStore.write(code, next);
         return json(res, 200, { ok: true, version: next.version, updatedAt: next.updatedAt });
       }
