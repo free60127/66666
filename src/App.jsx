@@ -4,10 +4,12 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft, BookOpen, Camera, CheckCircle2, ChevronDown, ChevronRight, ClipboardCopy, Cloud, Copy, Download,
   FileText, Flame, FolderPlus, History, ImagePlus, Library, Link2, LoaderCircle, PanelLeftClose, PanelLeftOpen,
-  PenLine, Plus, Settings, Sparkles, Star, Timer, Trash2, Upload, WandSparkles, X,
+  PenLine, Plus, Settings, Sparkles, Star, Timer, Trash2, Upload, UserRound, WandSparkles, X,
 } from 'lucide-react';
 import { createLibrary, loadLibraries, mergeLibraries, removeLesson, removeLibrary, saveLibraries, upsertLesson } from './lessonLibrary.js';
 import { createNewSyncCode, loadSyncCode, loadSyncMeta, mergeHistory, saveSyncCode, saveSyncMeta, syncOnce } from './sync.js';
+// 账号：命名空间式导入，避免和同步那一堆同名函数（changePassword / deleteAccount 之类）打架
+import * as acct from './account.js';
 import { analyze, generateMaterial, getAnalyzeJob, getLessons, getLesson, getMaterialJob, getOcrJob, getPhonetic, getQuizJob, getStatus, loadSettings, matchLesson, ocr, quiz, saveSettings, wakeUp } from './api.js';
 import { DEMO_LESSON_18, DEMO_LESSONS } from './demo.js';
 import { FAV_KIND_LABEL, favoritesToText, favFromExpression, favFromFinding, favFromIdiom, favFromVocab, filterFavorites, hasMorphology, loadFavorites, mergeFavorites, morphologyText, saveFavorites } from './favorites.js';
@@ -550,6 +552,18 @@ function App() {
   const [codeInput, setCodeInput] = useState('');
   const [syncLost, setSyncLost] = useState(false); // 云端没有这串码的数据（通常是平台重新部署）
   const [backendWaking, setBackendWaking] = useState(false); // 免费托管休眠后正在唤醒（首屏要等约 1 分钟）
+  // 账号（可选：服务端配了持久存储才有）。账号只是"帮你记住同步码"的一层，
+  // 同步码仍然是数据主键 —— 没有账号时一切照旧，有了账号换设备就不用抄码。
+  const [account, setAccount] = useState(acct.loadAccount);
+  const [accountsOn, setAccountsOn] = useState(false); // 服务端是否启用了账号功能
+  const [authOpen, setAuthOpen] = useState(false);
+  const [authMode, setAuthMode] = useState('login'); // login | register | forgot
+  const [authBusy, setAuthBusy] = useState(false);
+  const [authTip, setAuthTip] = useState('');
+  const [authForm, setAuthForm] = useState({ email: '', password: '', nickname: '', code: '', syncCode: '' });
+  const [bindPw, setBindPw] = useState(''); // 「把本机同步码存进账号」时要现输一次密码（密码不落盘）
+  const accountRef = useRef(account);
+  accountRef.current = account;
   const syncBusyRef = useRef(false);
   const lastSyncAtRef = useRef(0);
   // 最近一次"手动操作"（生成码/换码/填码/停用/立即同步）的时间：
@@ -1084,6 +1098,136 @@ function App() {
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [myLibs, favorites, historyList, syncCode]);
+
+  /* ---------- 账号 ----------
+   * 账号的作用只有一个：**换设备时不用抄同步码**。
+   * 登录后用密码解开账号里存的同步码 → 存到本机 → 之后完全走原有的同步流程。
+   * 没有账号时一切照旧，所以这块出问题也不影响主流程。 */
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const on = await acct.accountAvailable();
+      if (!alive) return;
+      setAccountsOn(on);
+      if (!on) return;
+      const saved = acct.loadAccount();
+      if (!saved) return;
+      // 本地令牌可能已过期/被踢：校验一次，失效就清掉，别显示一个假的"已登录"
+      const r = await acct.verifySession(saved.token);
+      if (!alive) return;
+      if (!r.ok) { setAccount(null); return; }
+      setAccount({ token: saved.token, user: r.user || saved.user });
+    })();
+    return () => { alive = false; };
+  }, []);
+
+  const authField = (k) => (e) => setAuthForm((f) => ({ ...f, [k]: e.target.value }));
+  const openAuth = (mode = 'login') => {
+    setAuthMode(mode);
+    setAuthTip('');
+    setAuthForm({ email: '', password: '', nickname: '', code: '' });
+    setAuthOpen(true);
+  };
+
+  /** 登录/注册成功后：账号里带回同步码就切过去并同步一次。 */
+  const applyAccountSync = async (code) => {
+    if (!code) return;
+    if (code === syncCode) { flashTip(setToast, '已登录；账号里的同步码与本机一致', 3200); return; }
+    if (syncCode && !window.confirm('账号里存着另一串同步码。\n\n用账号里的那串覆盖本机当前的同步码？\n（本机数据不会丢，两边会自动合并）')) return;
+    saveSyncCode(code);
+    setSyncCode(code);
+    setSyncLost(false);
+    flashTip(setToast, '已从账号取回同步码，正在同步…', 3000);
+    await runSync(false, code); // runSync 闭包里的 syncCode 还是旧的，显式传新码
+  };
+
+  const doSignIn = async () => {
+    if (authBusy) return;
+    setAuthBusy(true); setAuthTip('');
+    try {
+      const r = await acct.signIn({ email: authForm.email.trim(), password: authForm.password });
+      if (!r.ok) { setAuthTip(r.error || '登录失败'); return; }
+      setAccount(acct.loadAccount());
+      setAuthOpen(false);
+      flashTip(setToast, '已登录：' + r.user.email, 3200);
+      if (r.syncError) flashTip(setToast, r.syncError, 6000);
+      await applyAccountSync(r.syncCode);
+    } catch (e) {
+      setAuthTip(e.message || '网络错误');
+    } finally { setAuthBusy(false); }
+  };
+
+  const doSignUp = async () => {
+    if (authBusy) return;
+    setAuthBusy(true); setAuthTip('');
+    try {
+      // 本机已有同步码就顺手加密存进账号 —— 这样别的设备一登录就能取回
+      const r = await acct.signUp({
+        email: authForm.email.trim(),
+        password: authForm.password,
+        nickname: authForm.nickname.trim(),
+        syncCode,
+      });
+      if (!r.ok) { setAuthTip(r.error || '注册失败'); return; }
+      setAccount(acct.loadAccount());
+      setAuthOpen(false);
+      flashTip(setToast, syncCode ? '注册成功；本机同步码已存进账号' : '注册成功', 3600);
+    } catch (e) {
+      setAuthTip(e.message || '网络错误');
+    } finally { setAuthBusy(false); }
+  };
+
+  const doForgot = async () => {
+    if (authBusy) return;
+    setAuthBusy(true); setAuthTip('');
+    try {
+      const r = await acct.requestResetCode(authForm.email.trim());
+      if (!r.ok) { setAuthTip(r.error || '发送失败'); return; }
+      setAuthMode('reset');
+      setAuthTip('验证码已发到邮箱（15 分钟内有效）。没收到就看看垃圾邮件。');
+    } catch (e) {
+      setAuthTip(e.message || '网络错误');
+    } finally { setAuthBusy(false); }
+  };
+
+  const doReset = async () => {
+    if (authBusy) return;
+    setAuthBusy(true); setAuthTip('');
+    try {
+      const r = await acct.resetPassword({
+        email: authForm.email.trim(),
+        code: authForm.code.trim(),
+        newPassword: authForm.password,
+        syncCode: (authForm.syncCode || '').trim() || syncCode || '',
+      });
+      if (!r.ok) { setAuthTip(r.error || '重置失败'); return; }
+      setAccount(null);
+      setAuthMode('login');
+      setAuthTip('密码已重置，请用新密码登录。');
+      flashTip(setToast, '密码已重置，请重新登录', 3600);
+    } catch (e) {
+      setAuthTip(e.message || '网络错误');
+    } finally { setAuthBusy(false); }
+  };
+
+  const doSignOut = async () => {
+    if (!account) return;
+    if (!window.confirm('退出登录？\n\n本机的课文库、收藏和同步码都不受影响，只是换设备时要重新登录。')) return;
+    await acct.signOut(account.token);
+    setAccount(null);
+    flashTip(setToast, '已退出登录（本机数据保留）', 3000);
+  };
+
+  /** 把本机当前同步码加密存进账号。密码不落盘，所以每次都要现输。 */
+  const doBindSync = async () => {
+    if (!account || !syncCode || !bindPw) return;
+    setAuthBusy(true);
+    try {
+      const r = await acct.bindSyncCode(account.token, syncCode, bindPw);
+      setBindPw('');
+      flashTip(setToast, r.ok ? '同步码已存进账号，别的设备登录即可取回' : (r.error || '存入失败'), 4000);
+    } finally { setAuthBusy(false); }
+  };
 
   const deleteLibrary = (libId, libName) => {
     if (!window.confirm(`删除课文库「${libName}」？库里的课文会一起删掉，此操作不可撤销。`)) return;
@@ -2049,6 +2193,114 @@ function App() {
         </div>
       )}
 
+      {authOpen && (
+        <div className="modal-mask auth-mask" onClick={() => !authBusy && setAuthOpen(false)}>
+          <div className="modal auth-modal" role="dialog" aria-modal="true" aria-label="账号" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <h2>{authMode === 'login' ? '登录' : authMode === 'register' ? '注册账号' : authMode === 'forgot' ? '找回密码' : '重置密码'}</h2>
+              <button className="icon-btn" onClick={() => setAuthOpen(false)} disabled={authBusy} aria-label="关闭"><X size={16} /></button>
+            </div>
+
+            <div className="auth-form">
+              <label className="auth-label">
+                邮箱
+                <input
+                  type="email" value={authForm.email} onChange={authField('email')}
+                  placeholder="you@example.com" autoComplete="username"
+                  disabled={authBusy || authMode === 'reset'}
+                />
+              </label>
+
+              {authMode === 'register' ? (
+                <label className="auth-label">
+                  昵称（可选）
+                  <input value={authForm.nickname} onChange={authField('nickname')} maxLength={20} placeholder="怎么称呼你" disabled={authBusy} />
+                </label>
+              ) : null}
+
+              {authMode === 'reset' ? (
+                <label className="auth-label">
+                  邮箱验证码
+                  <input value={authForm.code} onChange={authField('code')} inputMode="numeric" maxLength={8} placeholder="8 位数字" disabled={authBusy} />
+                </label>
+              ) : null}
+
+              {authMode !== 'forgot' ? (
+                <label className="auth-label">
+                  {authMode === 'reset' ? '新密码' : '密码'}
+                  <input
+                    type="password" value={authForm.password} onChange={authField('password')}
+                    placeholder="至少 8 位"
+                    autoComplete={authMode === 'login' ? 'current-password' : 'new-password'}
+                    disabled={authBusy}
+                  />
+                </label>
+              ) : null}
+
+              {authMode === 'register' ? (
+                <p className="muted small">
+                  账号只存两样东西：<b>你的邮箱</b>，和<b>用你的密码加密后的同步码</b>。
+                  密码本身经过 PBKDF2 哈希后才存储，服务端无法还原；
+                  同步码更是服务端也解不开的密文。
+                  <br />
+                  这些数据存放在境外服务器（Cloudflare/Render 所在区域）。
+                  你可以随时注销账号并删除全部数据。<b>本服务面向 14 周岁以上用户。</b>
+                </p>
+              ) : null}
+
+              {authMode === 'reset' ? (
+                <p className="muted small">
+                  ⚠️ 重置密码后，之前用旧密码加密的同步码<b>无法自动解锁</b>。
+                  如果你手上有同步码，填在下方可以一并存进账号。
+                </p>
+              ) : null}
+
+              {authMode === 'reset' ? (
+                <label className="auth-label">
+                  同步码（可选）
+                  <input value={authForm.syncCode} onChange={authField('syncCode')} placeholder="有就填，没有留空" disabled={authBusy} />
+                </label>
+              ) : null}
+            </div>
+
+            {authTip ? <div className="backup-tip" role="status" aria-live="polite">{authTip}</div> : null}
+
+            <div className="modal-actions">
+              {authMode === 'login' ? (
+                <>
+                  <button className="primary-btn" onClick={doSignIn} disabled={authBusy || !authForm.email || !authForm.password}>
+                    {authBusy ? '登录中…' : '登录'}
+                  </button>
+                  <button className="ghost-btn" onClick={() => openAuth('register')} disabled={authBusy}>注册新账号</button>
+                  <button className="ghost-btn" onClick={() => openAuth('forgot')} disabled={authBusy}>忘记密码</button>
+                </>
+              ) : authMode === 'register' ? (
+                <>
+                  <button className="primary-btn" onClick={doSignUp} disabled={authBusy || !authForm.email || !authForm.password}>
+                    {authBusy ? '注册中…' : '注册'}
+                  </button>
+                  <button className="ghost-btn" onClick={() => openAuth('login')} disabled={authBusy}>已有账号，去登录</button>
+                </>
+              ) : authMode === 'forgot' ? (
+                <>
+                  <button className="primary-btn" onClick={doForgot} disabled={authBusy || !authForm.email}>
+                    {authBusy ? '发送中…' : '发送验证码'}
+                  </button>
+                  <button className="ghost-btn" onClick={() => openAuth('login')} disabled={authBusy}>返回登录</button>
+                </>
+              ) : (
+                <>
+                  <button className="primary-btn" onClick={doReset} disabled={authBusy || !authForm.code || !authForm.password}>
+                    {authBusy ? '提交中…' : '重置密码'}
+                  </button>
+                  <button className="ghost-btn" onClick={() => openAuth('forgot')} disabled={authBusy}>重新发码</button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {historyOpen && (
         <div className="modal-mask" onClick={() => setHistoryOpen(false)}>
           <div className="modal history-modal" ref={(el) => { modalRefs.current.history = el; }} role="dialog" aria-modal="true" aria-label="历史作业" onClick={(e) => e.stopPropagation()}>
@@ -2217,6 +2469,49 @@ function App() {
               <button className="ghost-btn" onClick={() => setBackupOpen(false)}>关闭</button>
             </div>
             {backupTip ? <div className="backup-tip" role="status" aria-live="polite">{backupTip}</div> : null}
+
+            {/* 账号：换设备不用抄同步码（服务端配了持久存储才显示） */}
+            {accountsOn ? (
+              <div className="sync-block">
+                <div className="sync-title"><UserRound size={15} />账号（换设备免抄码）</div>
+                {account ? (
+                  <>
+                    <p className="muted small">
+                      已登录：<b>{account.user.email}</b>{account.user.nickname ? `（${account.user.nickname}）` : ''}
+                    </p>
+                    <p className="muted small">
+                      在别的设备上用这个邮箱登录，同步码会自动取回，不用手抄。
+                      同步码是用你的密码加密后存在服务端的，<b>服务端也解不开</b>。
+                    </p>
+                    {syncCode ? (
+                      <div className="sync-row">
+                        <input
+                          type="password"
+                          value={bindPw}
+                          onChange={(e) => setBindPw(e.target.value)}
+                          placeholder="输入账号密码，把本机同步码存进账号"
+                          aria-label="账号密码（用于加密同步码）"
+                        />
+                        <button className="ghost-btn" onClick={doBindSync} disabled={authBusy || !bindPw}>存入账号</button>
+                      </div>
+                    ) : null}
+                    <div className="modal-actions">
+                      <button className="ghost-btn" onClick={doSignOut} disabled={authBusy}>退出登录</button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <p className="muted small">
+                      建个账号，换电脑 / 换手机时用邮箱登录就能把同步码取回来，<b>不用手抄那串 32 位码</b>。
+                    </p>
+                    <div className="modal-actions">
+                      <button className="primary-btn" onClick={() => openAuth('register')}>注册</button>
+                      <button className="ghost-btn" onClick={() => openAuth('login')}>登录</button>
+                    </div>
+                  </>
+                )}
+              </div>
+            ) : null}
 
             {/* 云同步：多设备之间合并同步（课文库 + 收藏夹 + 历史） */}
             <div className="sync-block">

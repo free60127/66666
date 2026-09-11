@@ -80,8 +80,7 @@ export const quiz = (payload) => api('/api/quiz', { method: 'POST', body: JSON.s
 export const getQuizJob = (jobId) => api('/api/quiz/' + jobId, {}, TIMEOUT.fast);
 
 /* ---------- 云同步（同步码） ---------- */
-export const getSyncInfo = () => api('/api/sync/info');
-export const createSyncCode = () => api('/api/sync/new', { method: 'POST' });
+export const getSyncInfo = () => api('/api/sync/info');export const createSyncCode = () => api('/api/sync/new', { method: 'POST' });
 /** 拉取云端快照；码不存在时抛出的错误带 status=404，调用方据此区分"云端数据没了"与"网络故障"。 */
 export async function pullCloudSync(code) {
   const r = await apiRaw('/api/sync/' + encodeURIComponent(code));
@@ -92,6 +91,32 @@ export async function pullCloudSync(code) {
 }
 export const pushCloudSync = (code, payload) =>
   apiRaw('/api/sync/' + encodeURIComponent(code), { method: 'POST', body: JSON.stringify(payload) });
+
+/* ---------- 账号（可选：服务端配了持久存储才启用） ----------
+ * 账号只是"帮你记住同步码"的一层，不替代同步码 —— 同步码仍然是数据主键。
+ * 用 apiRaw 而不是 api：401（会话过期）需要和"网络错误"区分开，前者要清掉本地 token。 */
+const authPost = (path, payload, token, timeoutMs) => apiRaw('/api/auth/' + path, {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    ...(token ? { Authorization: 'Bearer ' + token } : {}),
+  },
+  body: JSON.stringify(payload ?? {}),
+}, timeoutMs);
+
+export const getAuthConfig = () => api('/api/auth/config', {}, TIMEOUT.fast);
+export const authRegister = (p) => authPost('register', p);
+export const authLogin = (p) => authPost('login', p);
+export const authLogout = (token) => authPost('logout', {}, token);
+export const authSetSync = (token, sync) => authPost('sync', { sync }, token);
+export const authChangePassword = (token, p) => authPost('change-password', p, token);
+export const authDeleteAccount = (token, p) => authPost('delete-account', p, token);
+// 发信走 SMTP，可能几秒才回来，给上传档超时
+export const authForgot = (p) => authPost('forgot', p, '', TIMEOUT.upload);
+export const authResetPassword = (p) => authPost('reset-password', p);
+export const authMe = (token) => apiRaw('/api/auth/me', {
+  headers: token ? { Authorization: 'Bearer ' + token } : {},
+}, TIMEOUT.fast);
 
 // 本地设置（仅个人使用时，key 会随请求发给你自己部署的后端）
 const KEY = 'bt-studio-settings';

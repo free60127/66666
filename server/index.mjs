@@ -6,9 +6,26 @@ import { fileURLToPath } from 'node:url';
 import { SYSTEM_PROMPT, buildUserMessage, MATERIAL_PROMPT, buildMaterialMessage, QUIZ_PROMPT, buildQuizMessage, AI_LEVEL_KEYS, DEFAULT_AI_LEVEL, normalizeLevel } from './prompt.mjs';
 import { recognizeImage } from './ocr.mjs';
 import { MAX_SNAPSHOT_BYTES, createSyncStore, emptySnapshot, isValidSyncCode, newSyncCode, sanitizeSnapshot } from './sync.mjs';
+import { createUpstashKv, createFileKv } from './kv.mjs';
+import { createAccounts } from './accounts.mjs';
+import { sendMail } from './mailer.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
+
+/* ---------- .env loader ----------
+ * 必须**最先**执行：下面 createSyncStore / createKv 会立刻读 UPSTASH_*，
+ * 晚一步就会出现"我在 .env 里配了 Upstash，本地却仍在写文件"的怪现象。 */
+function loadEnv() {
+  const p = path.join(ROOT, '.env');
+  if (!fs.existsSync(p)) return;
+  for (const line of fs.readFileSync(p, 'utf8').split(/\r?\n/)) {
+    const m = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$/);
+    if (m && process.env[m[1]] === undefined) process.env[m[1]] = m[2].replace(/^["']|["']$/g, '');
+  }
+}
+loadEnv();
+
 const PORT = Number(process.env.PORT || 8787);
 const DIST = path.join(ROOT, 'dist');
 // 云同步存储：配了 Upstash 就用它（持久），否则退回本地文件（托管平台上重启会丢）
@@ -20,16 +37,21 @@ const syncStore = createSyncStore(ROOT);
 const HOSTED = Boolean(process.env.RENDER || process.env.DYNO || process.env.VERCEL || process.env.FLY_APP_NAME || process.env.K_SERVICE);
 const syncDurable = syncStore.durable || !HOSTED;
 
-/* ---------- .env loader ---------- */
-function loadEnv() {
-  const p = path.join(ROOT, '.env');
-  if (!fs.existsSync(p)) return;
-  for (const line of fs.readFileSync(p, 'utf8').split(/\r?\n/)) {
-    const m = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$/);
-    if (m && process.env[m[1]] === undefined) process.env[m[1]] = m[2].replace(/^["']|["']$/g, '');
-  }
-}
-loadEnv();
+/* ---------- 账号体系 ----------
+ * 与云同步共用同一个 Upstash 实例（键前缀不同），所以配一次环境变量两件事都解决。
+ * 区别在于：**存储不持久时，账号功能直接关闭**。
+ * 托管平台（Render 免费版）的磁盘是临时的 —— 在那里开账号等于骗用户：
+ * 重新部署一次所有人的账号就没了。宁可不提供，也不提供一个会丢的。
+ * 想开启：配 UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN（见 .env.example）。 */
+const kv = (() => {
+  const url = String(process.env.UPSTASH_REDIS_REST_URL || '').trim();
+  const token = String(process.env.UPSTASH_REDIS_REST_TOKEN || '').trim();
+  if (url && token) return createUpstashKv({ url, token });
+  return createFileKv(path.join(ROOT, 'data', 'kv'));
+})();
+const kvDurable = kv.durable || !HOSTED;
+const accountsOn = kvDurable;
+const accounts = accountsOn ? createAccounts({ kv, mail: sendMail }) : null;
 
 /* ---------- corpus ---------- */
 let corpora = null;
@@ -725,6 +747,44 @@ const server = http.createServer(async (req, res) => {
         return json(res, 200, { ok: true, version: next.version, updatedAt: next.updatedAt });
       }
     }
+    /* ---------- 账号（可选：只有存储持久时才启用） ----------
+     * 账号只是"帮你记住同步码"的一层，不替代同步码 ——
+     * 同步码仍然是数据主键，出问题把账号层关掉就回到没有账号的状态。 */
+    if (p === '/api/auth/config') {
+      return json(res, 200, { ok: true, enabled: accountsOn, store: kv.kind, durable: kvDurable });
+    }
+    if (p.startsWith('/api/auth/')) {
+      if (!accounts) {
+        return json(res, 503, {
+          error: '账号功能未启用：服务端没有配置持久存储。'
+            + '托管平台的磁盘是临时的，在那里开账号会导致重新部署后所有账号丢失，所以默认关闭。'
+            + '配置 UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN 后自动开启。',
+        });
+      }
+      const action = p.slice('/api/auth/'.length);
+      if (req.method !== 'POST' && req.method !== 'GET') return json(res, 405, { error: 'method not allowed' });
+      const token = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+      const ip = clientIp(req);
+      const body = req.method === 'POST' ? await readBody(req, 64 * 1024) : {};
+
+      const handlers = {
+        register: () => accounts.register({ ...body, ip }),
+        login: () => accounts.login({ ...body, ip, device: body.device }),
+        logout: () => accounts.logout(token),
+        me: () => accounts.me(token),
+        sync: () => accounts.setSync(token, body.sync),
+        'change-password': () => accounts.changePassword(token, body),
+        'delete-account': () => accounts.deleteAccount(token, body),
+        forgot: () => accounts.forgot({ email: body.email, ip }),
+        'reset-password': () => accounts.resetPassword({ ...body, ip }),
+      }[action];
+      if (!handlers) return json(res, 404, { error: 'unknown auth api' });
+
+      const r = await handlers();
+      if (!r.ok) return json(res, r.status || 400, { error: r.error });
+      const { ok: _ok, status, ...rest } = r;
+      return json(res, status || 200, { ok: true, ...rest });
+    }
     if (p === '/api/health') return json(res, 200, { ok: true });
     if (p === '/api/status') {
       return json(res, 200, {
@@ -736,6 +796,7 @@ const server = http.createServer(async (req, res) => {
         corpusLessons: allLessons().length,
         books: [...getCorpora().values()].map((c) => ({ book: c.book, lessons: c.lessons.length, source: c.source })),
         sync: { store: syncStore.kind, durable: syncDurable, hosted: HOSTED },
+        accounts: { enabled: accountsOn, durable: kvDurable },
       });
     }
     if (p === '/api/lessons' && req.method === 'GET') {
@@ -932,8 +993,16 @@ server.listen(PORT, () => {
   console.log('模型: ' + stat.model() + ' @ ' + stat.baseUrl() + '  key: ' + (stat.hasKey() ? '已配置' : '未配置'));
   console.log('语料: ' + getCorpus().lessons.length + ' 课');
   console.log('云同步存储: ' + syncStore.kind + (syncDurable ? '（持久）' : '（本机文件 · 托管平台上会随休眠/重启清空）'));
+  console.log('账号功能: ' + (accountsOn ? '已启用（存储 ' + kv.kind + '）' : '未启用（存储不持久）')
+    + '  SMTP: ' + (process.env.SMTP_USER && process.env.SMTP_PASS ? '已配置' : '未配置（找回密码不可用）'));
   if (!syncDurable) {
     console.warn('⚠️  未配置 UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN：同步数据写在容器本地磁盘，'
       + '托管平台重新部署或重启后会丢失。生产环境请按 .env.example 配置云端存储。');
+  }
+  if (!accountsOn) {
+    console.warn('⚠️  账号功能未启用：托管平台的磁盘是临时的，在那里开账号会导致重新部署后账号全丢，'
+      + '所以默认关闭。配置 UPSTASH_* 后自动开启。');
+  } else if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
+    console.warn('⚠️  未配置 SMTP_USER / SMTP_PASS：注册登录可用，但「找回密码」发不出邮件。');
   }
 });
