@@ -1247,9 +1247,13 @@ function App() {
       });
       if (!r.ok) { setAuthTip(r.error || '重置失败'); return; }
       setAccount(null);
+      setAccountHasSync(false);
       setAuthMode('login');
-      setAuthTip('密码已重置，请用新密码登录。');
-      flashTip(setToast, '密码已重置，请重新登录', 3600);
+      // 必须把「同步码会失效」这件事说清楚 ——
+      // 用户最容易把"同步码解不开"误解成"我的课文库和收藏被删了"，其实数据一直在本机。
+      setAuthTip('密码已重置。\n\n⚠️ 旧密码加密的同步码无法自动解锁 —— 如果这台设备上有同步码，'
+        + '登录后点「存入账号」重新绑一次即可，本机的课文库和收藏一直都在。');
+      flashTip(setToast, '密码已重置，请用新密码登录', 4000);
     } catch (e) {
       setAuthTip(e.message || '网络错误');
     } finally { setAuthBusy(false); }
@@ -1260,7 +1264,22 @@ function App() {
     if (!window.confirm('退出登录？\n\n本机的课文库、收藏和同步码都不受影响，只是换设备时要重新登录。')) return;
     await acct.signOut(account.token);
     setAccount(null);
+    setAccountHasSync(false);
     flashTip(setToast, '已退出登录（本机数据保留）', 3000);
+  };
+
+  /**
+   * 退出所有设备。
+   * 会话令牌是存在浏览器里的（防得住 XSS 之外的东西有限），所以给一个"一键止血"：
+   * 服务端把会话世代号 +1，所有已签发的令牌立刻作废，连当前这台也一起下线。
+   */
+  const doSignOutEverywhere = async () => {
+    if (!account) return;
+    if (!window.confirm('退出所有设备？\n\n其它设备上已登录的账号会立刻下线，需要重新输入密码。\n本机的课文库、收藏和同步码不受影响。')) return;
+    const r = await acct.signOutEverywhere(account.token);
+    setAccount(null);
+    setAccountHasSync(false);
+    flashTip(setToast, r.ok ? '已退出所有设备，请重新登录' : ('操作失败：' + (r.error || '未知原因')), 4000);
   };
 
   /** 把本机当前同步码加密存进账号。密码不落盘，所以每次都要现输。 */
@@ -2542,6 +2561,7 @@ function App() {
                     ) : null}
                     <div className="modal-actions">
                       <button className="ghost-btn" onClick={doSignOut} disabled={authBusy}>退出登录</button>
+                      <button className="ghost-btn" onClick={doSignOutEverywhere} disabled={authBusy} title="让其它设备上已登录的账号立刻下线（怀疑账号被盗用时用）">退出所有设备</button>
                     </div>
                   </>
                 ) : (

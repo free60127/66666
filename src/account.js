@@ -11,7 +11,7 @@
  *   存令牌的泄露后果可控；存密码的后果是不可控的。
  */
 import {
-  getAuthConfig, authRegister, authLogin, authLogout, authMe,
+  getAuthConfig, authRegister, authLogin, authLogout, authLogoutAll, authMe,
   authSetSync, authChangePassword, authDeleteAccount, authForgot, authResetPassword,
 } from './api.js';
 import { sealText, openText, isBox } from './secretBox.js';
@@ -100,6 +100,17 @@ export async function signOut(token) {
   try { await authLogout(token); } catch { /* 网络失败也要清本地，否则用户被困住 */ }
   clearAccount();
   return { ok: true };
+}
+
+/**
+ * 退出所有设备（含当前这台）—— 怀疑令牌泄露时的一键止血。
+ * 服务端把会话世代号 +1，所有已签发的令牌立刻作废（包括正在用的这一条），
+ * 所以本地也要一并清掉，然后重新登录即可。
+ */
+export async function signOutEverywhere(token) {
+  const r = wrap(await authLogoutAll(token));
+  clearAccount();
+  return r;
 }
 
 /** 校验本地令牌还有效；失效时顺手清掉。 */

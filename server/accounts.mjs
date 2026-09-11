@@ -243,6 +243,22 @@ export function createAccounts({ kv, mail, env = process.env, sent }) {
       return { ok: true, status: 200 };
     },
 
+    /**
+     * 退出所有设备（含当前这台）。
+     *
+     * 用途：怀疑令牌泄露时的一键止血。不必改密码 —— 因为「会话失效」本来就靠世代号实现，
+     * 把它 +1 就行，所有已签发的会话下一次校验就全部作废。
+     * 客户端拿到成功响应后应当清掉本地令牌（它自己也失效了）。
+     */
+    async logoutAll(token) {
+      const u = await sessionUser(token);
+      if (!u) return { ok: false, status: 401, error: 'unauthorized' };
+      u.sessionEpoch = Number(u.sessionEpoch) + 1;
+      u.updatedAt = Date.now();
+      await kv.set(K_USER(u.id), JSON.stringify(u));
+      return { ok: true, status: 200 };
+    },
+
     async me(token) {
       const u = await sessionUser(token);
       if (!u) return { ok: false, status: 401, error: 'unauthorized' };

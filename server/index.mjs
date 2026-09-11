@@ -858,6 +858,7 @@ const server = http.createServer(async (req, res) => {
         register: () => accounts.register({ ...body, ip }),
         login: () => accounts.login({ ...body, ip, device: body.device }),
         logout: () => accounts.logout(token),
+        'logout-all': () => accounts.logoutAll(token),
         me: () => accounts.me(token),
         sync: () => accounts.setSync(token, body.sync),
         'change-password': () => accounts.changePassword(token, body),

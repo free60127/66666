@@ -108,6 +108,7 @@ export const getAuthConfig = () => api('/api/auth/config', {}, TIMEOUT.fast);
 export const authRegister = (p) => authPost('register', p);
 export const authLogin = (p) => authPost('login', p);
 export const authLogout = (token) => authPost('logout', {}, token);
+export const authLogoutAll = (token) => authPost('logout-all', {}, token);
 export const authSetSync = (token, sync) => authPost('sync', { sync }, token);
 export const authChangePassword = (token, p) => authPost('change-password', p, token);
 export const authDeleteAccount = (token, p) => authPost('delete-account', p, token);

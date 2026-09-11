@@ -204,6 +204,22 @@ let resetCode = '';
     (await acc.register({ email: e, password: 'brand new start', ip: ip() })).ok);
 }
 
+/* ---------- 8b. 退出所有设备 ---------- */
+{
+  const e = uniq('allout');
+  const reg = await acc.register({ email: e, password: 'sign out everywhere', ip: ip() });
+  const second = await acc.login({ email: e, password: 'sign out everywhere', ip: ip() });
+  check('㊸ 两台设备各自登录成功', reg.ok && second.ok && reg.token !== second.token);
+  check('㊹ 两个令牌都可用', (await acc.me(reg.token)).ok && (await acc.me(second.token)).ok);
+
+  const out = await acc.logoutAll(reg.token);
+  check('㊺ 退出所有设备成功', out.ok, `status=${out.status}`);
+  check('㊻ 当前设备令牌失效', !(await acc.me(reg.token)).ok);
+  check('㊼ 另一台设备令牌同样失效', !(await acc.me(second.token)).ok);
+  check('㊽ 原密码仍可重新登录', (await acc.login({ email: e, password: 'sign out everywhere', ip: ip() })).ok);
+  check('㊾ 未登录不能调用该接口', !(await acc.logoutAll('')).ok);
+}
+
 /* ---------- 9. 邮件构造（真实 mailer 的测试模式） ---------- */
 {
   const box = [];
