@@ -39,7 +39,14 @@ export const getQuizJob = (jobId) => api('/api/quiz/' + jobId);
 /* ---------- 云同步（同步码） ---------- */
 export const getSyncInfo = () => api('/api/sync/info');
 export const createSyncCode = () => api('/api/sync/new', { method: 'POST' });
-export const pullCloudSync = (code) => api('/api/sync/' + encodeURIComponent(code));
+/** 拉取云端快照；码不存在时抛出的错误带 status=404，调用方据此区分"云端数据没了"与"网络故障"。 */
+export async function pullCloudSync(code) {
+  const r = await apiRaw('/api/sync/' + encodeURIComponent(code));
+  if (r.ok) return r.data;
+  const err = new Error((r.data && r.data.error) || ('读取云端数据失败：HTTP ' + r.status));
+  err.status = r.status;
+  throw err;
+}
 export const pushCloudSync = (code, payload) =>
   apiRaw('/api/sync/' + encodeURIComponent(code), { method: 'POST', body: JSON.stringify(payload) });
 

@@ -548,8 +548,12 @@ function App() {
   const [syncBusy, setSyncBusy] = useState(false);
   const [syncTip, setSyncTip] = useState('');
   const [codeInput, setCodeInput] = useState('');
+  const [syncLost, setSyncLost] = useState(false); // 云端没有这串码的数据（通常是平台重新部署）
   const syncBusyRef = useRef(false);
   const lastSyncAtRef = useRef(0);
+  // 最近一次"手动操作"（生成码/换码/填码/停用/立即同步）的时间：
+  // 自动同步在这之后 5 秒内不跑，否则它会把手动操作刚给出的提示覆盖掉（用户就看不到失败原因了）
+  const manualActionAtRef = useRef(0);
   // 最近一次「载入 / 保存」时的内容指纹：用来判断当前作业有没有改动过，
   // 避免在"打开库里的课文后直接点新建"时让用户重复保存一份完全相同的内容。
   const savedSnapshotRef = useRef('');
@@ -954,13 +958,21 @@ function App() {
   const runSync = async (manual = true, codeOverride) => {
     const code = codeOverride || syncCode;
     if (!code) { if (manual) setSyncTip('还没有同步码：先生成一个，或在另一台设备上把码填进来'); return; }
-    if (syncBusyRef.current) return;
+    if (syncBusyRef.current) { if (manual) setSyncTip('正在同步中，请稍候再试'); return; }
+    // 自动同步让位给刚发生的手动操作，避免覆盖提示 / 抢在同一时刻发请求
+    if (!manual && Date.now() - manualActionAtRef.current < 5000) return;
+    if (manual) manualActionAtRef.current = Date.now();
     syncBusyRef.current = true;
     setSyncBusy(true);
     if (manual) setSyncTip('正在同步…');
     try {
       const res = await syncOnce({ code, local: { libraries: myLibs, favorites, history: historyList } });
-      if (!res.ok) { setSyncTip(res.error || '同步失败'); return; }
+      if (!res.ok) {
+        if (res.code === 'NOT_FOUND') { setSyncLost(true); setSyncTip(res.error); }
+        else setSyncTip(res.error || '同步失败');
+        return;
+      }
+      setSyncLost(false);
       lastSyncAtRef.current = Date.now();
       const changed = applyMergedSnapshot(res.merged);
       const meta = { ...loadSyncMeta(), lastSyncAt: lastSyncAtRef.current, version: res.version };
@@ -983,7 +995,9 @@ function App() {
   };
 
   const startNewSync = async () => {
-    if (syncBusyRef.current) return;
+    // 正在同步时不要静默 return —— 用户会以为按钮坏了
+    if (syncBusyRef.current) { setSyncTip('正在同步中，请稍候再试'); return; }
+    manualActionAtRef.current = Date.now(); // 先占位，防止自动同步覆盖下面可能出现的失败提示
     syncBusyRef.current = true;
     setSyncBusy(true);
     setSyncTip('');
@@ -1003,6 +1017,7 @@ function App() {
   const useExistingCode = async () => {
     const code = codeInput.trim().toLowerCase();
     if (!/^[a-f0-9]{32}$/.test(code)) { setSyncTip('同步码应为 32 位十六进制字符，请检查是否复制完整'); return; }
+    manualActionAtRef.current = Date.now();
     saveSyncCode(code); setSyncCode(code); setCodeInput('');
     await runSync(true, code);
   };
@@ -1013,8 +1028,8 @@ function App() {
   };
 
   const stopSync = () => {
-    if (!window.confirm('停用云同步？\n\n本机数据不受影响；云端那份数据也还在，以后把这串码填回来就能继续用。')) return;
-    saveSyncCode(''); setSyncCode(''); setSyncTip('已停用云同步（本机数据保留）');
+    if (!window.confirm('停用云同步？\n\n本机数据不受影响。云端那份数据仍在这串码下（除非服务端重新部署过），以后把这串码填回来就能继续用。')) return;
+    saveSyncCode(''); setSyncCode(''); setSyncLost(false); setSyncTip('已停用云同步（本机数据保留）');
   };
 
   // 打开页面时自动同步一次（把云端新增内容合并进来）
@@ -2181,8 +2196,15 @@ function App() {
                   <div className="sync-row">
                     <code className="sync-code">{syncCode}</code>
                     <button className="ghost-btn sm" onClick={copySyncCode}><Copy size={13} />复制</button>
+                    <button className="ghost-btn sm" onClick={startNewSync} disabled={syncBusy} title="换一串新码并把本机数据传上去">换码</button>
                     <button className="ghost-btn sm" onClick={stopSync}>停用</button>
                   </div>
+                  {syncLost ? (
+                    <p className="sync-lost" role="alert">
+                      ⚠️ 云端已经找不到这串同步码的数据了 —— 最常见的原因是<b>服务端重新部署过</b>（免费托管的磁盘是临时的）。
+                      <b>本机数据完全没丢</b>；点「换码」重新生成一串，本机数据会自动传上去，然后在其它设备上填这串新码即可。
+                    </p>
+                  ) : null}
                   <p className="muted small">
                     {syncMeta.lastSyncAt
                       ? `上次同步：${new Date(syncMeta.lastSyncAt).toLocaleString('zh-CN', { hour12: false })}`

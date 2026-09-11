@@ -89,7 +89,21 @@ export async function createNewSyncCode() {
  */
 export async function syncOnce({ code, local, device, maxAttempts = 3 }) {
   if (!code) return { ok: false, error: '还没有同步码' };
-  const remote = await pullCloudSync(code); // 码不存在会抛错，交给调用方提示
+  let remote;
+  try {
+    remote = await pullCloudSync(code);
+  } catch (e) {
+    // 404 = 云端没有这串码：免费托管重新部署会清空磁盘，是最常见的原因。
+    // 这和"网络故障"必须分开报，否则用户会以为是自己填错了码。
+    if (e && e.status === 404) {
+      return {
+        ok: false,
+        code: 'NOT_FOUND',
+        error: '云端找不到这串同步码的数据（服务端可能重新部署过）。本机数据不受影响，重新生成同步码即可恢复。',
+      };
+    }
+    throw e;
+  }
   let baseVersion = remote.version;
   let payload = mergeSnapshot(local, remote.data);
 
@@ -100,6 +114,9 @@ export async function syncOnce({ code, local, device, maxAttempts = 3 }) {
       data: { libraries: payload.libraries, favorites: payload.favorites, history: payload.history },
     });
     if (r.ok) return { ok: true, version: r.data.version, merged: payload, added: payload.added };
+    if (r.status === 404) {
+      return { ok: false, code: 'NOT_FOUND', error: '云端找不到这串同步码的数据（服务端可能重新部署过）' };
+    }
     if (r.status === 409 && r.data) {
       // 其它设备抢先写了：拿云端最新数据重新合并后再推
       baseVersion = r.data.version;

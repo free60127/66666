@@ -65,7 +65,8 @@ export function createUpstashStore({ url, token, prefix = 'bts:sync:' }) {
 
 /** 本地文件驱动：仅用于开发/自托管；托管平台上的磁盘通常是临时的。 */
 export function createFileStore(dir) {
-  fs.mkdirSync(dir, { recursive: true });
+  const ensure = () => fs.mkdirSync(dir, { recursive: true });
+  ensure();
   const fileOf = (code) => path.join(dir, code + '.json');
   return {
     kind: 'file',
@@ -74,7 +75,17 @@ export function createFileStore(dir) {
       try { return JSON.parse(fs.readFileSync(fileOf(code), 'utf8')); } catch { return null; }
     },
     async write(code, doc) {
-      fs.writeFileSync(fileOf(code), JSON.stringify(doc));
+      try {
+        fs.writeFileSync(fileOf(code), JSON.stringify(doc));
+      } catch (e) {
+        // 目录可能在运行期被清掉（平台重置磁盘 / 手工清理）——自愈一次，别直接把 500 抛给用户
+        if (e && (e.code === 'ENOENT' || e.code === 'ENOTDIR')) {
+          ensure();
+          fs.writeFileSync(fileOf(code), JSON.stringify(doc));
+          return;
+        }
+        throw e;
+      }
     },
   };
 }
