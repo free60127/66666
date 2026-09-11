@@ -10,31 +10,35 @@
 
 const KEY = 'bt-lesson-libraries';
 
+/** 规整单个库（导入的数据也要过这一关）；结构不合法返回 null。 */
+export function sanitizeLibrary(raw) {
+  if (!raw || typeof raw.id !== 'string' || !Array.isArray(raw.lessons)) return null;
+  return {
+    id: raw.id,
+    name: String(raw.name || '未命名库'),
+    createdAt: Number(raw.createdAt) || Date.now(),
+    lessons: raw.lessons
+      .filter((l) => l && typeof l === 'object')
+      .map((l) => ({
+        book: 'my',
+        lesson: Number(l.lesson) || 1,
+        title_cn: String(l.title_cn || ''),
+        title_en: String(l.title_en || ''),
+        chinese: String(l.chinese || ''),
+        english: String(l.english || ''),
+        source: String(l.source || '自建'),
+        createdAt: Number(l.createdAt) || Date.now(),
+      }))
+      .sort((a, b) => a.lesson - b.lesson),
+  };
+}
+
 /** 读取全部课文库；数据损坏时返回空数组而不是抛错。 */
 export function loadLibraries() {
   try {
     const raw = JSON.parse(localStorage.getItem(KEY) || '[]');
     if (!Array.isArray(raw)) return [];
-    return raw
-      .filter((lib) => lib && typeof lib.id === 'string' && Array.isArray(lib.lessons))
-      .map((lib) => ({
-        id: lib.id,
-        name: String(lib.name || '未命名库'),
-        createdAt: Number(lib.createdAt) || Date.now(),
-        lessons: lib.lessons
-          .filter((l) => l && typeof l === 'object')
-          .map((l) => ({
-            book: 'my',
-            lesson: Number(l.lesson) || 1,
-            title_cn: String(l.title_cn || ''),
-            title_en: String(l.title_en || ''),
-            chinese: String(l.chinese || ''),
-            english: String(l.english || ''),
-            source: String(l.source || '自建'),
-            createdAt: Number(l.createdAt) || Date.now(),
-          }))
-          .sort((a, b) => a.lesson - b.lesson),
-      }));
+    return raw.map(sanitizeLibrary).filter(Boolean);
   } catch {
     return [];
   }
@@ -100,4 +104,33 @@ export function removeLesson(list, libId, lessonNo) {
   return list.map((lib) =>
     lib.id === libId ? { ...lib, lessons: lib.lessons.filter((l) => l.lesson !== Number(lessonNo)) } : lib,
   );
+}
+
+/**
+ * 合并导入的课文库：同 id 的库并入（课文按 标题+中文 去重），
+ * 新 id 的库整体追加（重名时加「（导入）」后缀，不覆盖现有库）。
+ * @returns {{list: Array, libsAdded: number, lessonsAdded: number}}
+ */
+export function mergeLibraries(current, incoming) {
+  let list = [...(Array.isArray(current) ? current : [])];
+  let libsAdded = 0;
+  let lessonsAdded = 0;
+  for (const raw of Array.isArray(incoming) ? incoming : []) {
+    const clean = sanitizeLibrary(raw);
+    if (!clean) continue;
+    const exists = list.find((l) => l.id === clean.id);
+    if (exists) {
+      for (const lesson of clean.lessons) {
+        const r = upsertLesson(list, clean.id, lesson);
+        list = r.list;
+        if (!r.replaced) lessonsAdded += 1;
+      }
+    } else {
+      const name = list.some((l) => l.name === clean.name) ? clean.name + '（导入）' : clean.name;
+      list = [...list, { ...clean, name }];
+      libsAdded += 1;
+      lessonsAdded += clean.lessons.length;
+    }
+  }
+  return { list, libsAdded, lessonsAdded };
 }

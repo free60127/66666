@@ -6,7 +6,7 @@ import {
   FolderPlus, History, ImagePlus, Library, Link2, LoaderCircle, PanelLeftClose, PanelLeftOpen, PenLine, Plus,
   Settings, Sparkles, Star, Timer, Trash2, Upload, WandSparkles, X,
 } from 'lucide-react';
-import { createLibrary, loadLibraries, removeLesson, removeLibrary, saveLibraries, upsertLesson } from './lessonLibrary.js';
+import { createLibrary, loadLibraries, mergeLibraries, removeLesson, removeLibrary, saveLibraries, upsertLesson } from './lessonLibrary.js';
 import { analyze, generateMaterial, getAnalyzeJob, getLessons, getLesson, getMaterialJob, getOcrJob, getPhonetic, getQuizJob, getStatus, loadSettings, matchLesson, ocr, quiz, saveSettings } from './api.js';
 import { DEMO_LESSON_18, DEMO_LESSONS } from './demo.js';
 import { FAV_KIND_LABEL, favoritesToText, favFromExpression, favFromFinding, favFromIdiom, favFromVocab, filterFavorites, hasMorphology, loadFavorites, mergeFavorites, morphologyText, saveFavorites } from './favorites.js';
@@ -527,6 +527,13 @@ function App() {
   const [libPickId, setLibPickId] = useState('');
   const [newLibName, setNewLibName] = useState('');
   const [libTip, setLibTip] = useState('');
+  // 「新建回译作业」弹窗：当前作业有内容时先让用户决定要不要存进课文库
+  const [newJobOpen, setNewJobOpen] = useState(false);
+  const pendingNewRef = useRef(true);
+  // 备份（课文库 + 收藏夹 + 历史）
+  const [backupOpen, setBackupOpen] = useState(false);
+  const [backupTip, setBackupTip] = useState('');
+  const backupFileRef = useRef(null);
   // 自由模式的「英文原文（标准答案）」：填了才能在结果里做原文对照
   const [manualOriginal, setManualOriginal] = useState('');
   const [originalOpen, setOriginalOpen] = useState(false);
@@ -685,7 +692,9 @@ function App() {
       setChinese(lesson.chinese || '');
       setDraft('');
       setGeneratedOriginal('');
-      setManualOriginal('');
+      // 语料里每一课都带英文原文（348 课全有），直接把标准答案填进「英文原文」栏，
+      // 用户可以看到/对照，不再是一个空框。
+      setManualOriginal(lesson.english || '');
       setMaterialKeywords([]);
       setMatchedLesson(lesson);
     } catch {
@@ -745,7 +754,18 @@ function App() {
     setLibModalOpen(true);
   };
 
-  const saveToLibrary = () => {
+  const openNewJobModal = () => {
+    setLibPickId(myLibs[0]?.id || '');
+    setNewLibName('');
+    setLibTip('');
+    setNewJobOpen(true);
+  };
+
+  /**
+   * 把当前作业写进课文库（含"输入新库名即新建"）。
+   * 保存成功返回 true；失败时把原因写进 libTip 并返回 false。
+   */
+  const persistToLibrary = () => {
     const name = newLibName.trim();
     let list = myLibs;
     let targetId = libPickId;
@@ -758,19 +778,147 @@ function App() {
         targetId = created[created.length - 1].id;
       }
     }
-    if (!targetId) { setLibTip('请先选择或输入一个课文库名称'); return; }
+    if (!targetId) { setLibTip('请先选择或输入一个课文库名称'); return false; }
     const entry = {
       title_cn: title.trim() || chinese.trim().slice(0, 12) || '未命名作业',
       chinese: chinese.trim(),
       english: currentOriginal.trim(),
     };
-    if (!entry.chinese) { setLibTip('中文提示还是空的：至少要有中文提示才能存成课文'); return; }
+    if (!entry.chinese) { setLibTip('中文提示还是空的：至少要有中文提示才能存成课文'); return false; }
     const { list: next, replaced } = upsertLesson(list, targetId, entry);
     setMyLibs(next);
-    if (!saveLibraries(next)) { setLibTip('写入本机存储失败（空间可能已满），请先清理浏览器数据'); return; }
+    if (!saveLibraries(next)) { setLibTip('写入本机存储失败（空间可能已满），请先清理浏览器数据'); return false; }
     setMyLibId(targetId);
-    setLibModalOpen(false);
-    flashTip(setShareTip, (replaced ? '已更新课文：' : '已保存课文：') + entry.title_cn + (entry.english ? '' : '（未填英文原文，练习时无法做原文对照）'), 4200);
+    flashTip(setShareTip, (replaced ? '已更新课文：' : '已保存课文：') + entry.title_cn
+      + (entry.english ? '' : '（没填英文原文，练习时无法做原文对照）'), 4200);
+    return true;
+  };
+
+  const saveToLibrary = () => {
+    if (persistToLibrary()) setLibModalOpen(false);
+  };
+
+  const hasJobContent = () => Boolean(title.trim() || chinese.trim() || draft.trim() || manualOriginal.trim());
+
+  /** 真正开一份空白作业（调用前请先处理"当前作业要不要保存"）。 */
+  const doStartNewJob = (closeSidebar) => {
+    genTokenRef.current += 1;
+    if (closeSidebar) closeSidebarOnMobile();
+    setView('editor');
+    setResult(null);
+    setTitle('');
+    setChinese('');
+    setDraft('');
+    setFileName('');
+    setGeneratedOriginal('');
+    setManualOriginal('');
+    setMaterialKeywords([]);
+    setMatchedLesson(null);
+    setMatchConfidence('');
+    setMatchScore(null);
+    setError('');
+    setOcrNotes({});
+    setMode('free');       // 全新作业默认自由模式
+    setMyLibId('');
+    setOriginalOpen(true); // 展开原文栏，引导先填标准答案
+    window.history.replaceState(null, '', window.location.pathname + window.location.search);
+  };
+
+  /**
+   * 侧栏「新建回译作业」。
+   * 注意语义：这是"新开一份作业"，不是"清空当前作业"——
+   * 当前作业还有内容时会先弹窗，让用户选择存进课文库再新建，而不是直接销毁。
+   */
+  const startNewJob = (closeSidebar = true) => {
+    if (!hasJobContent()) { doStartNewJob(closeSidebar); return; }
+    pendingNewRef.current = closeSidebar;
+    openNewJobModal();
+  };
+
+  /** 弹窗里选「保存并新建」。 */
+  const saveAndStartNew = () => {
+    if (!persistToLibrary()) return;
+    setNewJobOpen(false);
+    doStartNewJob(pendingNewRef.current !== false);
+  };
+
+  /** 弹窗里选「不保存，直接新建」。 */
+  const discardAndStartNew = () => {
+    setNewJobOpen(false);
+    doStartNewJob(pendingNewRef.current !== false);
+  };
+
+  /** 顶栏「编辑器」：只切回编辑视图，不动任何内容（只清 #job= 免得刷新跳回结果页）。 */
+  const backToEditor = () => {
+    setView('editor');
+    setResult(null);
+    window.history.replaceState(null, '', window.location.pathname + window.location.search);
+  };
+
+  /* ---------- 备份：课文库 + 收藏夹 + 历史 ---------- */
+  const libraryLessonCount = myLibs.reduce((n, lib) => n + lib.lessons.length, 0);
+  const backupSummary = `${myLibs.length} 个课文库（${libraryLessonCount} 篇课文） · ${favorites.length} 条收藏 · ${historyList.length} 条历史`;
+
+  const exportBackup = () => {
+    const payload = {
+      app: 'back-translate-studio',
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      libraries: myLibs,
+      favorites,
+      history: historyList,
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'retranslate-backup-' + new Date().toISOString().slice(0, 10) + '.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+    setBackupTip('已导出：' + backupSummary + '。换设备或清了浏览器数据后，用这个文件就能恢复。');
+  };
+
+  const importBackup = async (file) => {
+    if (!file) return;
+    setBackupTip('');
+    try {
+      const data = JSON.parse(await file.text());
+      const libs = Array.isArray(data?.libraries) ? data.libraries : [];
+      const favs = Array.isArray(data?.favorites) ? data.favorites : [];
+      const hist = Array.isArray(data?.history) ? data.history : [];
+      if (!libs.length && !favs.length && !hist.length) throw new Error('文件里没有可导入的数据');
+
+      const { list: nextLibs, libsAdded, lessonsAdded } = mergeLibraries(myLibs, libs);
+      if (libsAdded || lessonsAdded) { setMyLibs(nextLibs); saveLibraries(nextLibs); }
+
+      let favAdded = 0;
+      if (favs.length) {
+        const { merged, added } = mergeFavorites(favs, favorites);
+        favAdded = added;
+        if (added) { setFavorites(merged); saveFavorites(merged); }
+      }
+
+      let histAdded = 0;
+      if (hist.length) {
+        const merged = [...historyList];
+        for (const h of hist) {
+          if (!h || !h.jobId || merged.some((x) => x.jobId === h.jobId)) continue;
+          merged.push(h);
+          histAdded += 1;
+        }
+        if (histAdded) {
+          const top = merged.sort((a, b) => (Number(b.time) || 0) - (Number(a.time) || 0)).slice(0, 20);
+          setHistoryList(top);
+          saveHistory(top);
+        }
+      }
+
+      setBackupTip(`导入完成：新增 ${libsAdded} 个课文库、${lessonsAdded} 篇课文、${favAdded} 条收藏、${histAdded} 条历史（同名课文自动去重）。`);
+    } catch (e) {
+      setBackupTip('导入失败：' + (e.message || '文件格式不正确'));
+    }
   };
 
   const deleteLibrary = (libId, libName) => {
@@ -845,12 +993,11 @@ function App() {
     if (!matchedLesson) return;
     setMode('lesson');
     setTitle(lessonLabel(matchedLesson));
+    setManualOriginal(matchedLesson.english || ''); // 把这一课的英文原文带进「英文原文」栏
     setMatchConfidence('manual');
     setMatchScore(null);
-    try {
-      localStorage.setItem('bt-book', String(matchedLesson.book));
-      localStorage.setItem('bt-lesson', String(matchedLesson.lesson));
-    } catch { /* ignore */ }
+    safeSet('bt-book', String(matchedLesson.book));
+    safeSet('bt-lesson', String(matchedLesson.lesson));
   };
 
   const handleGenerateMaterial = async () => {
@@ -1340,35 +1487,7 @@ function App() {
     }
   };
 
-  // 新建 / 回到编辑器：清空当前作业，开始一份全新的回译
-  const resetWorkspace = (closeSidebar) => {
-    const hasContent = Boolean(title.trim() || chinese.trim() || draft.trim() || manualOriginal.trim());
-    // 有内容时先确认，避免误点「新建」把刚写的东西清掉
-    if (hasContent && !window.confirm('新建会清空当前作业（标题、中文提示、英文初稿与原文），确定继续？')) return;
-    genTokenRef.current += 1;
-    if (closeSidebar) closeSidebarOnMobile();
-    setView('editor');
-    setResult(null);
-    // 清空作业内容：原来只清结果不清内容，用户点「新建」后看到的还是上一课，像是"没反应"
-    setTitle('');
-    setChinese('');
-    setDraft('');
-    setFileName('');
-    setGeneratedOriginal('');
-    setManualOriginal('');
-    setMaterialKeywords([]);
-    setMatchedLesson(null);
-    setMatchConfidence('');
-    setMatchScore(null);
-    setError('');
-    setOcrNotes({});
-    // 全新作业默认自由模式，并展开「英文原文」栏引导填写标准答案
-    setMode('free');
-    setMyLibId('');
-    setOriginalOpen(true);
-    // 清掉 URL 上的 #job=，否则刷新会重新加载上一次的结果
-    window.history.replaceState(null, '', window.location.pathname + window.location.search);
-  };
+  // 顶栏「编辑器」：只切回编辑视图，不动任何内容（只清 #job= 免得刷新跳回结果页）。
 
   const onSaveSettings = () => {
     const ok = saveSettings(settings);
@@ -1382,12 +1501,14 @@ function App() {
    * 5 个弹窗原来都没有 dialog 语义、不能用键盘关闭、Tab 会跑到弹窗外的内容上。 */
   const modalRefs = useRef({});
   useEffect(() => {
-    const open = camOpen ? 'cam' : materialOpen ? 'material' : libModalOpen ? 'lib' : historyOpen ? 'history' : favOpen ? 'fav' : settingsOpen ? 'settings' : null;
+    const open = camOpen ? 'cam' : materialOpen ? 'material' : newJobOpen ? 'newjob' : libModalOpen ? 'lib' : backupOpen ? 'backup' : historyOpen ? 'history' : favOpen ? 'fav' : settingsOpen ? 'settings' : null;
     if (!open) return undefined;
     const closers = {
       cam: closeCamera,
       material: () => { if (!materialBusy) setMaterialOpen(false); },
+      newjob: () => setNewJobOpen(false),
       lib: () => setLibModalOpen(false),
+      backup: () => setBackupOpen(false),
       history: () => setHistoryOpen(false),
       fav: () => setFavOpen(false),
       settings: () => setSettingsOpen(false),
@@ -1408,7 +1529,30 @@ function App() {
     document.addEventListener('keydown', onKeyDown);
     const timer = setTimeout(() => modalRefs.current[open]?.querySelector('button, input, select, textarea')?.focus(), 40);
     return () => { document.removeEventListener('keydown', onKeyDown); clearTimeout(timer); };
-  }, [camOpen, materialOpen, libModalOpen, historyOpen, favOpen, settingsOpen, materialBusy]);
+  }, [camOpen, materialOpen, newJobOpen, libModalOpen, backupOpen, historyOpen, favOpen, settingsOpen, materialBusy]);
+
+  // 课文库选择区（「保存到课文库」和「新建作业」两个弹窗共用）
+  const libPickerFields = (
+    <>
+      {myLibs.length > 0 && (
+        <div className="lib-picker">
+          <div className="muted small">存到已有课文库：</div>
+          {myLibs.map((lib) => {
+            const picked = libPickId === lib.id && !newLibName.trim();
+            return (
+              <label key={lib.id} className={'lib-option' + (picked ? ' active' : '')}>
+                <input type="radio" name="bt-lib" checked={picked} onChange={() => { setLibPickId(lib.id); setNewLibName(''); }} />
+                <Library size={13} />
+                <span>{lib.name}</span>
+                <span className="muted small">（{lib.lessons.length} 课）</span>
+              </label>
+            );
+          })}
+        </div>
+      )}
+      <label>或新建一个课文库<input value={newLibName} onChange={(e) => setNewLibName(e.target.value)} placeholder="例如：我的新概念 2 / 高考真题精读" /></label>
+    </>
+  );
 
   return (
     <div className="app">
@@ -1416,7 +1560,7 @@ function App() {
       <aside className={'sidebar' + (sidebarOpen ? '' : ' collapsed')}>
         <button className="sidebar-close" onClick={toggleSidebar} aria-label="收起侧栏"><X size={18} /></button>
         <div className="brand"><div className="brand-mark">回</div><div><strong>回译本</strong><span>BACK-TRANSLATE STUDIO</span></div></div>
-        <button className="primary-btn" onClick={() => resetWorkspace(true)}><Plus size={16} />新建回译作业</button>
+        <button className="primary-btn" onClick={() => startNewJob(true)}><Plus size={16} />新建回译作业</button>
         <div className="side-section">
           <div className="side-title">课文库</div>
           <div className="book-tabs">
@@ -1471,6 +1615,7 @@ function App() {
         </div>
         <div className="side-footer">
           <button className="ghost-btn" onClick={() => setSettingsOpen(true)}><Settings size={15} />AI 设置</button>
+          <button className="ghost-btn" onClick={() => { setBackupTip(''); setBackupOpen(true); }} title="导出 / 导入本机数据备份（课文库、收藏夹、历史）"><Download size={15} />备份</button>
         </div>
       </aside>
 
@@ -1485,7 +1630,7 @@ function App() {
             {status ? ((status.hasKey || settings.apiKey) ? 'AI 已配置 · ' + status.model : '未配置 API Key · ' + status.model) : '后端未连接'}
             {status?.corpusLessons ? ' · ' + status.corpusLessons + ' 课' : ''}
           </div>
-          <button className="ghost-btn" onClick={() => resetWorkspace(false)}><X size={15} />编辑器</button>
+          <button className="ghost-btn" onClick={backToEditor}><X size={15} />编辑器</button>
           <button className="ghost-btn" onClick={openHistoryModal}><History size={15} />历史结果{historyList.length ? ` (${historyList.length})` : ''}</button>
           <button className="ghost-btn" onClick={() => setFavOpen(true)}><Star size={15} />收藏夹{favorites.length ? ` (${favorites.length})` : ''}</button>
         </header>
@@ -1803,28 +1948,53 @@ function App() {
               <div><span className="muted">中文提示</span><strong className={chinese.trim() ? '' : 'warn'}>{chinese.trim() ? chinese.trim().length + ' 字' : '还没有，至少要有中文提示'}</strong></div>
               <div><span className="muted">英文原文</span><strong className={currentOriginal.trim() ? '' : 'warn'}>{currentOriginal.trim() ? currentOriginal.trim().split(/\s+/).filter(Boolean).length + ' 词' : '没填，练习时没有原文对照'}</strong></div>
             </div>
-            {myLibs.length > 0 && (
-              <div className="lib-picker">
-                <div className="muted small">存到已有课文库：</div>
-                {myLibs.map((lib) => {
-                  const picked = libPickId === lib.id && !newLibName.trim();
-                  return (
-                    <label key={lib.id} className={'lib-option' + (picked ? ' active' : '')}>
-                      <input type="radio" name="bt-lib" checked={picked} onChange={() => { setLibPickId(lib.id); setNewLibName(''); }} />
-                      <Library size={13} />
-                      <span>{lib.name}</span>
-                      <span className="muted small">（{lib.lessons.length} 课）</span>
-                    </label>
-                  );
-                })}
-              </div>
-            )}
-            <label>或新建一个课文库<input value={newLibName} onChange={(e) => setNewLibName(e.target.value)} placeholder="例如：我的新概念 2 / 高考真题精读" /></label>
+            {libPickerFields}
             {libTip ? <div className="lib-tip" role="alert">{libTip}</div> : null}
             <div className="modal-actions">
               <button className="primary-btn" onClick={saveToLibrary}>{newLibName.trim() ? (myLibs.some((l) => l.name === newLibName.trim()) ? '存入该库' : '新建并保存') : '保存'}</button>
               <button className="ghost-btn" onClick={() => setLibModalOpen(false)}>取消</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {newJobOpen && (
+        <div className="modal-mask" onClick={() => setNewJobOpen(false)}>
+          <div className="modal" ref={(el) => { modalRefs.current.newjob = el; }} role="dialog" aria-modal="true" aria-label="新建回译作业" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head"><h2>新建回译作业</h2><button className="icon-btn" onClick={() => setNewJobOpen(false)} aria-label="关闭"><X size={16} /></button></div>
+            <p className="muted small">这会打开一份<b>空白作业</b>，当前这份不会自动保留。建议先存进课文库——以后可以随时从左侧「我的课文库」里选出来继续练。</p>
+            <div className="lib-preview">
+              <div><span className="muted">标题</span><strong>{title.trim() || (chinese.trim() ? chinese.trim().slice(0, 12) + '…' : '未命名作业')}</strong></div>
+              <div><span className="muted">中文提示</span><strong className={chinese.trim() ? '' : 'warn'}>{chinese.trim() ? chinese.trim().length + ' 字' : '空'}</strong></div>
+              <div><span className="muted">英文初稿</span><strong className={draft.trim() ? '' : 'warn'}>{draft.trim() ? draft.trim().split(/\s+/).filter(Boolean).length + ' 词' : '还没写'}</strong></div>
+              <div><span className="muted">英文原文</span><strong className={currentOriginal.trim() ? '' : 'warn'}>{currentOriginal.trim() ? currentOriginal.trim().split(/\s+/).filter(Boolean).length + ' 词' : '空'}</strong></div>
+            </div>
+            {libPickerFields}
+            {libTip ? <div className="lib-tip" role="alert">{libTip}</div> : null}
+            <div className="modal-actions">
+              <button className="primary-btn" onClick={saveAndStartNew}>存进课文库并新建</button>
+              <button className="ghost-btn" onClick={discardAndStartNew}>不保存，直接新建</button>
+              <button className="ghost-btn" onClick={() => setNewJobOpen(false)}>取消</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {backupOpen && (
+        <div className="modal-mask" onClick={() => setBackupOpen(false)}>
+          <div className="modal" ref={(el) => { modalRefs.current.backup = el; }} role="dialog" aria-modal="true" aria-label="备份与恢复" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head"><h2>备份与恢复</h2><button className="icon-btn" onClick={() => setBackupOpen(false)} aria-label="关闭"><X size={16} /></button></div>
+            <p className="muted small">课文库、收藏夹、历史都只存在<b>本机浏览器</b>里：换设备、换浏览器、清缓存都会丢。导出一个备份文件，换环境后导入即可恢复。</p>
+            <div className="lib-preview">
+              <div><span className="muted">当前数据</span><strong>{backupSummary}</strong></div>
+            </div>
+            <input ref={backupFileRef} type="file" accept="application/json,.json" hidden onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; importBackup(f); }} />
+            <div className="modal-actions">
+              <button className="primary-btn" onClick={exportBackup}><Download size={15} />导出备份文件</button>
+              <button className="ghost-btn" onClick={() => backupFileRef.current?.click()}><Upload size={15} />导入备份文件</button>
+              <button className="ghost-btn" onClick={() => setBackupOpen(false)}>关闭</button>
+            </div>
+            {backupTip ? <div className="backup-tip" role="status" aria-live="polite">{backupTip}</div> : null}
           </div>
         </div>
       )}

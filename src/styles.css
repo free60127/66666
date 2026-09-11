@@ -460,6 +460,9 @@ mark.hl { background: #ffe3e3; color: inherit; padding: 0 2px; border-radius: 2p
 .modal .lib-option.active { border-color: var(--brand); background: #f0f6ff; }
 .modal .lib-option input { width: auto; margin: 0; }
 .lib-tip { color: var(--red); font-size: 12.5px; margin: -4px 0 10px; }
+.backup-tip { margin-top: 12px; font-size: 12.5px; line-height: 1.7; color: #176b62; background: #effaf7; border: 1px solid #b9e1d8; border-radius: 8px; padding: 9px 11px; }
+.side-footer { display: flex; gap: 6px; }
+.side-footer .ghost-btn { flex: 1; justify-content: center; }
 
 @media screen and (max-width: 900px) {
   .fold-head { flex-wrap: wrap; }
