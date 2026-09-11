@@ -103,6 +103,8 @@ function normalizeResult(data) {
 
 /* ---------- 拍照 / 图片识别（OCR）前端预处理 ---------- */
 const OCR_MODE_LABEL = { auto: '自动识别', handwriting: '手写体优先', printed: '印刷体优先' };
+// OCR 的三个目标框（中文提示 / 英文初稿 / 英文原文）
+const OCR_LABEL = { chinese: '中文提示', english: '英文初稿', original: '英文原文' };
 
 function fileToDataUrl(file) {
   return new Promise((resolve, reject) => {
@@ -520,6 +522,8 @@ function App() {
   const chineseFileRef = useRef(null);
   const englishCamRef = useRef(null);
   const englishFileRef = useRef(null);
+  const originalCamRef = useRef(null);   // 英文原文（标准答案）框的拍照 / 选图
+  const originalFileRef = useRef(null);
   const favFileRef = useRef(null);
   // 计时器（记录一篇课文做了多久）
   const [timer, setTimer] = useState(loadTimer);
@@ -970,6 +974,7 @@ function App() {
       setChinese(parsed.chinese);
       setDraft(parsed.draft);
       setGeneratedOriginal('');
+      setManualOriginal(''); // 新作业：先清掉上一份的原文，等课文匹配结果出来再填
       setMaterialKeywords([]);
       const found = await matchLesson({ title: parsed.title, chinese: parsed.chinese });
       if (found?.match && found.confidence && found.confidence !== 'none' && found.confidence !== 'low') {
@@ -978,6 +983,7 @@ function App() {
         setMatchedLesson(found.match);
         setMode('lesson');
         setTitle(lessonLabel(found.match));
+        setManualOriginal(found.match.english || ''); // DOCX 命中课文后，原文也填进「英文原文」栏
         setMatchConfidence(found.confidence);
         setMatchScore(found.score);
         try {
@@ -1048,6 +1054,9 @@ function App() {
       setChinese(data.chinese);
       setDraft('');
       setGeneratedOriginal(data.original);
+      // AI 素材的原文也要填进「英文原文」输入框，否则用户只看到空框
+      // （之前只写进 generatedOriginal，折叠栏显示"已自动带入 N 词"但框里是空的）
+      setManualOriginal(data.original || '');
       setMaterialKeywords(data.keywords || []);
       setMatchedLesson(null);
       setMode('free');
@@ -1297,6 +1306,13 @@ function App() {
     const list = Array.from(files || []).filter((f) => f && /^image\//i.test(f.type || ''));
     if (!list.length) { setError('请选择图片文件（JPG / PNG / WEBP 等）'); return; }
     if (ocrBusy) return;
+    // 三个目标框共用一条识别链路：服务端只认 chinese / english 两种语言，
+    // 「英文原文」框用 english 识别、但结果落到 manualOriginal。
+    const target = side === 'chinese'
+      ? { lang: 'chinese', apply: setChinese, done: '已填入中文提示' }
+      : side === 'original'
+        ? { lang: 'english', apply: setManualOriginal, done: '已追加到英文原文' }
+        : { lang: 'english', apply: setDraft, done: '已追加到英文初稿' };
     setError('');
     setOcrBusy(side);
     setOcrNotes((n) => ({ ...n, [side]: '正在准备图片…' }));
@@ -1306,7 +1322,7 @@ function App() {
         setOcrNotes((n) => ({ ...n, [side]: `正在识别第 ${i + 1}/${list.length} 张…（约 5-30 秒）` }));
         const image = await prepareImage(list[i], ocrMode);
         const resp = await ocr({
-          image, side, mode: ocrMode,
+          image, side: target.lang, mode: ocrMode,
           baseUrl: settings.baseUrl, model: settings.model, apiKey: settings.apiKey,
           visionModel: settings.visionModel,
         });
@@ -1328,9 +1344,8 @@ function App() {
         texts.push(text);
       }
       const merged = texts.join('\n\n');
-      const apply = side === 'chinese' ? setChinese : setDraft;
-      apply((prev) => (prev && prev.trim() ? prev.replace(/\s+$/, '') + '\n\n' + merged : merged));
-      setOcrNotes((n) => ({ ...n, [side]: `识别完成：${merged.length} 字，已${side === 'chinese' ? '填入中文提示' : '追加到英文初稿'}，请核对后再生成` }));
+      target.apply((prev) => (prev && prev.trim() ? prev.replace(/\s+$/, '') + '\n\n' + merged : merged));
+      setOcrNotes((n) => ({ ...n, [side]: `识别完成：${merged.length} 字，${target.done}，请核对后再生成` }));
     } catch (e) {
       setOcrNotes((n) => ({ ...n, [side]: '识别失败：' + (e.message || '未知错误') }));
     } finally {
@@ -1340,7 +1355,7 @@ function App() {
 
   const openCamera = async (side) => {
     setCamError('');
-    const fallbackInput = side === 'chinese' ? chineseCamRef.current : englishCamRef.current;
+    const fallbackInput = side === 'chinese' ? chineseCamRef.current : side === 'original' ? originalCamRef.current : englishCamRef.current;
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       fallbackInput?.click();
       return;
@@ -1734,8 +1749,8 @@ function App() {
                 <div className={'ocr-note' + (String(ocrNotes.chinese || '').startsWith('识别失败') ? ' err' : '')}>
                   {ocrNotes.chinese || '支持：拍照 / 导入图片 / 电脑端拖入图片；识别后可先核对再生成'}
                 </div>
-                <input ref={chineseCamRef} type="file" accept="image/*" capture="environment" hidden onChange={(e) => { const f = e.target.files; e.target.value = ''; handleOcrFiles('chinese', f); }} />
-                <input ref={chineseFileRef} type="file" accept="image/*" multiple hidden onChange={(e) => { const f = e.target.files; e.target.value = ''; handleOcrFiles('chinese', f); }} />
+                <input ref={chineseCamRef} type="file" accept="image/*" capture="environment" hidden onChange={(e) => { const f = Array.from(e.target.files || []); e.target.value = ''; handleOcrFiles('chinese', f); }} />
+                <input ref={chineseFileRef} type="file" accept="image/*" multiple hidden onChange={(e) => { const f = Array.from(e.target.files || []); e.target.value = ''; handleOcrFiles('chinese', f); }} />
               </div>
               <div
                 className={'panel' + (dragOver === 'english' ? ' drag-on' : '')}
@@ -1758,32 +1773,54 @@ function App() {
                 <div className={'ocr-note' + (String(ocrNotes.english || '').startsWith('识别失败') ? ' err' : '')}>
                   {ocrNotes.english || '支持：拍照 / 导入图片 / 电脑端拖入图片；手写体建议把「识别模式」切到「手写体优先」'}
                 </div>
-                <input ref={englishCamRef} type="file" accept="image/*" capture="environment" hidden onChange={(e) => { const f = e.target.files; e.target.value = ''; handleOcrFiles('english', f); }} />
-                <input ref={englishFileRef} type="file" accept="image/*" multiple hidden onChange={(e) => { const f = e.target.files; e.target.value = ''; handleOcrFiles('english', f); }} />
+                <input ref={englishCamRef} type="file" accept="image/*" capture="environment" hidden onChange={(e) => { const f = Array.from(e.target.files || []); e.target.value = ''; handleOcrFiles('english', f); }} />
+                <input ref={englishFileRef} type="file" accept="image/*" multiple hidden onChange={(e) => { const f = Array.from(e.target.files || []); e.target.value = ''; handleOcrFiles('english', f); }} />
               </div>
             </div>
             {/* 英文原文（标准答案）：可折叠。填了结果里才能做「原文对照」 */}
-            <div className={'original-fold' + (originalOpen ? ' open' : '')}>
-              <button className="fold-head" onClick={() => setOriginalOpen((v) => !v)} aria-expanded={originalOpen} aria-controls="bt-original">
-                {originalOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-                <span className="fold-title">英文原文（标准答案）</span>
-                <span className="muted small">
+            <div
+              className={'original-fold' + (originalOpen ? ' open' : '') + (dragOver === 'original' ? ' drag-on' : '')}
+              onDragOver={(e) => { e.preventDefault(); setDragOver('original'); }}
+              onDragLeave={() => setDragOver(null)}
+              onDrop={(e) => { e.preventDefault(); setDragOver(null); handleOcrFiles('original', e.dataTransfer && e.dataTransfer.files); }}
+            >
+              <div className="fold-head">
+                <button className="fold-toggle" onClick={() => setOriginalOpen((v) => !v)} aria-expanded={originalOpen} aria-controls="bt-original">
+                  {originalOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                  <span className="fold-title">英文原文（标准答案）</span>
+                </button>
+                <span className="muted small fold-note">
                   {manualOriginal.trim()
-                    ? `已手填 ${manualOriginal.trim().split(/\s+/).filter(Boolean).length} 词，结果里会逐句对照`
+                    ? `已填 ${manualOriginal.trim().split(/\s+/).filter(Boolean).length} 词，结果里会逐句对照`
                     : currentOriginal.trim()
                       ? `已自动带入 ${currentOriginal.trim().split(/\s+/).filter(Boolean).length} 词（留空就用这一份）`
                       : '可选；不填的话结果里只有 AI 修正版，没有原文对照'}
                 </span>
-              </button>
+                <div className="panel-tools">
+                  <button className="ghost-btn sm" onClick={() => openCamera('original')} disabled={Boolean(ocrBusy)} title="调用摄像头拍课文，识别成英文原文">
+                    {ocrBusy === 'original' ? <LoaderCircle className="spin" size={14} /> : <Camera size={14} />}拍照
+                  </button>
+                  <button className="ghost-btn sm" onClick={() => originalFileRef.current?.click()} disabled={Boolean(ocrBusy)} title="从相册 / 文件选择图片，识别成英文原文">
+                    <ImagePlus size={14} />导入图片
+                  </button>
+                </div>
+              </div>
               {originalOpen && (
-                <textarea
-                  id="bt-original"
-                  className="big-textarea original-textarea"
-                  value={manualOriginal}
-                  onChange={(e) => setManualOriginal(e.target.value)}
-                  placeholder="把这一课的英文原文粘贴到这里（课文原文 / 你要对标的范文都行）。留空则使用内置语料或 AI 素材自带的原文。"
-                />
+                <>
+                  <textarea
+                    id="bt-original"
+                    className="big-textarea original-textarea"
+                    value={manualOriginal}
+                    onChange={(e) => setManualOriginal(e.target.value)}
+                    placeholder="把这一课的英文原文粘贴到这里（课文原文 / 你要对标的范文都行）；也可以拍照或导入图片识别。留空则使用内置语料或 AI 素材自带的原文。"
+                  />
+                  <div className={'ocr-note' + (String(ocrNotes.original || '').startsWith('识别失败') ? ' err' : '')}>
+                    {ocrNotes.original || '支持：拍照 / 导入图片 / 电脑端把图片拖进这一栏'}
+                  </div>
+                </>
               )}
+              <input ref={originalCamRef} type="file" accept="image/*" capture="environment" hidden onChange={(e) => { const f = Array.from(e.target.files || []); e.target.value = ''; handleOcrFiles('original', f); }} />
+              <input ref={originalFileRef} type="file" accept="image/*" multiple hidden onChange={(e) => { const f = Array.from(e.target.files || []); e.target.value = ''; handleOcrFiles('original', f); }} />
             </div>
             {error && <div className="error-banner" role="alert"><Flame size={15} /><span className="error-text">{error}</span><button className="link" onClick={loadDemo}>查看离线示例</button><button className="icon-btn err-close" onClick={() => setError('')} aria-label="关闭提示"><X size={15} /></button></div>}
             <div className="actions-bar">
@@ -1830,13 +1867,13 @@ function App() {
       {camOpen && (
         <div className="modal-mask" onClick={closeCamera}>
           <div className="modal cam-modal" ref={(el) => { modalRefs.current.cam = el; }} role="dialog" aria-modal="true" aria-label="拍照识别" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-head"><h2>拍照识别 · {camSide === 'chinese' ? '中文提示' : '英文初稿'}</h2><button className="icon-btn" onClick={closeCamera} aria-label="关闭"><X size={16} /></button></div>
+            <div className="modal-head"><h2>拍照识别 · {OCR_LABEL[camSide] || '英文初稿'}</h2><button className="icon-btn" onClick={closeCamera} aria-label="关闭"><X size={16} /></button></div>
             <video ref={camVideoRef} className="cam-video" playsInline muted autoPlay />
             {camError ? <p className="muted small cam-err">{camError}</p> : null}
             <p className="muted small">把纸张放平、光线充足、尽量让文字填满画面；手写体建议先把「识别模式」设为「手写体优先」。</p>
             <div className="modal-actions">
               <button className="primary-btn" onClick={snapPhoto}><Camera size={16} />拍照并识别</button>
-              <button className="ghost-btn" onClick={() => { const side = camSide; closeCamera(); (side === 'chinese' ? chineseCamRef : englishCamRef).current?.click(); }}>从相册选择</button>
+              <button className="ghost-btn" onClick={() => { const side = camSide; closeCamera(); (side === 'chinese' ? chineseCamRef : side === 'original' ? originalCamRef : englishCamRef).current?.click(); }}>从相册选择</button>
             </div>
           </div>
         </div>
