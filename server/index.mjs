@@ -13,6 +13,12 @@ const PORT = Number(process.env.PORT || 8787);
 const DIST = path.join(ROOT, 'dist');
 // 云同步存储：配了 Upstash 就用它（持久），否则退回本地文件（托管平台上重启会丢）
 const syncStore = createSyncStore(ROOT);
+// 「能不能当持久存储用」要分环境看：
+//  - Upstash：本来就是持久服务 → true
+//  - 本地文件：自己电脑/自托管 VPS 上磁盘是自己的 → 持久；但托管平台（Render 等）的文件系统是
+//    临时的，官方文档明确写「重新部署 / 重启 / 休眠都会丢失」——Render 免费版 15 分钟无访问就休眠。
+const HOSTED = Boolean(process.env.RENDER || process.env.DYNO || process.env.VERCEL || process.env.FLY_APP_NAME || process.env.K_SERVICE);
+const syncDurable = syncStore.durable || !HOSTED;
 
 /* ---------- .env loader ---------- */
 function loadEnv() {
@@ -653,7 +659,7 @@ const server = http.createServer(async (req, res) => {
      * 同步码本身就是凭证（128 位随机），拿到码的人可以读写这份数据。
      * 推送用乐观锁（baseVersion），版本对不上就返回 409 + 云端最新数据，由前端合并后重试。 */
     if (p === '/api/sync/info') {
-      return json(res, 200, { ok: true, store: syncStore.kind, durable: syncStore.durable });
+      return json(res, 200, { ok: true, store: syncStore.kind, durable: syncDurable, hosted: HOSTED });
     }
     if (p === '/api/sync/new' && req.method === 'POST') {
       if (rateLimited(req)) return json(res, 429, { error: '请求过于频繁，请稍后再试' });
@@ -697,7 +703,7 @@ const server = http.createServer(async (req, res) => {
         defaultAiLevel: DEFAULT_AI_LEVEL,
         corpusLessons: allLessons().length,
         books: [...getCorpora().values()].map((c) => ({ book: c.book, lessons: c.lessons.length, source: c.source })),
-        sync: { store: syncStore.kind, durable: syncStore.durable },
+        sync: { store: syncStore.kind, durable: syncDurable, hosted: HOSTED },
       });
     }
     if (p === '/api/lessons' && req.method === 'GET') {
@@ -886,8 +892,8 @@ server.listen(PORT, () => {
   console.log('回译训练工作室后端已启动: http://localhost:' + PORT);
   console.log('模型: ' + stat.model() + ' @ ' + stat.baseUrl() + '  key: ' + (stat.hasKey() ? '已配置' : '未配置'));
   console.log('语料: ' + getCorpus().lessons.length + ' 课');
-  console.log('云同步存储: ' + syncStore.kind + (syncStore.durable ? '（持久）' : '（本机文件）'));
-  if (!syncStore.durable && (process.env.RENDER || process.env.NODE_ENV === 'production')) {
+  console.log('云同步存储: ' + syncStore.kind + (syncDurable ? '（持久）' : '（本机文件 · 托管平台上会随休眠/重启清空）'));
+  if (!syncDurable) {
     console.warn('⚠️  未配置 UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN：同步数据写在容器本地磁盘，'
       + '托管平台重新部署或重启后会丢失。生产环境请按 .env.example 配置云端存储。');
   }

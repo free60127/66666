@@ -2183,6 +2183,14 @@ function App() {
                     生成一串同步码，在另一台设备上填同一串码，练习记录 / 收藏夹 / 课文库就会<b>双向合并</b>同步。
                     <b>同步码等于密码</b>——拿到的人可以读写你的数据，请勿外传。
                   </p>
+                  {status?.sync && !status.sync.durable ? (
+                    <p className="sync-lost" role="alert">
+                      ⚠️ <b>当前服务端没有持久存储，云同步在这个环境下不可靠</b>：托管平台（Render 等）的文件系统是临时的，
+                      <b>每次重新部署、重启、甚至休眠（约 15 分钟无访问）都会清空同步数据</b>。
+                      请先在部署平台配置 <code>UPSTASH_REDIS_REST_URL</code> 与 <code>UPSTASH_REDIS_REST_TOKEN</code>（见 .env.example）；
+                      在那之前请以「导出备份文件」为主要保障。
+                    </p>
+                  ) : null}
                   <div className="sync-row">
                     <input value={codeInput} onChange={(e) => setCodeInput(e.target.value.trim())} placeholder="已有同步码？粘贴到这里" aria-label="输入已有同步码" />
                     <button className="ghost-btn" onClick={useExistingCode} disabled={syncBusy || !codeInput}>使用该码</button>
@@ -2205,13 +2213,16 @@ function App() {
                       <b>本机数据完全没丢</b>；点「换码」重新生成一串，本机数据会自动传上去，然后在其它设备上填这串新码即可。
                     </p>
                   ) : null}
+                  {status?.sync && !status.sync.durable ? (
+                    <p className="sync-lost" role="alert">
+                      ⚠️ 服务端没有持久存储：<b>平台休眠（约 15 分钟无访问）或重新部署都会清空同步数据</b>。
+                      建议尽快配置 <code>UPSTASH_*</code> 环境变量，并定期「导出备份文件」。
+                    </p>
+                  ) : null}
                   <p className="muted small">
                     {syncMeta.lastSyncAt
                       ? `上次同步：${new Date(syncMeta.lastSyncAt).toLocaleString('zh-CN', { hour12: false })}`
                       : '还没有同步过'}
-                    {status?.sync && !status.sync.durable
-                      ? ' · ⚠️ 服务端当前用本机文件存储，平台重新部署会丢，建议按 .env.example 配置云端存储'
-                      : ''}
                   </p>
                   <p className="muted small">在另一台设备上：打开「备份」→ 把这串码粘进输入框 → 使用该码，之后会自动同步。</p>
                   <div className="modal-actions">
