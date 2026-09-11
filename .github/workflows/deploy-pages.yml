@@ -1,0 +1,101 @@
+# 部署前端到 GitHub Pages
+#
+# 只部署**静态前端**（dist/）。后端仍留在 Render 上，前端通过绝对地址调用它。
+#
+# 关键点：前端一旦搬到 GitHub Pages，就和后端**不同源**了，两件事必须同时成立：
+#   1) 构建时注入 VITE_API_BASE（本工作流负责）
+#   2) 后端允许这个来源跨域 —— 在 Render 的环境变量里设
+#        ALLOW_ORIGIN=https://<用户名>.github.io
+#      少了第 2 步，浏览器会在预检阶段直接拦掉所有请求，页面看着正常但什么都加载不出来。
+#
+# 可选：在仓库 Settings → Variables 里建一个 VITE_API_BASE，
+# 换后端地址时不用改代码（比如以后换成自己的服务器）。
+name: 部署前端到 GitHub Pages
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'index.html'
+      - 'vite.config.js'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/deploy-pages.yml'
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 同一时间只跑一个部署；新的推送取消排队中的旧任务
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: 安装依赖
+        run: npm ci
+
+      - name: 解析后端地址（仓库变量 VITE_API_BASE 优先，否则用 Render 默认地址）
+        id: cfg
+        run: |
+          API="${{ vars.VITE_API_BASE }}"
+          if [ -z "$API" ]; then API="https://back-translate-studio.onrender.com"; fi
+          echo "api=$API" >> "$GITHUB_OUTPUT"
+          echo "base=/${{ github.event.repository.name }}/" >> "$GITHUB_OUTPUT"
+          echo "后端地址: $API"
+
+      - name: 构建
+        env:
+          # 项目站点挂在 /<仓库名>/ 子路径下，资源前缀必须对上，否则 /assets/*.js 全 404
+          VITE_BASE: ${{ steps.cfg.outputs.base }}
+          VITE_API_BASE: ${{ steps.cfg.outputs.api }}
+        run: npm run build
+
+      - name: 自检：产物里的资源路径和 API 地址是否真的注入了
+        run: |
+          set -e
+          BASE='${{ steps.cfg.outputs.base }}'
+          API='${{ steps.cfg.outputs.api }}'
+          echo "--- index.html 里的资源引用 ---"
+          grep -oE '(src|href)="[^"]+"' dist/index.html || true
+          if ! grep -q "\"$BASE" dist/index.html; then
+            echo "::error::dist/index.html 里没有出现前缀 $BASE —— VITE_BASE 没生效，部署后会白屏"
+            exit 1
+          fi
+          if ! grep -rqF "$API" dist/assets/; then
+            echo "::error::产物里找不到后端地址 $API —— VITE_API_BASE 没生效，页面会调自己的域名然后 404"
+            exit 1
+          fi
+          echo "自检通过"
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
+
+      - name: 输出访问地址
+        run: echo "已部署到 ${{ steps.deployment.outputs.page_url }}"

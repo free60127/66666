@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import { createLibrary, loadLibraries, mergeLibraries, removeLesson, removeLibrary, saveLibraries, upsertLesson } from './lessonLibrary.js';
 import { createNewSyncCode, loadSyncCode, loadSyncMeta, mergeHistory, saveSyncCode, saveSyncMeta, syncOnce } from './sync.js';
-import { analyze, generateMaterial, getAnalyzeJob, getLessons, getLesson, getMaterialJob, getOcrJob, getPhonetic, getQuizJob, getStatus, loadSettings, matchLesson, ocr, quiz, saveSettings } from './api.js';
+import { analyze, generateMaterial, getAnalyzeJob, getLessons, getLesson, getMaterialJob, getOcrJob, getPhonetic, getQuizJob, getStatus, loadSettings, matchLesson, ocr, quiz, saveSettings, wakeUp } from './api.js';
 import { DEMO_LESSON_18, DEMO_LESSONS } from './demo.js';
 import { FAV_KIND_LABEL, favoritesToText, favFromExpression, favFromFinding, favFromIdiom, favFromVocab, filterFavorites, hasMorphology, loadFavorites, mergeFavorites, morphologyText, saveFavorites } from './favorites.js';
 import { buildLocalQuiz, favoritesToQuizPoints, quizToText } from './quiz.js';
@@ -549,6 +549,7 @@ function App() {
   const [syncTip, setSyncTip] = useState('');
   const [codeInput, setCodeInput] = useState('');
   const [syncLost, setSyncLost] = useState(false); // 云端没有这串码的数据（通常是平台重新部署）
+  const [backendWaking, setBackendWaking] = useState(false); // 免费托管休眠后正在唤醒（首屏要等约 1 分钟）
   const syncBusyRef = useRef(false);
   const lastSyncAtRef = useRef(0);
   // 最近一次"手动操作"（生成码/换码/填码/停用/立即同步）的时间：
@@ -626,22 +627,32 @@ function App() {
 
   useEffect(() => {
     let alive = true;
-    refreshStatus();
-    getLessons().then((data) => {
+    (async () => {
+      // 免费托管（Render）休眠后唤醒要约 1 分钟。必须**先探活再做首屏请求**：
+      // 否则 /api/status 与 /api/lessons 会在 15 秒时超时，用户看到的是
+      // "服务器出错 + 退回示例课文"，而其实再等 40 秒数据就来了。
+      await wakeUp({ onSlow: () => { if (alive) setBackendWaking(true); } });
       if (!alive) return;
-      const loaded = data.lessons || [];
-      setLessons(loaded);
-      if (loaded.length) {
-        const target = pickInitialLesson(loaded);
+      setBackendWaking(false);
+      refreshStatus();
+      try {
+        const data = await getLessons();
+        if (!alive) return;
+        const loaded = data.lessons || [];
+        setLessons(loaded);
+        if (loaded.length) {
+          const target = pickInitialLesson(loaded);
+          selectLesson(target.book, target.lesson);
+        }
+      } catch {
+        // 后端彻底不可用才退回示例课文（保留原有的降级行为）
+        if (!alive) return;
+        const fallback = DEMO_LESSONS.map((l) => ({ ...l, book: 2 }));
+        setLessons(fallback);
+        const target = pickInitialLesson(fallback) || { book: 2, lesson: 18 };
         selectLesson(target.book, target.lesson);
       }
-    }).catch(() => {
-      if (!alive) return;
-      const fallback = DEMO_LESSONS.map((l) => ({ ...l, book: 2 }));
-      setLessons(fallback);
-      const target = pickInitialLesson(fallback) || { book: 2, lesson: 18 };
-      selectLesson(target.book, target.lesson);
-    });
+    })();
     return () => { alive = false; };
   }, []);
 
@@ -1032,11 +1043,38 @@ function App() {
     saveSyncCode(''); setSyncCode(''); setSyncLost(false); setSyncTip('已停用云同步（本机数据保留）');
   };
 
+  // runSync 的闭包里带着 myLibs / favorites / historyList 的快照。
+  // 下面「回到前台同步」的监听只在 syncCode 变化时重建，若直接捕获 runSync，
+  // 切回前台时会拿着**过期数据**去合并。所以统一走 ref 取最新那一次渲染的函数。
+  const runSyncRef = useRef(runSync);
+  useEffect(() => { runSyncRef.current = runSync; });
+
   // 打开页面时自动同步一次（把云端新增内容合并进来）
   useEffect(() => {
     if (syncCode) runSync(false, syncCode);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // 回到前台就同步一次。
+  // 手机/平板切回页面时浏览器**不会重新加载**（只是恢复原来的标签页），
+  // 所以上面那个"挂载时同步"根本不会触发 —— 这是"同步好像坏了"最常见的原因：
+  // 用户以为页面还开着就应该是新的。
+  // 桌面端在多个标签页之间来回切，走的是同一条路径（focus）。
+  useEffect(() => {
+    if (!syncCode) return undefined;
+    const syncIfStale = () => {
+      if (document.visibilityState !== 'visible') return;   // 切到后台不请求
+      if (syncBusyRef.current) return;                       // 正在同步就跳过
+      if (Date.now() - lastSyncAtRef.current < 5000) return; // 刚同步过就别重复
+      runSyncRef.current(false);
+    };
+    document.addEventListener('visibilitychange', syncIfStale);
+    window.addEventListener('focus', syncIfStale);
+    return () => {
+      document.removeEventListener('visibilitychange', syncIfStale);
+      window.removeEventListener('focus', syncIfStale);
+    };
+  }, [syncCode]);
 
   // 本机数据变化后防抖推送（刚同步完的 3 秒内不触发，避免自己触发自己）
   useEffect(() => {
@@ -1773,6 +1811,12 @@ function App() {
         </header>
         {favTip ? <div className="fav-tip" role="status" aria-live="polite">{favTip}</div> : null}
         {toast ? <div className="fav-tip toast" role="status" aria-live="polite">{toast}</div> : null}
+        {backendWaking ? (
+          <div className="wake-tip" role="status" aria-live="polite">
+            <LoaderCircle className="spin" size={14} />
+            正在唤醒服务（免费托管休眠后约需 1 分钟），请稍候…
+          </div>
+        ) : null}
 
         {view === 'editor' ? (
           <section className="editor">

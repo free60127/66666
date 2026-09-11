@@ -653,7 +653,13 @@ function index(res) {
 // 跨域白名单：默认不发送任何 CORS 头（只服务同源页面）。
 // 需要跨域时用 ALLOW_ORIGIN=https://a.com,https://b.com 显式列白名单。
 // 原先无条件 Access-Control-Allow-Origin: *，等于允许任意网站驱动本机后端。
-const ALLOWED_ORIGINS = String(process.env.ALLOW_ORIGIN || '').split(',').map((s) => s.trim()).filter(Boolean);
+//
+// 末尾斜杠一律去掉：浏览器发的 Origin 头永远是 `协议://域名[:端口]`、不带路径，
+// 而人写配置时习惯性会多打一个 "/" —— 那样会**静默**匹配不上（不报错，只是前端拿不到数据）。
+const ALLOWED_ORIGINS = String(process.env.ALLOW_ORIGIN || '')
+  .split(',')
+  .map((s) => s.trim().replace(/\/+$/, ''))
+  .filter(Boolean);
 function applyCors(req, res) {
   const origin = req.headers.origin;
   if (!origin || !ALLOWED_ORIGINS.includes(origin)) return;

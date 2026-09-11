@@ -1,13 +1,19 @@
 // 与后端 /api 通信的小工具
 // 统一超时：以前裸 fetch 没有超时，网络卡死时首屏状态、课程列表、生成请求会一直挂着。
-export const TIMEOUT = { fast: 15000, normal: 30000, upload: 60000 };
+//
+// API_BASE：前端搬到 GitHub Pages 之后就和后端**不同源**了，必须用绝对地址。
+// 构建时由 VITE_API_BASE 指定（见 .github/workflows/deploy-pages.yml）。
+// 留空 = 同源 —— Render 一体部署、以及本地 dev 走 Vite 代理，都是这种形态，一套代码两种都能跑。
+export const API_BASE = String(import.meta.env.VITE_API_BASE || '').replace(/\/+$/, '');
+
+export const TIMEOUT = { fast: 15000, normal: 30000, upload: 60000, wake: 95000 };
 
 /** 带超时的 fetch。超时统一转成可读错误，避免 AbortError 直接冒到界面上。 */
 async function request(path, options = {}, timeoutMs = TIMEOUT.normal) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await fetch(path, { ...options, signal: controller.signal });
+    return await fetch(API_BASE + path, { ...options, signal: controller.signal });
   } catch (e) {
     if (e && e.name === 'AbortError') {
       throw new Error(`请求超时（${Math.round(timeoutMs / 1000)} 秒）：请检查网络后重试`);
@@ -23,6 +29,30 @@ export async function api(path, options = {}, timeoutMs = TIMEOUT.normal) {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || ('请求失败: ' + res.status));
   return data;
+}
+
+/**
+ * 唤醒后端。
+ *
+ * 免费托管（Render 等）15 分钟没有流量就休眠，**唤醒要约 1 分钟**，期间请求会一直挂着。
+ * 如果首屏直接拿 TIMEOUT.fast（15 秒）去打 /api/status，就会在服务还没起来时超时 ——
+ * 用户看到的是"服务器出错"，而其实再等 40 秒就好了。
+ *
+ * 所以先用最轻的 /api/health 探活、超时给到 95 秒；等待超过 slowAfterMs 时回调 onSlow，
+ * 让界面能显示"正在唤醒服务"。
+ * @returns {Promise<boolean>} 后端是否已就绪（失败也返回 false 而不抛，调用方自行决定降级）
+ */
+export async function wakeUp({ slowAfterMs = 2500, onSlow } = {}) {
+  let timer = null;
+  if (onSlow) timer = setTimeout(onSlow, slowAfterMs);
+  try {
+    await api('/api/health', {}, TIMEOUT.wake);
+    return true;
+  } catch {
+    return false;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 /** 与 api() 相同，但把 HTTP 状态码一并返回 —— 同步推送需要区分 409（版本冲突）。 */

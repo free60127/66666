@@ -346,6 +346,8 @@ mark.hl { background: #ffe3e3; color: inherit; padding: 0 2px; border-radius: 2p
 .fav-tip { position: fixed; top: 66px; right: 18px; z-index: 60; background: #10222e; color: #eaf3f8; font-size: 12.5px; padding: 8px 12px; border-radius: 10px; box-shadow: 0 6px 18px rgba(0, 0, 0, .18); }
 /* 全局提示条（保存课文 / 新建作业 / 删除 等）：错开收藏提示，避免叠在一起 */
 .fav-tip.toast { top: 108px; max-width: min(420px, calc(100vw - 36px)); line-height: 1.6; }
+/* 后端冷启动提示：免费托管休眠后唤醒约 1 分钟，放在最顶端并压住其它浮层 */
+.wake-tip { position: fixed; top: 10px; left: 50%; transform: translateX(-50%); z-index: 90; display: flex; align-items: center; gap: 8px; background: #10222e; color: #eaf3f8; font-size: 12.5px; padding: 8px 14px; border-radius: 999px; box-shadow: 0 6px 18px rgba(0, 0, 0, .18); max-width: calc(100vw - 24px); }
 .fav-modal { width: 720px; }
 .fav-toolbar { display: flex; gap: 8px; margin-bottom: 10px; }
 .fav-search { flex: 1; min-width: 0; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font: inherit; }
@@ -371,6 +373,8 @@ mark.hl { background: #ffe3e3; color: inherit; padding: 0 2px; border-radius: 2p
 @media screen and (max-width: 900px) {
   .fav-modal { width: calc(100vw - 24px); }
   .fav-tip { left: 12px; right: 12px; top: auto; bottom: 16px; text-align: center; }
+  /* 手机上挪到底部，避免盖住顶栏的课本/课次选择 */
+  .wake-tip { top: auto; bottom: 16px; left: 12px; right: 12px; transform: none; justify-content: center; border-radius: 12px; }
   .fav-toolbar { flex-wrap: wrap; }
 }
 
