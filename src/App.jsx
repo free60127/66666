@@ -470,6 +470,10 @@ function App() {
   const [progressStep, setProgressStep] = useState(0);
   const [elapsed, setElapsed] = useState(0);
   const [progressMsg, setProgressMsg] = useState('');
+  // 「取消等待」：只让界面立刻解锁，**不停后台轮询** ——
+  // 生成请求已经发出去了（钱已经花了），停掉轮询等于白花；继续跑完还能进「历史结果」。
+  const cancelGenRef = useRef(false);
+  const [lessonQuery, setLessonQuery] = useState(''); // 课文搜索（348 课靠翻列表太慢）
   const progressTimerRef = useRef(null);
   const [parsing, setParsing] = useState(false);
   const [fileName, setFileName] = useState('');
@@ -711,10 +715,22 @@ function App() {
   }, [view, result?.title]);
 
   const activeLib = useMemo(() => myLibs.find((l) => l.id === myLibId) || null, [myLibs, myLibId]);
-  const visibleLessons = useMemo(
-    () => (activeLib ? activeLib.lessons : lessons.filter((l) => l.book === book)),
-    [activeLib, lessons, book],
-  );
+  /**
+   * 课文搜索：课号、中英标题、关键词都能命中。
+   * 一册就 96 课（全书 348 课），靠翻列表找「Lesson 47」或「那篇讲春节的」都很痛苦。
+   * 纯数字按课号优先 —— 输入 47 应该直接命中 Lesson 47，而不是标题里恰好含 47 的那几篇。
+   */
+  const visibleLessons = useMemo(() => {
+    const base = activeLib ? activeLib.lessons : lessons.filter((l) => l.book === book);
+    const q = lessonQuery.trim().toLowerCase();
+    if (!q) return base;
+    const text = (l) => `${l.lesson} ${l.title_cn || ''} ${l.title_en || ''}`.toLowerCase();
+    if (/^\d{1,3}$/.test(q)) {
+      const n = Number(q);
+      return base.filter((l) => l.lesson === n || text(l).includes(q));
+    }
+    return base.filter((l) => text(l).includes(q));
+  }, [activeLib, lessons, book, lessonQuery]);
 
   // 本次作业的「英文原文（标准答案）」优先级：
   // 用户手填 > AI 素材生成的原文 > 自建库课文自带的原文。
@@ -1778,6 +1794,7 @@ function App() {
     if (!cn) { setError('请先上传包含中文提示的 DOCX，或填入中文提示'); return; }
     if (!df) { setError('请先上传包含英文初稿的 DOCX，或填入英文初稿'); return; }
     setError(''); setBusy(true);
+    cancelGenRef.current = false; // 新的生成开始，清掉上一次的取消标记
     const myToken = (genTokenRef.current += 1);
     // 点击生成时定格用时（本次练习从开始计时到提交用掉的时长）
     const durationMs = timer.accumulated + (timer.running && timer.startedAt ? Math.max(0, Date.now() - timer.startedAt) : 0);
@@ -1814,10 +1831,13 @@ function App() {
       const enriched = { ...(outcome.data || {}), durationMs };
       setResult(normalizeResult(enriched));
       setCurrentJobId(jobId);
-      // 生成期间用户切过课 / 点过「新建」就不再抢回视图；结果照常入历史，可从历史里打开
-      if (myToken === genTokenRef.current) setView('result');
+      // 三种情况都不抢视图：生成期间用户切过课 / 点过「新建」/ 点过「取消等待」。
+      // 但结果照常入历史 —— 用户随时能从「历史结果」里打开。
+      const cancelled = cancelGenRef.current;
+      if (!cancelled && myToken === genTokenRef.current) setView('result');
       addToHistory(jobId, outcome.data?.title || title, enriched, durationMs);
       window.history.replaceState(null, '', '#job=' + jobId);
+      if (cancelled) flashTip(setToast, '刚才那篇已经生成好，存进「历史结果」了', 6000);
       return;
     } catch (e) {
       setError(e.message);
@@ -1827,6 +1847,22 @@ function App() {
       setBusy(false);
       if (!finishedOk) { setProgressStep(0); setProgressMsg(''); }
     }
+  };
+
+  /**
+   * 取消等待（不是取消任务）。
+   *
+   * 生成请求已经发出去了、模型调用已经在跑、费用已经产生 ——
+   * 停掉轮询等于把这次调用白白扔掉。所以这里只做一件事：**让界面立刻解锁**，
+   * 后台继续轮询，跑完了照常存进「历史结果」，再给一条提示告诉用户去哪找。
+   */
+  const cancelGenerate = () => {
+    if (!busy) return;
+    cancelGenRef.current = true;
+    setBusy(false);
+    setProgressStep(0); setProgressMsg('');
+    stopProgressTimer();
+    flashTip(setToast, '已取消等待，可以继续编辑。后台仍在生成，完成后会存进「历史结果」。', 7000);
   };
 
   const loadDemo = () => {
@@ -1974,9 +2010,25 @@ function App() {
             ))}
           </div>
 
+          <div className="lesson-search">
+            <input
+              value={lessonQuery}
+              onChange={(e) => setLessonQuery(e.target.value)}
+              placeholder={activeLib ? '搜索本库课文' : `搜索第 ${book} 册（共 ${lessons.filter((l) => l.book === book).length} 课）`}
+              aria-label="搜索课文"
+            />
+            {lessonQuery ? (
+              <button className="lesson-search-clear" onClick={() => setLessonQuery('')} aria-label="清空搜索"><X size={13} /></button>
+            ) : null}
+          </div>
+
           <div className="lesson-list">
             {visibleLessons.length === 0 && (
-              <div className="muted">{activeLib ? '这个库还是空的：把当前作业存进来即可' : '正在加载语料…'}</div>
+              <div className="muted">
+                {lessonQuery
+                  ? `没有匹配「${lessonQuery}」的课文`
+                  : (activeLib ? '这个库还是空的：把当前作业存进来即可' : '正在加载语料…')}
+              </div>
             )}
             {visibleLessons.map((l) => {
               const isActive = mode === 'lesson' && lessonId === l.lesson && (activeLib ? myLibId === activeLib.id : (book === l.book && !myLibId));
@@ -2180,13 +2232,31 @@ function App() {
               <input ref={originalFileRef} type="file" accept="image/*" multiple hidden onChange={(e) => { const f = Array.from(e.target.files || []); e.target.value = ''; handleOcrFiles('original', f); }} />
             </div>
             {error && <div className="error-banner" role="alert"><Flame size={15} /><span className="error-text">{error}</span><button className="link" onClick={loadDemo}>查看离线示例</button><button className="icon-btn err-close" onClick={() => setError('')} aria-label="关闭提示"><X size={15} /></button></div>}
+            {/* 没有 Key 时不只是一句"未配置"，而是说清楚为什么需要、去哪弄、以及不配也能干什么 */}
+            {!status?.hasKey && !busy && (
+              <div className="key-hint" role="note">
+                <div className="key-hint-title"><Settings size={15} />还差一步：配置 AI 接口</div>
+                <p>
+                  本工具用<b>你自己的 API Key</b>调用大模型来批改。费用由你直接付给模型服务商，
+                  <b>本站不经手、也不加价</b>；Key 只存在你的浏览器里（除非你自己填进服务端环境变量）。
+                </p>
+                <p className="muted small">
+                  还没有 Key？<b>DeepSeek</b> 在 <code>platform.deepseek.com</code> 注册后即可免费创建，
+                  按用量计费 —— 批改一篇课文大约几分钱。填好就能开始用了。
+                </p>
+                <div className="modal-actions">
+                  <button className="primary-btn" onClick={() => setSettingsOpen(true)}>去填 API Key</button>
+                  <button className="ghost-btn" onClick={loadDemo}>先看离线示例</button>
+                </div>
+              </div>
+            )}
             <div className="actions-bar">
               <button className="primary-btn big" onClick={() => runGenerate()} disabled={busy || parsing}>
                 {busy ? <LoaderCircle className="spin" size={17} /> : <WandSparkles size={17} />}
                 {busy ? 'AI 正在后台生成（约1-2分钟）…' : '生成完整回译训练作业'}
               </button>
               {!status?.hasKey && <button className="ghost-btn" onClick={loadDemo}><Sparkles size={15} />离线示例</button>}
-              <span className="muted">{busy ? '已提交后台任务，请保持页面打开，完成后自动展示' : '生成顺序：标题 → 中文 → 原稿 → AI 修正版 → 原文 → 逐句解析'}</span>
+              <span className="muted actions-hint">{busy ? '已提交后台任务，请保持页面打开，完成后自动展示' : '生成顺序：标题 → 中文 → 原稿 → AI 修正版 → 原文 → 逐句解析'}</span>
             </div>
             {busy && (
               <div className="progress-box">
@@ -2196,7 +2266,19 @@ function App() {
                   <span className={progressStep >= 3 ? 'active' : ''}><CheckCircle2 size={12} />完成</span>
                 </div>
                 <div className="progress-track"><div className="progress-fill" style={{ width: progressStep >= 3 ? '100%' : progressStep >= 2 ? '66%' : '18%' }} /></div>
-                <span className="muted small">{progressMsg}{elapsed > 0 ? ` · 已进行 ${elapsed} 秒` : ''}</span>
+                <div className="progress-foot">
+                  <span className="muted small">
+                    {progressMsg}{elapsed > 0 ? ` · 已进行 ${elapsed} 秒` : ''}
+                    {progressStep === 2 && elapsed >= 25 ? '（通常 60–120 秒）' : ''}
+                  </span>
+                  <button className="ghost-btn sm" onClick={cancelGenerate}>取消等待</button>
+                </div>
+                {elapsed >= 30 && (
+                  <p className="muted small progress-note">
+                    别关页面 —— 关掉就看不到结果了。等不及可以点「取消等待」继续编辑，
+                    生成完会自动存进「历史结果」，不会白花这次调用。
+                  </p>
+                )}
               </div>
             )}
           </section>

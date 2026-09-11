@@ -287,6 +287,24 @@ mark.hl { background: #ffe3e3; color: inherit; padding: 0 2px; border-radius: 2p
 .progress-steps span.active { color: var(--brand); font-weight: 600; }
 .progress-track { height: 8px; background: #edf1f5; border-radius: 999px; overflow: hidden; }
 .progress-fill { height: 100%; background: linear-gradient(90deg, #2aa7ff, #1164d8); border-radius: 999px; transition: width .4s ease; }
+/* 进度条底部一行：左边状态文字、右边「取消等待」，窄屏自动换行 */
+.progress-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.progress-note { margin: 2px 0 0; line-height: 1.6; }
+
+/* 未配置 API Key 时的引导：不只是一句"未配置"，要说清楚为什么需要、去哪弄 */
+.key-hint { margin-top: 14px; border: 1px solid #cfdff5; border-left: 4px solid var(--blue); border-radius: 10px; background: #f5f9ff; padding: 13px 15px; max-width: 720px; }
+.key-hint-title { display: flex; align-items: center; gap: 6px; font-size: 13.5px; font-weight: 700; color: #1d4e8f; margin-bottom: 6px; }
+.key-hint p { margin: 0 0 7px; font-size: 12.5px; line-height: 1.7; color: #30506f; }
+.key-hint code { background: #e6eefa; border-radius: 4px; padding: 1px 5px; font-size: 12px; }
+.key-hint .modal-actions { margin-top: 4px; }
+
+/* 课文搜索：348 课靠翻列表找不到东西 */
+.lesson-search { position: relative; display: flex; align-items: center; margin-bottom: 8px; }
+.lesson-search input { width: 100%; border: 1px solid rgba(255,255,255,.16); background: rgba(255,255,255,.07); color: #e8f1f7; border-radius: 8px; padding: 7px 30px 7px 10px; font: inherit; font-size: 13px; }
+.lesson-search input::placeholder { color: #7d95a6; }
+.lesson-search input:focus { outline: 2px solid var(--blue); outline-offset: -1px; }
+.lesson-search-clear { position: absolute; right: 6px; display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 999px; color: #9fb3c2; }
+.lesson-search-clear:hover { background: rgba(255,255,255,.12); color: #fff; }
 
 /* 分项得分（P2 #12） */
 .score-breakdown { margin-top: 12px; border-top: 1px dashed var(--line); padding-top: 12px; }
@@ -497,6 +515,26 @@ mark.hl { background: #ffe3e3; color: inherit; padding: 0 2px; border-radius: 2p
 /* iOS 上 font-size < 16px 的输入框会触发自动放大，手机上单独提一档 */
 @media (max-width: 720px) {
   .auth-label input { font-size: 16px; }
+
+  /* 手机端把「生成」按钮固定在底部。
+     编辑区是个长表单（标题 / 等级 / 识别模式 / 中文提示 / 初稿…），
+     主按钮在最底下 —— 每次练习都要划过整屏才能点到，而回译本主要就是手机上用。
+     用 sticky 而不是 fixed：不用手写占位高度，也不会盖住最后一段内容。 */
+  .actions-bar {
+    position: sticky;
+    bottom: 0;
+    z-index: 20;
+    /* 抵消 .editor 的 20px 内边距，让背景铺满整宽 */
+    margin: 16px -20px -20px;
+    padding: 10px 20px calc(10px + env(safe-area-inset-bottom, 0px));
+    background: var(--panel);
+    border-top: 1px solid var(--line);
+    box-shadow: 0 -6px 16px rgba(15, 25, 35, .08);
+  }
+  .actions-bar .primary-btn.big { flex: 1; justify-content: center; }
+  /* 手机上那行说明文字会把按钮挤窄，收到按钮下面单独一行 */
+  .actions-hint { width: 100%; font-size: 11.5px; line-height: 1.5; }
+  .progress-foot { gap: 8px; }
 }
 .sync-lost { margin: 4px 0 8px; font-size: 12.5px; line-height: 1.75; color: #8a5a00; background: #fff8e6; border: 1px solid #f0dca8; border-radius: 8px; padding: 9px 11px; }
 .side-footer { display: flex; gap: 6px; }
