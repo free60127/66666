@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import mammoth from 'mammoth/mammoth.browser.js';
+// mammoth（894 KB 源码）只在"上传 DOCX"这一个功能里用到，
+// 改为 handleDocx 内动态 import，避免它被打进首屏主包。
 import {
   ArrowLeft, BookOpen, Camera, CheckCircle2, ClipboardCopy, Download, FileText, Flame, History, ImagePlus,
   Link2, LoaderCircle, PanelLeftClose, PanelLeftOpen, PenLine, Plus, Settings, Sparkles, Star, Timer, Trash2, Upload, WandSparkles, X,
@@ -165,6 +166,53 @@ function formatDuration(ms) {
   const pad = (n) => String(n).padStart(2, '0');
   return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
 }
+/**
+ * 独立的计时显示组件。
+ * 原来"当前时刻"是 App 的状态，计时中每秒 setState 会让整个 App 重渲染一次
+ * （55 个 useState + 收藏筛选 + 全部句子卡片/DraftText）。拆成叶子组件后只有它自己每秒重渲染。
+ */
+function ElapsedDisplay({ timer }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!timer.running || !timer.startedAt) return undefined;
+    setNow(Date.now());
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [timer.running, timer.startedAt]);
+  const ms = timer.accumulated + (timer.running && timer.startedAt ? Math.max(0, now - timer.startedAt) : 0);
+  return <>{formatDuration(ms)}</>;
+}
+
+/**
+ * 统一的异步任务轮询。
+ * 分析 / 素材 / 自测题 / OCR 四处原来各写了一份逐字重复的循环（sleep→取任务→失败计数→
+ * deadline→done/error），差别只有间隔、超时和文案。合并到这里，行为保持一致。
+ * @returns {Promise<{data?: any, aborted?: true}>} 组件已卸载时返回 { aborted: true }
+ */
+async function pollJob({ jobId, fetchJob, intervalMs, timeoutMs, maxFailures, netError, timeoutError, onProgress, isAlive }) {
+  const deadline = Date.now() + timeoutMs;
+  let failures = 0;
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+    if (isAlive && !isAlive()) return { aborted: true };
+    let r;
+    try {
+      r = await fetchJob(jobId);
+      failures = 0;
+    } catch {
+      failures += 1;
+      if (failures > maxFailures) throw new Error(netError);
+      continue;
+    }
+    const job = r && r.job;
+    if (!job) continue;
+    if (job.status === 'done') return { data: job.data };
+    if (job.status === 'error') throw new Error(job.error || '任务失败，请重试');
+    if (onProgress) onProgress(job);
+  }
+  throw new Error(timeoutError);
+}
+
 function loadTimer() {
   try {
     const t = JSON.parse(localStorage.getItem(TIMER_KEY) || 'null');
@@ -470,7 +518,6 @@ function App() {
   const favFileRef = useRef(null);
   // 计时器（记录一篇课文做了多久）
   const [timer, setTimer] = useState(loadTimer);
-  const [clockNow, setClockNow] = useState(() => Date.now());
   // 润色等级：让润色版与推荐表达匹配用户目标考试的难度
   const [polishLevel, setPolishLevel] = useState(() => {
     const saved = safeGet(LEVEL_KEY, '');
@@ -499,7 +546,6 @@ function App() {
     clearTimeout(tipTimerRef.current);
     clearInterval(progressTimerRef.current);
   }, []);
-  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   // 生成任务令牌：用户在生成过程中切课 / 点「新建」时作废，
   // 任务完成后就不再强行把视图抢回结果页（结果本身仍然保留并写入历史）。
   const genTokenRef = useRef(0);
@@ -586,6 +632,13 @@ function App() {
     });
   }, []);
 
+  // 页面标题跟随当前作业：导出 PDF / 另存网页时文件名才有意义（原来是恒定标题）
+  useEffect(() => {
+    if (view === 'result' && result?.title) document.title = result.title + ' · 回译本';
+    else if (view === 'quiz') document.title = '自测题 · 回译本';
+    else document.title = '回译本 · 新概念回译训练';
+  }, [view, result?.title]);
+
   const visibleLessons = useMemo(() => lessons.filter((l) => l.book === book), [lessons, book]);
 
   // 请求令牌：连点两课时，先发的慢请求若后返回，会把标题/中文覆盖成上一课的内容
@@ -635,6 +688,7 @@ function App() {
     setError('');
     setParsing(true);
     try {
+      const mammoth = (await import('mammoth/mammoth.browser.js')).default;
       const raw = await mammoth.extractRawText({ arrayBuffer: await file.arrayBuffer() });
       const parsed = parseAssignmentText(raw.value);
       setFileName(file.name);
@@ -704,42 +758,30 @@ function App() {
       });
       const jobId = resp.jobId;
       if (!jobId) throw new Error('服务器未返回任务编号，请重试');
-      const deadline = Date.now() + 10 * 60 * 1000;
-      let pollFailures = 0;
-      while (Date.now() < deadline) {
-        await sleep(2500);
-        if (!aliveRef.current) return;
-        let r;
-        try {
-          r = await getMaterialJob(jobId);
-          pollFailures = 0;
-        } catch (e) {
-          pollFailures += 1;
-          if (pollFailures > 10) throw new Error('网络不稳定，暂时无法获取素材，请重试');
-          continue;
-        }
-        const job = r.job;
-        if (!job) continue;
-        if (job.status === 'done') {
-          const data = job.data || {};
-          if (!data.original || !data.chinese) throw new Error('AI 返回内容不完整，请重试');
-          setTitle(data.title || topic);
-          setChinese(data.chinese);
-          setDraft('');
-          setGeneratedOriginal(data.original);
-          setMaterialKeywords(data.keywords || []);
-          setMatchedLesson(null);
-          setMode('free');
-          setMatchConfidence('none');
-          setMatchScore(null);
-          setMaterialOpen(false);
-          return;
-        }
-        if (job.status === 'error') {
-          throw new Error(job.error || '素材生成失败，请重试');
-        }
-      }
-      throw new Error('生成素材超时（超过10分钟），请重新提交');
+      const outcome = await pollJob({
+        jobId,
+        fetchJob: getMaterialJob,
+        intervalMs: 2500,
+        timeoutMs: 10 * 60 * 1000,
+        maxFailures: 10,
+        netError: '网络不稳定，暂时无法获取素材，请重试',
+        timeoutError: '生成素材超时（超过10分钟），请重新提交',
+        isAlive: () => aliveRef.current,
+      });
+      if (outcome.aborted) return;
+      const data = outcome.data || {};
+      if (!data.original || !data.chinese) throw new Error('AI 返回内容不完整，请重试');
+      setTitle(data.title || topic);
+      setChinese(data.chinese);
+      setDraft('');
+      setGeneratedOriginal(data.original);
+      setMaterialKeywords(data.keywords || []);
+      setMatchedLesson(null);
+      setMode('free');
+      setMatchConfidence('none');
+      setMatchScore(null);
+      setMaterialOpen(false);
+      return;
     } catch (e) {
       setError(e.message || '素材生成失败');
     } finally {
@@ -817,7 +859,11 @@ function App() {
     try { await navigator.clipboard.writeText(favoritesToText(favorites)); flashTip(setFavTip, '已复制全部收藏到剪贴板', 3000); }
     catch { flashTip(setFavTip, '复制失败，请手动选择文本', 3000); }
   };
-  const visibleFavorites = filterFavorites(favorites, { kind: favKind, query: favQuery });
+  // 只在收藏夹打开时才计算：原来是每帧无条件跑一遍（最多 2000 条 join + toLowerCase）
+  const visibleFavorites = useMemo(
+    () => (favOpen ? filterFavorites(favorites, { kind: favKind, query: favQuery }) : []),
+    [favOpen, favorites, favKind, favQuery],
+  );
 
   /* ---------- 根据收藏生成自测题 ---------- */
   const generateQuiz = async () => {
@@ -835,20 +881,18 @@ function App() {
       });
       const jobId = resp.jobId;
       if (!jobId) throw new Error('服务器未返回任务编号，请重试');
-      const deadline = Date.now() + 5 * 60 * 1000;
-      let failures = 0;
-      let data = null;
-      while (Date.now() < deadline) {
-        await sleep(2000);
-        if (!aliveRef.current) return;
-        let r;
-        try { r = await getQuizJob(jobId); failures = 0; }
-        catch (e) { failures += 1; if (failures > 8) throw new Error('网络不稳定，暂时无法获取题目'); continue; }
-        const job = r.job;
-        if (!job) continue;
-        if (job.status === 'done') { data = job.data; break; }
-        if (job.status === 'error') throw new Error(job.error || '生成失败');
-      }
+      const outcome = await pollJob({
+        jobId,
+        fetchJob: getQuizJob,
+        intervalMs: 2000,
+        timeoutMs: 5 * 60 * 1000,
+        maxFailures: 8,
+        netError: '网络不稳定，暂时无法获取题目',
+        timeoutError: '生成超时或题目为空，请重试',
+        isAlive: () => aliveRef.current,
+      });
+      if (outcome.aborted) return;
+      const data = outcome.data;
       if (!data || !Array.isArray(data.questions) || !data.questions.length) throw new Error('生成超时或题目为空，请重试');
       setQuizData(data);
       setQuizShowAnswers(false);
@@ -943,15 +987,8 @@ function App() {
 
   /* ---------- 计时器 ---------- */
   const lessonKey = mode === 'lesson' ? `lesson:${book}-${lessonId}` : 'free';
-  const elapsedMs = timer.accumulated + (timer.running && timer.startedAt ? Math.max(0, clockNow - timer.startedAt) : 0);
-
-  // 每秒刷新一次显示（只在计时中走定时器，避免空转）
-  useEffect(() => {
-    if (!timer.running) return undefined;
-    setClockNow(Date.now());
-    const id = setInterval(() => setClockNow(Date.now()), 1000);
-    return () => clearInterval(id);
-  }, [timer.running]);
+  // 是否已经有累计用时（用于按钮文案与禁用态）——不需要"当前时刻"，因此不会引起每秒重渲染
+  const hasElapsed = timer.running || timer.accumulated > 0;
 
   // 切换课文 / 模式时，自动归零重新计时
   useEffect(() => {
@@ -970,7 +1007,6 @@ function App() {
         ? { ...t, running: false, accumulated: t.accumulated + Math.max(0, now - (t.startedAt || now)), startedAt: null, lessonKey }
         : { ...t, running: true, startedAt: now, lessonKey };
       saveTimer(next);
-      setClockNow(now);
       return next;
     });
   };
@@ -1003,20 +1039,18 @@ function App() {
         });
         const jobId = resp.jobId;
         if (!jobId) throw new Error('服务器未返回任务编号，请重试');
-        const deadline = Date.now() + 3 * 60 * 1000;
-        let text = '';
-        let failures = 0;
-        while (Date.now() < deadline) {
-          await sleep(1500);
-          if (!aliveRef.current) return;
-          let r;
-          try { r = await getOcrJob(jobId); failures = 0; }
-          catch (err) { failures += 1; if (failures > 8) throw new Error('网络不稳定，暂时无法获取识别结果，请重试'); continue; }
-          const job = r.job;
-          if (!job) continue;
-          if (job.status === 'done') { text = (job.data && job.data.text) || ''; break; }
-          if (job.status === 'error') throw new Error(job.error || '图片识别失败');
-        }
+        const outcome = await pollJob({
+          jobId,
+          fetchJob: getOcrJob,
+          intervalMs: 1500,
+          timeoutMs: 3 * 60 * 1000,
+          maxFailures: 8,
+          netError: '网络不稳定，暂时无法获取识别结果，请重试',
+          timeoutError: '识别超时（超过 3 分钟），请换更清晰的照片或重新拍一张',
+          isAlive: () => aliveRef.current,
+        });
+        if (outcome.aborted) return;
+        const text = (outcome.data && outcome.data.text) || '';
         if (!text) throw new Error('识别超时（超过 3 分钟），请换更清晰的照片或重新拍一张');
         texts.push(text);
       }
@@ -1125,41 +1159,27 @@ function App() {
         throw new Error('服务器未返回任务编号，请重试');
       }
       setProgressStep(2); setProgressMsg('AI 正在后台生成（约1-2分钟）…');
-      const deadline = Date.now() + 10 * 60 * 1000;
-      let pollFailures = 0;
-      while (Date.now() < deadline) {
-        await sleep(2500);
-        if (!aliveRef.current) return;
-        let r;
-        try {
-          r = await getAnalyzeJob(jobId);
-          pollFailures = 0;
-        } catch (e) {
-          pollFailures += 1;
-          if (pollFailures > 10) throw new Error('网络不稳定，暂时无法获取生成结果，请重试');
-          continue;
-        }
-        const job = r.job;
-        if (!job) continue;
-        if (job.status === 'done') {
-          setProgressStep(3); setProgressMsg('生成完成'); finishedOk = true;
-          const enriched = { ...(job.data || {}), durationMs };
-          setResult(normalizeResult(enriched));
-          setCurrentJobId(jobId);
-          // 生成期间用户切过课 / 点过「新建」就不再抢回视图；结果照常入历史，可从历史里打开
-          if (myToken === genTokenRef.current) setView('result');
-          addToHistory(jobId, job.data?.title || title, enriched, durationMs);
-          window.history.replaceState(null, '', '#job=' + jobId);
-          return;
-        }
-        if (job.status === 'error') {
-          throw new Error(job.error || '生成失败，请重试');
-        }
-        if (job.status === 'running') {
-          setProgressStep(2); setProgressMsg('AI 正在后台生成（约1-2分钟）…');
-        }
-      }
-      throw new Error('生成超时（超过10分钟），请重新提交');
+      const outcome = await pollJob({
+        jobId,
+        fetchJob: getAnalyzeJob,
+        intervalMs: 2500,
+        timeoutMs: 10 * 60 * 1000,
+        maxFailures: 10,
+        netError: '网络不稳定，暂时无法获取生成结果，请重试',
+        timeoutError: '生成超时（超过10分钟），请重新提交',
+        isAlive: () => aliveRef.current,
+        onProgress: () => { setProgressStep(2); setProgressMsg('AI 正在后台生成（约1-2分钟）…'); },
+      });
+      if (outcome.aborted) return;
+      setProgressStep(3); setProgressMsg('生成完成'); finishedOk = true;
+      const enriched = { ...(outcome.data || {}), durationMs };
+      setResult(normalizeResult(enriched));
+      setCurrentJobId(jobId);
+      // 生成期间用户切过课 / 点过「新建」就不再抢回视图；结果照常入历史，可从历史里打开
+      if (myToken === genTokenRef.current) setView('result');
+      addToHistory(jobId, outcome.data?.title || title, enriched, durationMs);
+      window.history.replaceState(null, '', '#job=' + jobId);
+      return;
     } catch (e) {
       setError(e.message);
       setView('editor');
@@ -1213,10 +1233,22 @@ function App() {
 
   // 新建 / 回到编辑器：作废正在跑的生成任务，避免它完成时把视图抢回结果页
   const resetWorkspace = (closeSidebar) => {
+    // 有未提交的初稿时先确认，避免误点「新建」把刚写的内容清掉
+    if (draft.trim() && !window.confirm('新建会清空当前英文初稿（中文提示保留），确定继续？')) return;
     genTokenRef.current += 1;
     if (closeSidebar) closeSidebarOnMobile();
     setView('editor');
     setResult(null);
+    setDraft('');
+    setFileName('');
+    setGeneratedOriginal('');
+    setMaterialKeywords([]);
+    setError('');
+    setMatchedLesson(null);
+    setMatchConfidence('');
+    setMatchScore(null);
+    // 关键：清掉 URL 上的 #job=，否则刷新会重新加载上一次的结果（"新建后 F5 又跳回旧结果"）
+    window.history.replaceState(null, '', window.location.pathname + window.location.search);
   };
 
   const onSaveSettings = () => {
@@ -1226,6 +1258,37 @@ function App() {
     // 配额写满时 setItem 会失败，原来完全静默（表现为"保存并重连点了没反应"）
     if (!ok) flashTip(setShareTip, '设置没能写入本机存储（空间可能已满）：本次仍然生效，但刷新后需要重填', 5000);
   };
+
+  /* ---------- 弹窗可访问性：role=dialog + Esc 关闭 + 焦点陷阱 ----------
+   * 5 个弹窗原来都没有 dialog 语义、不能用键盘关闭、Tab 会跑到弹窗外的内容上。 */
+  const modalRefs = useRef({});
+  useEffect(() => {
+    const open = camOpen ? 'cam' : materialOpen ? 'material' : historyOpen ? 'history' : favOpen ? 'fav' : settingsOpen ? 'settings' : null;
+    if (!open) return undefined;
+    const closers = {
+      cam: closeCamera,
+      material: () => { if (!materialBusy) setMaterialOpen(false); },
+      history: () => setHistoryOpen(false),
+      fav: () => setFavOpen(false),
+      settings: () => setSettingsOpen(false),
+    };
+    const onKeyDown = (e) => {
+      const node = modalRefs.current[open];
+      if (e.key === 'Escape') { e.preventDefault(); closers[open](); return; }
+      if (e.key !== 'Tab' || !node) return;
+      const focusables = Array.from(node.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'))
+        .filter((el) => !el.disabled && el.offsetParent !== null);
+      if (!focusables.length) return;
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      if (!node.contains(document.activeElement)) { e.preventDefault(); first.focus(); return; }
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    const timer = setTimeout(() => modalRefs.current[open]?.querySelector('button, input, select, textarea')?.focus(), 40);
+    return () => { document.removeEventListener('keydown', onKeyDown); clearTimeout(timer); };
+  }, [camOpen, materialOpen, historyOpen, favOpen, settingsOpen, materialBusy]);
 
   return (
     <div className="app">
@@ -1270,7 +1333,7 @@ function App() {
           <button className="ghost-btn" onClick={openHistoryModal}><History size={15} />历史结果{historyList.length ? ` (${historyList.length})` : ''}</button>
           <button className="ghost-btn" onClick={() => setFavOpen(true)}><Star size={15} />收藏夹{favorites.length ? ` (${favorites.length})` : ''}</button>
         </header>
-        {favTip ? <div className="fav-tip">{favTip}</div> : null}
+        {favTip ? <div className="fav-tip" role="status" aria-live="polite">{favTip}</div> : null}
 
         {view === 'editor' ? (
           <section className="editor">
@@ -1312,14 +1375,14 @@ function App() {
               <button className={mode === 'free' ? 'active' : ''} onClick={() => setMode('free')}><PenLine size={15} />自由模式</button>
             </div>
             <div className="title-row">
-              <div className="title-field"><label>作业标题</label><input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="例如：新概念2 lesson 11" /></div>
+              <div className="title-field"><label htmlFor="bt-title">作业标题</label><input id="bt-title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="例如：新概念2 lesson 11" /></div>
               <div className={'timer-box' + (timer.running ? ' running' : '')}>
                 <Timer size={16} />
-                <strong className="timer-display" title="本次练习用时">{formatDuration(elapsedMs)}</strong>
+                <strong className="timer-display" title="本次练习用时"><ElapsedDisplay timer={timer} /></strong>
                 <button className="ghost-btn sm" onClick={toggleTimer}>
-                  {timer.running ? '暂停' : (elapsedMs > 0 ? '继续' : '开始计时')}
+                  {timer.running ? '暂停' : (hasElapsed ? '继续' : '开始计时')}
                 </button>
-                <button className="ghost-btn sm" onClick={resetTimer} disabled={elapsedMs === 0 && !timer.running}>重置</button>
+                <button className="ghost-btn sm" onClick={resetTimer} disabled={!hasElapsed}>重置</button>
               </div>
             </div>
             <div className="editor-grid">
@@ -1372,7 +1435,7 @@ function App() {
                 <input ref={englishFileRef} type="file" accept="image/*" multiple hidden onChange={(e) => { const f = e.target.files; e.target.value = ''; handleOcrFiles('english', f); }} />
               </div>
             </div>
-            {error && <div className="error-banner"><Flame size={15} /><span className="error-text">{error}</span><button className="link" onClick={loadDemo}>查看离线示例</button><button className="icon-btn err-close" onClick={() => setError('')} aria-label="关闭提示"><X size={15} /></button></div>}
+            {error && <div className="error-banner" role="alert"><Flame size={15} /><span className="error-text">{error}</span><button className="link" onClick={loadDemo}>查看离线示例</button><button className="icon-btn err-close" onClick={() => setError('')} aria-label="关闭提示"><X size={15} /></button></div>}
             <div className="actions-bar">
               <button className="primary-btn big" onClick={() => runGenerate()} disabled={busy || parsing}>
                 {busy ? <LoaderCircle className="spin" size={17} /> : <WandSparkles size={17} />}
@@ -1416,8 +1479,8 @@ function App() {
 
       {camOpen && (
         <div className="modal-mask" onClick={closeCamera}>
-          <div className="modal cam-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-head"><h2>拍照识别 · {camSide === 'chinese' ? '中文提示' : '英文初稿'}</h2><button className="icon-btn" onClick={closeCamera}><X size={16} /></button></div>
+          <div className="modal cam-modal" ref={(el) => { modalRefs.current.cam = el; }} role="dialog" aria-modal="true" aria-label="拍照识别" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head"><h2>拍照识别 · {camSide === 'chinese' ? '中文提示' : '英文初稿'}</h2><button className="icon-btn" onClick={closeCamera} aria-label="关闭"><X size={16} /></button></div>
             <video ref={camVideoRef} className="cam-video" playsInline muted autoPlay />
             {camError ? <p className="muted small cam-err">{camError}</p> : null}
             <p className="muted small">把纸张放平、光线充足、尽量让文字填满画面；手写体建议先把「识别模式」设为「手写体优先」。</p>
@@ -1431,8 +1494,8 @@ function App() {
 
       {materialOpen && (
         <div className="modal-mask" onClick={() => !materialBusy && setMaterialOpen(false)}>
-          <div className="modal material-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-head"><h2>AI 生成训练素材</h2><button className="icon-btn" onClick={() => setMaterialOpen(false)} disabled={materialBusy}><X size={16} /></button></div>
+          <div className="modal material-modal" ref={(el) => { modalRefs.current.material = el; }} role="dialog" aria-modal="true" aria-label="AI 生成训练素材" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head"><h2>AI 生成训练素材</h2><button className="icon-btn" onClick={() => setMaterialOpen(false)} disabled={materialBusy} aria-label="关闭"><X size={16} /></button></div>
             <label>主题<textarea rows={2} value={materialTopic} onChange={(e) => setMaterialTopic(e.target.value)} placeholder="例如：春节的由来 / 人工智能改变生活 / 城市通勤 / 中国茶文化" /></label>
             <div className="material-grid">
               <label>难度<select value={materialLevel} onChange={(e) => setMaterialLevel(e.target.value)}><option>基础</option><option>中级</option><option>高级</option></select></label>
@@ -1452,8 +1515,8 @@ function App() {
 
       {historyOpen && (
         <div className="modal-mask" onClick={() => setHistoryOpen(false)}>
-          <div className="modal history-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-head"><h2>历史作业</h2><button className="icon-btn" onClick={() => setHistoryOpen(false)}><X size={16} /></button></div>
+          <div className="modal history-modal" ref={(el) => { modalRefs.current.history = el; }} role="dialog" aria-modal="true" aria-label="历史作业" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head"><h2>历史作业</h2><button className="icon-btn" onClick={() => setHistoryOpen(false)} aria-label="关闭"><X size={16} /></button></div>
             {historyList.length === 0 ? <p className="muted">暂无历史记录。生成一次完整分析后，记录会自动保存在这里；此功能上线前生成的旧作业不会自动补录。</p> : (
               <div className="history-list">
                 {historyList.map((h) => (
@@ -1471,8 +1534,8 @@ function App() {
 
       {favOpen && (
         <div className="modal-mask" onClick={() => setFavOpen(false)}>
-          <div className="modal fav-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-head"><h2>收藏夹（{favorites.length}）</h2><button className="icon-btn" onClick={() => setFavOpen(false)}><X size={16} /></button></div>
+          <div className="modal fav-modal" ref={(el) => { modalRefs.current.fav = el; }} role="dialog" aria-modal="true" aria-label="收藏夹" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head"><h2>收藏夹（{favorites.length}）</h2><button className="icon-btn" onClick={() => setFavOpen(false)} aria-label="关闭"><X size={16} /></button></div>
             <div className="fav-toolbar">
               <input className="fav-search" value={favQuery} onChange={(e) => setFavQuery(e.target.value)} placeholder="搜索单词、短语或解释…" />
               <select className="ocr-mode" value={favKind} onChange={(e) => setFavKind(e.target.value)}>
@@ -1535,8 +1598,8 @@ function App() {
 
       {settingsOpen && (
         <div className="modal-mask" onClick={() => setSettingsOpen(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-head"><h2>AI 接入设置</h2><button className="icon-btn" onClick={() => setSettingsOpen(false)}><X size={16} /></button></div>
+          <div className="modal" ref={(el) => { modalRefs.current.settings = el; }} role="dialog" aria-modal="true" aria-label="AI 接入设置" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head"><h2>AI 接入设置</h2><button className="icon-btn" onClick={() => setSettingsOpen(false)} aria-label="关闭"><X size={16} /></button></div>
             <label>Base URL（OpenAI 兼容）<input value={settings.baseUrl || 'https://api.deepseek.com/v1'} onChange={(e) => setSettings({ ...settings, baseUrl: e.target.value })} placeholder="https://api.deepseek.com/v1" /></label>
             <label>模型名<input value={settings.model || 'deepseek-chat'} onChange={(e) => setSettings({ ...settings, model: e.target.value })} placeholder="deepseek-chat / gpt-4o-mini / qwen-plus" /></label>
             <label>视觉模型（可选，拍照/图片识别用）<input value={settings.visionModel || ''} onChange={(e) => setSettings({ ...settings, visionModel: e.target.value })} placeholder="deepseek-flash（DeepSeek 已原生支持图片）" /></label>
@@ -1562,7 +1625,7 @@ function ResultSheet({ result, onBack, onCopy, onShare, shareTip, fav }) {
         <button className="ghost-btn" onClick={onCopy}><ClipboardCopy size={15} />复制全部</button>
         <button className="ghost-btn" onClick={onShare}><Link2 size={15} />复制分享链接</button>
         <button className="ghost-btn" onClick={() => window.print()}><Download size={15} />导出 PDF</button>
-        {shareTip ? <span className="share-tip">{shareTip}</span> : null}
+        {shareTip ? <span className="share-tip" role="status" aria-live="polite">{shareTip}</span> : null}
       </div>
       <article className="sheet">
         <header className="sheet-title"><span className="eyebrow">BACK-TRANSLATE TRAINING · 回译训练作业</span><h1>{result.title}</h1>
@@ -1588,7 +1651,7 @@ function ResultSheet({ result, onBack, onCopy, onShare, shareTip, fav }) {
                     const max = Number(b.max) || 20;
                     const pct = Math.max(0, Math.min(100, (Number(b.score) || 0) / max * 100));
                     return (
-                      <div key={'sb' + i}>
+                      <div key={'sb' + (b.label || '') + '#' + i}>
                         <div className="score-row">
                           <span className="score-label">{b.label}</span>
                           <div className="score-track"><div className="score-fill" style={{ width: pct + '%' }} /></div>
@@ -1602,7 +1665,7 @@ function ResultSheet({ result, onBack, onCopy, onShare, shareTip, fav }) {
               ) : null}
             </div>
           </div>
-          {sentences.map((sentence, i) => <SentenceCard key={'s' + i} index={i} sentence={sentence} result={result} fav={fav} />)}
+          {sentences.map((sentence, i) => <SentenceCard key={'s' + (sentence.cn || sentence.draft || '') + '#' + i} index={i} sentence={sentence} result={result} fav={fav} />)}
         </section>
         <VocabularyNotes items={result.vocabularyNotes} result={result} fav={fav} />
         <IdiomHighlights items={result.idiomHighlights} result={result} fav={fav} />
@@ -1634,7 +1697,7 @@ function SentenceCard({ index, sentence, result, fav }) {
         {findings.map((finding, i) => {
           const favItem = fav ? favFromFinding(finding, result) : null;
           return (
-            <div className={'finding level-' + (finding.level || 'error')} key={'f' + i}>
+            <div className={'finding level-' + (finding.level || 'error')} key={'f' + (finding.from || '') + '→' + (finding.to || '') + '#' + i}>
               <div className="finding-top">
                 <span className={'cat cat-' + (CATEGORY_COLOR[finding.category] || 'gray')}>{finding.category}</span>
                 <span className="level">{LEVEL_LABEL[finding.level] || finding.level}</span>
@@ -1668,7 +1731,7 @@ function VocabularyNotes({ items, result, fav }) {
         const exs = Array.isArray(v.examples) ? v.examples : [];
         const favItem = fav ? favFromVocab(v, result) : null;
         return (
-          <div className="vocab-card" key={'vn' + i}>
+          <div className="vocab-card" key={'vn' + (v.word || '') + '#' + i}>
             <div className="vocab-head">
               <strong className="vocab-word">{v.word}</strong><Phonetic word={v.word} phonetic={v.phonetic} />{v.type ? <span className="vocab-type">{v.type}</span> : null}
               {fav ? <FavStar active={fav.has(favItem.id)} onToggle={() => fav.toggle(favItem)} /> : null}
@@ -1707,7 +1770,7 @@ function IdiomHighlights({ items, result, fav }) {
       {arr.map((id, i) => {
         const favItem = fav ? favFromIdiom(id, result) : null;
         return (
-          <div className="idiom-card" key={'ih' + i}>
+          <div className="idiom-card" key={'ih' + (id.idiom || '') + '#' + i}>
             <div className="idiom-head">
               <span className="idiom-badge">习语</span><strong>{id.idiom}</strong>{id.situation ? <span className="idiom-situation">{id.situation}</span> : null}
               {fav ? <FavStar active={fav.has(favItem.id)} onToggle={() => fav.toggle(favItem)} /> : null}
@@ -1733,7 +1796,7 @@ function SummaryBlock({ title, tone, items, result, fav }) {
         const parts = s.split(/[·•]\s*中文[点说]/i);
         const favItem = fav ? favFromExpression(item, result, title) : null;
         return (
-          <div className={'summary-card ' + tone} key={'sm' + tone + i}>
+          <div className={'summary-card ' + tone} key={'sm' + tone + '#' + (typeof item === 'string' ? item : i)}>
             <div className="summary-head">
               <p className="summary-quote">{parts[0].trim()}</p>
               {fav ? <FavStar active={fav.has(favItem.id)} onToggle={() => fav.toggle(favItem)} /> : null}
@@ -1768,7 +1831,7 @@ function QuizSheet({ quiz, showAnswers, onToggleAnswers, onBack, onBackToFav, on
         <p className="quiz-hint">先自己做完，再点右上角「显示答案」对照；导出 PDF 时答案与解析会统一印在最后。</p>
         <ol className="quiz-list">
           {qs.map((q, i) => (
-            <li className="quiz-item" key={'q' + i}>
+            <li className="quiz-item" key={'q' + (q.question || '') + '#' + i}>
               <div className="quiz-head">
                 <span className="quiz-no">{i + 1}</span>
                 <span className="quiz-type">{q.type || '问答'}</span>

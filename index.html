@@ -5,10 +5,18 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#10222e" />
     <meta name="description" content="回译本：面向新概念英语的回译训练 AI 工作台，实时生成逐句错误解析、润色与原文对照" />
+    <!-- 内联 SVG 图标：以前没有 favicon，每次加载都多一个 404 请求 -->
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2310222e'/%3E%3Ctext x='32' y='46' font-size='40' text-anchor='middle' fill='%23ffffff' font-family='sans-serif'%3E%E5%9B%9E%3C/text%3E%3C/svg%3E" />
     <title>回译本 · 新概念回译训练</title>
   </head>
   <body>
     <div id="root"></div>
+    <noscript>
+      <div style="max-width: 560px; margin: 12vh auto; padding: 0 20px; font-family: system-ui, sans-serif; line-height: 1.8; color: #1c2733">
+        <h1 style="font-size: 20px">需要启用 JavaScript</h1>
+        <p style="color: #5b6875">回译本是一个前端交互应用（回译训练 + AI 批改），请在浏览器设置里开启 JavaScript 后重新打开本页。</p>
+      </div>
+    </noscript>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

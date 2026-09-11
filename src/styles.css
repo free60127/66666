@@ -1,7 +1,9 @@
 :root {
-  --bg: #f4f6f8; --panel: #ffffff; --line: #e6eaf0; --text: #1c2733; --muted: #74808d;
-  --brand: #1f6feb; --brand-dark: #1857b8; --teal: #0f9d8f; --gold: #c88b1a;
-  --red: #d64f4f; --blue: #3b6fd4; --purple: #7a5ac9; --green: #2f9e44;
+  /* 颜色按 WCAG AA 调整过：--muted 5.4:1、--teal 5.2:1、--gold 5.0:1、--red 5.4:1（白底），
+     都用于小字号文字或白字徽章底色，原来分别是 4.03 / 3.37 / 2.93 / 4.12，不达标。 */
+  --bg: #f4f6f8; --panel: #ffffff; --line: #e6eaf0; --text: #1c2733; --muted: #5f6b78;
+  --brand: #1f6feb; --brand-dark: #1857b8; --teal: #0f7a70; --gold: #9a6500;
+  --red: #c0392b; --blue: #3b6fd4; --purple: #7a5ac9; --green: #2f9e44;
 }
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; margin: 0; }
@@ -175,8 +177,9 @@ mark.hl { background: #ffe3e3; color: inherit; padding: 0 2px; border-radius: 2p
 .idiom-example { font-size: 13px; color: #0d7a70; font-style: italic; margin: 3px 0; }
 .idiom-exp { margin: 0; font-size: 13px; line-height: 1.7; }
 
-.modal-mask { position: fixed; inset: 0; background: rgba(15, 25, 35, .45); display: grid; place-items: center; z-index: 50; }
-.modal { width: 420px; max-width: calc(100vw - 32px); background: #fff; border-radius: 14px; padding: 20px; }
+.modal-mask { position: fixed; inset: 0; background: rgba(15, 25, 35, .45); display: flex; align-items: center; justify-content: center; z-index: 50; overflow-y: auto; padding: 20px; }
+/* max-height + 内部滚动：小屏/横屏下收藏夹这类高弹窗原来底部按钮够不到、页面也滚不动 */
+.modal { width: 420px; max-width: calc(100vw - 32px); max-height: calc(100vh - 40px); overflow-y: auto; background: #fff; border-radius: 14px; padding: 20px; }
 .modal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
 .modal-head h2 { margin: 0; font-size: 17px; }
 .modal label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 12px; }
@@ -242,7 +245,9 @@ mark.hl { background: #ffe3e3; color: inherit; padding: 0 2px; border-radius: 2p
   .sidebar, .topbar, .result-toolbar, .modal-mask { display: none !important; }
   body { background: #fff !important; color: #1c2733 !important; }
   html, body, #root, .app, .main, .result, .sheet, .sheet-section { background: #fff !important; }
-  .editor { display: none !important; }
+  /* 这里原本还有一条 .editor { display: none }：但编辑视图与结果视图是互斥渲染的
+     （view === 'editor' ? <section.editor> : <section.result>），所以在编辑页按下 Ctrl+P
+     会把唯一的内容隐藏掉，打印出一张白纸。去掉它，编辑页也能正常打印。 */
   .result { display: block !important; height: auto !important; min-height: 0 !important; overflow: visible !important; padding: 0 !important; }
   .sheet { border: none !important; box-shadow: none !important; max-width: none !important; border-radius: 0 !important; padding: 0 !important; }
   .sheet-section { break-inside: auto !important; page-break-inside: auto !important; }
@@ -334,7 +339,8 @@ mark.hl { background: #ffe3e3; color: inherit; padding: 0 2px; border-radius: 2p
 }
 
 /* 收藏夹 */
-.fav-star { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 6px; color: #c2c9d1; margin-left: auto; flex-shrink: 0; }
+/* 44×44 触摸目标（原来 24×24）；用负外边距抵消，保持视觉密度不变 */
+.fav-star { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; margin: -10px -10px -10px auto; border-radius: 8px; color: #7c8792; flex-shrink: 0; }
 .fav-star:hover { background: #fff5d6; color: var(--gold); }
 .fav-star.on { color: var(--gold); }
 .fav-tip { position: fixed; top: 66px; right: 18px; z-index: 60; background: #10222e; color: #eaf3f8; font-size: 12.5px; padding: 8px 12px; border-radius: 10px; box-shadow: 0 6px 18px rgba(0, 0, 0, .18); }
@@ -400,4 +406,11 @@ mark.hl { background: #ffe3e3; color: inherit; padding: 0 2px; border-radius: 2p
   .quiz-answers, .quiz-answers.hidden { display: block !important; break-before: auto; page-break-before: auto; }
   .quiz-item, .quiz-answer-item { break-inside: avoid; page-break-inside: avoid; }
   .quiz-list { padding-left: 0 !important; }
+}
+
+/* iOS Safari 在聚焦 font-size < 16px 的表单控件时会自动放大整个页面。
+   放在文件末尾以确保优先级高于前面的 .ocr-mode / .modal label 等规则。 */
+@media screen and (max-width: 900px) {
+  input, select, textarea,
+  .ocr-mode, .material-modal select, .material-modal textarea { font-size: 16px !important; }
 }

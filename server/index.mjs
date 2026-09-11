@@ -10,7 +10,6 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
 const PORT = Number(process.env.PORT || 8787);
 const DIST = path.join(ROOT, 'dist');
-const AGENT_OUT = path.join(ROOT, 'test', 'agent_out', 'book2');
 
 /* ---------- .env loader ---------- */
 function loadEnv() {
@@ -57,14 +56,9 @@ function loadBook(book) {
       return { book, source: raw.source || source, lessons: (raw.lessons || []).map((l) => normalizeLesson(l, book, raw.source || source)).sort((a, b) => a.lesson - b.lesson) };
     } catch (e) { console.error('corpus parse failed:', full, e); }
   }
-  const lessons = [];
-  if (book === 2 && fs.existsSync(AGENT_OUT)) {
-    for (const f of fs.readdirSync(AGENT_OUT)) {
-      if (!/^lesson_\d+\.json$/.test(f)) continue;
-      try { lessons.push(normalizeLesson(JSON.parse(fs.readFileSync(path.join(AGENT_OUT, f), 'utf8')), book, source)); } catch {}
-    }
-  }
-  return { book, source, lessons: lessons.sort((a, b) => a.lesson - b.lesson) };
+  // 语料文件缺失时返回空列表（前端会退回「自由模式」）。
+  // 原先还有一段 test/agent_out 的遗留回退目录，已随测试产物清理掉。
+  return { book, source, lessons: [] };
 }
 function getCorpora() {
   if (!corpora) corpora = new Map([1, 2, 3, 4].map((b) => [b, loadBook(b)]));
@@ -289,6 +283,14 @@ function saveJob(job) {
 loadJobs();
 
 /* ---------- helpers ---------- */
+/** 预期内的用户错误：按原状态码与文案回给客户端；其余异常统一 500 且不回显内部信息。 */
+class HttpError extends Error {
+  constructor(status, message) {
+    super(message);
+    this.name = 'HttpError';
+    this.status = status;
+  }
+}
 function json(res, code, obj) {
   const body = JSON.stringify(obj ?? {});
   res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8' });
@@ -300,7 +302,7 @@ async function readBody(req) {
   for await (const c of req) {
     size += c.length;
     // 拍照识别会上传 base64 图片，放宽到 20MB，避免大图直接把内存打爆
-    if (size > 20 * 1024 * 1024) { req.destroy(); throw new Error('请求体过大（超过 20MB），请压缩图片后重试'); }
+    if (size > 20 * 1024 * 1024) { req.destroy(); throw new HttpError(413, '请求体过大（超过 20MB），请压缩图片后重试'); }
     chunks.push(c);
   }
   if (!chunks.length) return {};
@@ -588,15 +590,29 @@ const MIME = {
   '.json': 'application/json; charset=utf-8', '.png': 'image/png', '.jpg': 'image/jpeg',
   '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.woff2': 'font/woff2',
 };
+/** 判断目标路径确实位于 dist 目录内（防目录穿越）。
+ *  注意 rel === '' 表示 dist 根目录本身（请求 "/"），必须放行，否则整站 403。 */
+function insideDist(file) {
+  const rel = path.relative(DIST, file);
+  if (rel === '') return true;
+  return rel !== '..' && !rel.startsWith('..' + path.sep) && !path.isAbsolute(rel);
+}
 function serveStatic(res, pathname) {
   let file = path.normalize(path.join(DIST, pathname));
-  if (!file.startsWith(DIST)) return json(res, 403, { error: 'forbidden' });
+  // 用 path.relative 判断越界（原来的 file.startsWith(DIST) 写法脆弱：
+  // 若存在 dist-xxx 这样的同级目录，前缀判断会误判为"在 dist 内"）
+  if (!insideDist(file)) return json(res, 403, { error: 'forbidden' });
   if (!fs.existsSync(file) || fs.statSync(file).isDirectory()) {
     file = path.join(DIST, 'index.html');
     if (!fs.existsSync(file)) return index(res);
   }
   const ext = path.extname(file).toLowerCase();
-  res.writeHead(200, { 'Content-Type': MIME[ext] || 'application/octet-stream' });
+  const headers = { 'Content-Type': MIME[ext] || 'application/octet-stream' };
+  // 带内容 hash 的资源与字体可以长期强缓存；index.html 每次校验，保证发版立刻生效
+  headers['Cache-Control'] = /-[A-Za-z0-9_]{8}\.(js|css)$/.test(path.basename(file)) || ext === '.woff2'
+    ? 'public, max-age=31536000, immutable'
+    : 'no-cache';
+  res.writeHead(200, headers);
   fs.createReadStream(file).pipe(res);
 }
 function index(res) {
@@ -816,8 +832,10 @@ const server = http.createServer(async (req, res) => {
     if (p.startsWith('/api/')) return json(res, 404, { error: 'unknown api' });
     return serveStatic(res, p);
   } catch (e) {
+    // 预期内的用户错误按原样返回；未预期的异常只在服务端日志留全量，不回显内部信息
+    if (e instanceof HttpError) return json(res, e.status, { error: e.message });
     console.error(e);
-    return json(res, 500, { error: e.message || 'internal error' });
+    return json(res, 500, { error: '服务器内部错误，请稍后重试（详情见服务端日志）' });
   }
 });
 
