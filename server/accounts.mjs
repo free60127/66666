@@ -128,7 +128,11 @@ export function createAccounts({ kv, mail, env = process.env, sent }) {
   const MAIL_REASON = {
     not_configured: '邮件服务未配置：服务端缺少 SMTP_USER / SMTP_PASS 环境变量',
     auth: '邮件服务认证失败：SMTP_PASS 应该是邮箱「授权码」而不是登录密码，且需先在邮箱设置里开启 SMTP 服务',
-    connect: '连不上邮件服务器：465 与 587 端口都试过了，可能是网络或托管平台限制了出站 SMTP',
+    // Render 免费实例**明确禁止**出站 SMTP（官方 changelog: "Free web services will no longer
+    // allow outbound traffic to SMTP ports"）—— 这不是配置问题，换授权码、换端口都没用。
+    // 把这条写进提示里，免得以后再花一晚上排查同一个坑。
+    connect: '连不上邮件服务器（465 与 587 都试过）。若部署在 Render 免费实例上，这是平台策略：'
+      + '官方明确禁止出站 SMTP，需升级实例，或改用 HTTPS 邮件 API（Resend / Brevo 等）',
     timeout: '连接邮件服务器超时，请稍后重试',
     refused: '邮件服务器拒绝了该收件地址，请确认邮箱地址是否正确',
   };
@@ -337,7 +341,10 @@ export function createAccounts({ kv, mail, env = process.env, sent }) {
         // 不会再出现"forgot mail error: " 后面什么都没有、没法排查的情况。
         console.error('forgot mail error:', JSON.stringify(r));
         await kv.del(K_RESET(e)); // 发不出去就把码撤掉，避免"用户没收到但库里占着"
-        return { ok: false, status: 503, error: MAIL_REASON[r && r.code] || MAIL_FAIL };
+        // 附上底层细节（截断）—— 只关系到服务端自己的发信能力，不涉及任何用户数据；
+        // 有它才能一眼看出是"认证失败"还是"连接被拒"，否则又得去翻日志。
+        const detail = r && r.error ? `　[${String(r.error).slice(0, 140)}]` : '';
+        return { ok: false, status: 503, error: (MAIL_REASON[r && r.code] || MAIL_FAIL) + detail };
       }
       return { ok: true, status: 200 };
     },
