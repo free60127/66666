@@ -2,9 +2,11 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 // mammoth（894 KB 源码）只在"上传 DOCX"这一个功能里用到，
 // 改为 handleDocx 内动态 import，避免它被打进首屏主包。
 import {
-  ArrowLeft, BookOpen, Camera, CheckCircle2, ClipboardCopy, Download, FileText, Flame, History, ImagePlus,
-  Link2, LoaderCircle, PanelLeftClose, PanelLeftOpen, PenLine, Plus, Settings, Sparkles, Star, Timer, Trash2, Upload, WandSparkles, X,
+  ArrowLeft, BookOpen, Camera, CheckCircle2, ChevronDown, ChevronRight, ClipboardCopy, Download, FileText, Flame,
+  FolderPlus, History, ImagePlus, Library, Link2, LoaderCircle, PanelLeftClose, PanelLeftOpen, PenLine, Plus,
+  Settings, Sparkles, Star, Timer, Trash2, Upload, WandSparkles, X,
 } from 'lucide-react';
+import { createLibrary, loadLibraries, removeLesson, removeLibrary, saveLibraries, upsertLesson } from './lessonLibrary.js';
 import { analyze, generateMaterial, getAnalyzeJob, getLessons, getLesson, getMaterialJob, getOcrJob, getPhonetic, getQuizJob, getStatus, loadSettings, matchLesson, ocr, quiz, saveSettings } from './api.js';
 import { DEMO_LESSON_18, DEMO_LESSONS } from './demo.js';
 import { FAV_KIND_LABEL, favoritesToText, favFromExpression, favFromFinding, favFromIdiom, favFromVocab, filterFavorites, hasMorphology, loadFavorites, mergeFavorites, morphologyText, saveFavorites } from './favorites.js';
@@ -518,6 +520,16 @@ function App() {
   const favFileRef = useRef(null);
   // 计时器（记录一篇课文做了多久）
   const [timer, setTimer] = useState(loadTimer);
+  // 自建课文库（本机保存）：用户可以把自己的作业存成课文，像内置语料一样反复练
+  const [myLibs, setMyLibs] = useState(loadLibraries);
+  const [myLibId, setMyLibId] = useState('');            // 当前选中的自建库（空 = 用内置册）
+  const [libModalOpen, setLibModalOpen] = useState(false);
+  const [libPickId, setLibPickId] = useState('');
+  const [newLibName, setNewLibName] = useState('');
+  const [libTip, setLibTip] = useState('');
+  // 自由模式的「英文原文（标准答案）」：填了才能在结果里做原文对照
+  const [manualOriginal, setManualOriginal] = useState('');
+  const [originalOpen, setOriginalOpen] = useState(false);
   // 润色等级：让润色版与推荐表达匹配用户目标考试的难度
   const [polishLevel, setPolishLevel] = useState(() => {
     const saved = safeGet(LEVEL_KEY, '');
@@ -639,7 +651,18 @@ function App() {
     else document.title = '回译本 · 新概念回译训练';
   }, [view, result?.title]);
 
-  const visibleLessons = useMemo(() => lessons.filter((l) => l.book === book), [lessons, book]);
+  const activeLib = useMemo(() => myLibs.find((l) => l.id === myLibId) || null, [myLibs, myLibId]);
+  const visibleLessons = useMemo(
+    () => (activeLib ? activeLib.lessons : lessons.filter((l) => l.book === book)),
+    [activeLib, lessons, book],
+  );
+
+  // 本次作业的「英文原文（标准答案）」优先级：
+  // 用户手填 > AI 素材生成的原文 > 自建库课文自带的原文。
+  // 内置册留空，交给服务端按 book/lessonId 去语料里取（行为不变）。
+  const currentOriginal = manualOriginal.trim()
+    || generatedOriginal
+    || (myLibId ? (matchedLesson?.english || '') : '');
 
   // 请求令牌：连点两课时，先发的慢请求若后返回，会把标题/中文覆盖成上一课的内容
   // （表现为侧栏高亮第 5 课、编辑区却是第 3 课）。挂载时的自动选课也会"迟到覆盖"用户的手动选择。
@@ -662,6 +685,7 @@ function App() {
       setChinese(lesson.chinese || '');
       setDraft('');
       setGeneratedOriginal('');
+      setManualOriginal('');
       setMaterialKeywords([]);
       setMatchedLesson(lesson);
     } catch {
@@ -670,15 +694,100 @@ function App() {
       setChinese('');
       setDraft('');
       setGeneratedOriginal('');
+      setManualOriginal('');
       setMaterialKeywords([]);
     }
     if (autoGenerate) setTimeout(() => runGenerate(nextLesson), 60);
   };
 
   const handleBookChange = (nextBook) => {
+    setMyLibId(''); // 切回内置册
     const first = lessons.find((l) => l.book === nextBook);
     if (first) selectLesson(nextBook, first.lesson);
     else setBook(nextBook);
+  };
+
+  /** 选中自建库（只切换侧栏列表，不改变当前作业）。 */
+  const selectMyLib = (libId) => {
+    setMyLibId(libId);
+    setError('');
+    const lib = myLibs.find((l) => l.id === libId);
+    if (lib && !lib.lessons.length) flashTip(setShareTip, `「${lib.name}」还是空的：把当前作业存进去就能在这里选出来练习`, 4500);
+  };
+
+  /** 从自建库载入一节课（本地数据，不发请求）。 */
+  const selectMyLesson = (libId, lessonNo) => {
+    const lib = myLibs.find((x) => x.id === libId);
+    const lesson = lib?.lessons.find((l) => l.lesson === Number(lessonNo));
+    if (!lesson) return;
+    lessonReqRef.current += 1; // 作废仍在飞的内置课文请求，避免它回来覆盖
+    genTokenRef.current += 1;
+    setMyLibId(libId);
+    setLessonId(lesson.lesson);
+    setMatchedLesson(lesson);
+    setMode('lesson');
+    setMatchConfidence('manual');
+    setMatchScore(null);
+    setTitle(lesson.title_cn || lessonLabel(lesson)); // 自建课文直接用标题，不带 Lesson 编号
+    setChinese(lesson.chinese || '');
+    setDraft('');
+    setGeneratedOriginal('');
+    setManualOriginal(lesson.english || '');
+    setMaterialKeywords([]);
+    setError('');
+  };
+
+  /* ---------- 自建课文库：新建 / 保存 ---------- */
+  const openLibModal = () => {
+    setLibPickId(myLibs[0]?.id || '');
+    setNewLibName('');
+    setLibTip('');
+    setLibModalOpen(true);
+  };
+
+  const saveToLibrary = () => {
+    const name = newLibName.trim();
+    let list = myLibs;
+    let targetId = libPickId;
+    if (name) {
+      const dup = myLibs.find((l) => l.name === name);
+      if (dup) targetId = dup.id;
+      else {
+        const created = createLibrary(myLibs, name);
+        list = created;
+        targetId = created[created.length - 1].id;
+      }
+    }
+    if (!targetId) { setLibTip('请先选择或输入一个课文库名称'); return; }
+    const entry = {
+      title_cn: title.trim() || chinese.trim().slice(0, 12) || '未命名作业',
+      chinese: chinese.trim(),
+      english: currentOriginal.trim(),
+    };
+    if (!entry.chinese) { setLibTip('中文提示还是空的：至少要有中文提示才能存成课文'); return; }
+    const { list: next, replaced } = upsertLesson(list, targetId, entry);
+    setMyLibs(next);
+    if (!saveLibraries(next)) { setLibTip('写入本机存储失败（空间可能已满），请先清理浏览器数据'); return; }
+    setMyLibId(targetId);
+    setLibModalOpen(false);
+    flashTip(setShareTip, (replaced ? '已更新课文：' : '已保存课文：') + entry.title_cn + (entry.english ? '' : '（未填英文原文，练习时无法做原文对照）'), 4200);
+  };
+
+  const deleteLibrary = (libId, libName) => {
+    if (!window.confirm(`删除课文库「${libName}」？库里的课文会一起删掉，此操作不可撤销。`)) return;
+    const next = removeLibrary(myLibs, libId);
+    setMyLibs(next);
+    saveLibraries(next);
+    if (myLibId === libId) setMyLibId('');
+    flashTip(setShareTip, '已删除课文库「' + libName + '」', 3000);
+  };
+
+  const deleteMyLesson = (libId, lessonNo, label) => {
+    if (!window.confirm(`从课文库删除「${label}」？`)) return;
+    const next = removeLesson(myLibs, libId, lessonNo);
+    setMyLibs(next);
+    saveLibraries(next);
+    flashTip(setShareTip, '已删除课文「' + label + '」', 3000);
   };
 
   const handleDocx = async (event) => {
@@ -1147,9 +1256,9 @@ function App() {
     try {
       const resp = await analyze({
         title: title.trim(), chinese: cn, draft: df,
-        book: mode === 'lesson' ? book : undefined,
-        lessonId: mode === 'lesson' ? id : undefined,
-        original: mode === 'free' ? (generatedOriginal || undefined) : undefined,
+        book: mode === 'lesson' && !myLibId ? book : undefined,
+        lessonId: mode === 'lesson' && !myLibId ? id : undefined,
+        original: currentOriginal || undefined,
         level: polishLevel,
         baseUrl: settings.baseUrl, model: settings.model, apiKey: settings.apiKey,
       });
@@ -1231,23 +1340,33 @@ function App() {
     }
   };
 
-  // 新建 / 回到编辑器：作废正在跑的生成任务，避免它完成时把视图抢回结果页
+  // 新建 / 回到编辑器：清空当前作业，开始一份全新的回译
   const resetWorkspace = (closeSidebar) => {
-    // 有未提交的初稿时先确认，避免误点「新建」把刚写的内容清掉
-    if (draft.trim() && !window.confirm('新建会清空当前英文初稿（中文提示保留），确定继续？')) return;
+    const hasContent = Boolean(title.trim() || chinese.trim() || draft.trim() || manualOriginal.trim());
+    // 有内容时先确认，避免误点「新建」把刚写的东西清掉
+    if (hasContent && !window.confirm('新建会清空当前作业（标题、中文提示、英文初稿与原文），确定继续？')) return;
     genTokenRef.current += 1;
     if (closeSidebar) closeSidebarOnMobile();
     setView('editor');
     setResult(null);
+    // 清空作业内容：原来只清结果不清内容，用户点「新建」后看到的还是上一课，像是"没反应"
+    setTitle('');
+    setChinese('');
     setDraft('');
     setFileName('');
     setGeneratedOriginal('');
+    setManualOriginal('');
     setMaterialKeywords([]);
-    setError('');
     setMatchedLesson(null);
     setMatchConfidence('');
     setMatchScore(null);
-    // 关键：清掉 URL 上的 #job=，否则刷新会重新加载上一次的结果（"新建后 F5 又跳回旧结果"）
+    setError('');
+    setOcrNotes({});
+    // 全新作业默认自由模式，并展开「英文原文」栏引导填写标准答案
+    setMode('free');
+    setMyLibId('');
+    setOriginalOpen(true);
+    // 清掉 URL 上的 #job=，否则刷新会重新加载上一次的结果
     window.history.replaceState(null, '', window.location.pathname + window.location.search);
   };
 
@@ -1263,11 +1382,12 @@ function App() {
    * 5 个弹窗原来都没有 dialog 语义、不能用键盘关闭、Tab 会跑到弹窗外的内容上。 */
   const modalRefs = useRef({});
   useEffect(() => {
-    const open = camOpen ? 'cam' : materialOpen ? 'material' : historyOpen ? 'history' : favOpen ? 'fav' : settingsOpen ? 'settings' : null;
+    const open = camOpen ? 'cam' : materialOpen ? 'material' : libModalOpen ? 'lib' : historyOpen ? 'history' : favOpen ? 'fav' : settingsOpen ? 'settings' : null;
     if (!open) return undefined;
     const closers = {
       cam: closeCamera,
       material: () => { if (!materialBusy) setMaterialOpen(false); },
+      lib: () => setLibModalOpen(false),
       history: () => setHistoryOpen(false),
       fav: () => setFavOpen(false),
       settings: () => setSettingsOpen(false),
@@ -1288,7 +1408,7 @@ function App() {
     document.addEventListener('keydown', onKeyDown);
     const timer = setTimeout(() => modalRefs.current[open]?.querySelector('button, input, select, textarea')?.focus(), 40);
     return () => { document.removeEventListener('keydown', onKeyDown); clearTimeout(timer); };
-  }, [camOpen, materialOpen, historyOpen, favOpen, settingsOpen, materialBusy]);
+  }, [camOpen, materialOpen, libModalOpen, historyOpen, favOpen, settingsOpen, materialBusy]);
 
   return (
     <div className="app">
@@ -1300,17 +1420,53 @@ function App() {
         <div className="side-section">
           <div className="side-title">课文库</div>
           <div className="book-tabs">
-            {[1, 2, 3, 4].map((n) => <button key={n} className={book === n ? 'active' : ''} onClick={() => handleBookChange(n)}>新概念 {n}</button>)}
+            {[1, 2, 3, 4].map((n) => <button key={n} className={!myLibId && book === n ? 'active' : ''} onClick={() => handleBookChange(n)}>新概念 {n}</button>)}
           </div>
-          <div className="lesson-list">
-            {visibleLessons.length === 0 && <div className="muted">正在加载语料…</div>}
-            {visibleLessons.map((l) => (
-              <button key={`${l.book}-${l.lesson}`} className={'lesson-item' + (lessonId === l.lesson && book === l.book && mode === 'lesson' ? ' active' : '')}
-                onClick={() => { closeSidebarOnMobile(); selectLesson(l.book, l.lesson); }}>
-                <span className="lesson-no">{String(l.lesson).padStart(2, '0')}</span>
-                <span className="lesson-title">{l.title_cn || l.title_en || 'Lesson ' + l.lesson}</span>
+
+          <div className="my-libs">
+            <div className="my-libs-head">
+              <span className="side-title">我的课文库</span>
+              <button className="lib-add" onClick={openLibModal} title="新建课文库 / 把当前作业存进课文库" aria-label="新建课文库">
+                <FolderPlus size={14} />
               </button>
+            </div>
+            {myLibs.length === 0 && (
+              <div className="lib-empty">还没有自建库：点右上角 <FolderPlus size={11} /> 把当前作业存成课文，就能像课文一样反复练。</div>
+            )}
+            {myLibs.map((lib) => (
+              <div key={lib.id} className={'lib-row' + (myLibId === lib.id ? ' active' : '')}>
+                <button className="lib-tab" onClick={() => { closeSidebarOnMobile(); selectMyLib(lib.id); }}>
+                  <Library size={13} />
+                  <span className="lib-name">{lib.name}</span>
+                  <span className="lib-count">{lib.lessons.length}</span>
+                </button>
+                <button className="lib-del" onClick={() => deleteLibrary(lib.id, lib.name)} title="删除该课文库" aria-label={'删除课文库 ' + lib.name}>
+                  <Trash2 size={12} />
+                </button>
+              </div>
             ))}
+          </div>
+
+          <div className="lesson-list">
+            {visibleLessons.length === 0 && (
+              <div className="muted">{activeLib ? '这个库还是空的：把当前作业存进来即可' : '正在加载语料…'}</div>
+            )}
+            {visibleLessons.map((l) => {
+              const isActive = mode === 'lesson' && lessonId === l.lesson && (activeLib ? myLibId === activeLib.id : (book === l.book && !myLibId));
+              return (
+                <div key={`${l.book}-${l.lesson}`} className={'lesson-row' + (isActive ? ' active' : '')}>
+                  <button className="lesson-item" onClick={() => { closeSidebarOnMobile(); if (activeLib) selectMyLesson(activeLib.id, l.lesson); else selectLesson(l.book, l.lesson); }}>
+                    <span className="lesson-no">{String(l.lesson).padStart(2, '0')}</span>
+                    <span className="lesson-title">{l.title_cn || l.title_en || 'Lesson ' + l.lesson}</span>
+                  </button>
+                  {activeLib && (
+                    <button className="lesson-del" onClick={() => deleteMyLesson(activeLib.id, l.lesson, l.title_cn || ('Lesson ' + l.lesson))} title="从库中删除" aria-label="从库中删除">
+                      <Trash2 size={12} />
+                    </button>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
         <div className="side-footer">
@@ -1346,6 +1502,9 @@ function App() {
               <span className="upload-name">{fileName || '上传后自动读取标题、中文和英文初稿'}</span>
               <button className="ghost-btn" onClick={() => { setMaterialOpen(true); setError(''); }} disabled={materialBusy}>
                 <Sparkles size={16} />AI 生成训练素材
+              </button>
+              <button className="ghost-btn" onClick={openLibModal} title="把当前作业存进自建课文库，以后可以像课文一样选出来反复练习">
+                <FolderPlus size={16} />保存到课文库
               </button>
               <label className="ocr-mode-wrap">润色等级
                 <select className="ocr-mode" value={polishLevel} onChange={(e) => { setPolishLevel(e.target.value); safeSet(LEVEL_KEY, e.target.value); }} title="AI 润色版、高级句式与推荐表达都会匹配该考试难度">
@@ -1434,6 +1593,29 @@ function App() {
                 <input ref={englishCamRef} type="file" accept="image/*" capture="environment" hidden onChange={(e) => { const f = e.target.files; e.target.value = ''; handleOcrFiles('english', f); }} />
                 <input ref={englishFileRef} type="file" accept="image/*" multiple hidden onChange={(e) => { const f = e.target.files; e.target.value = ''; handleOcrFiles('english', f); }} />
               </div>
+            </div>
+            {/* 英文原文（标准答案）：可折叠。填了结果里才能做「原文对照」 */}
+            <div className={'original-fold' + (originalOpen ? ' open' : '')}>
+              <button className="fold-head" onClick={() => setOriginalOpen((v) => !v)} aria-expanded={originalOpen} aria-controls="bt-original">
+                {originalOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                <span className="fold-title">英文原文（标准答案）</span>
+                <span className="muted small">
+                  {manualOriginal.trim()
+                    ? `已手填 ${manualOriginal.trim().split(/\s+/).filter(Boolean).length} 词，结果里会逐句对照`
+                    : currentOriginal.trim()
+                      ? `已自动带入 ${currentOriginal.trim().split(/\s+/).filter(Boolean).length} 词（留空就用这一份）`
+                      : '可选；不填的话结果里只有 AI 修正版，没有原文对照'}
+                </span>
+              </button>
+              {originalOpen && (
+                <textarea
+                  id="bt-original"
+                  className="big-textarea original-textarea"
+                  value={manualOriginal}
+                  onChange={(e) => setManualOriginal(e.target.value)}
+                  placeholder="把这一课的英文原文粘贴到这里（课文原文 / 你要对标的范文都行）。留空则使用内置语料或 AI 素材自带的原文。"
+                />
+              )}
             </div>
             {error && <div className="error-banner" role="alert"><Flame size={15} /><span className="error-text">{error}</span><button className="link" onClick={loadDemo}>查看离线示例</button><button className="icon-btn err-close" onClick={() => setError('')} aria-label="关闭提示"><X size={15} /></button></div>}
             <div className="actions-bar">
@@ -1607,6 +1789,42 @@ function App() {
             <label className="remember-key"><input type="checkbox" checked={Boolean(settings.rememberKey)} onChange={(e) => setSettings({ ...settings, rememberKey: e.target.checked })} /> 在本机记住 Key（关闭浏览器后仍保留）</label>
             <p className="muted small">默认只保留到<b>关闭标签页</b>为止——Key 存在浏览器会话存储里，不长期落盘；勾选上面的选项才会长期保存（换设备 / 换浏览器需重填）。Key 只会发给你自己部署的这个后端，由它转发给模型接口；<b>自定义 Base URL 时必须同时填该接口的 Key</b>，否则服务端会拒绝（避免把你的密钥发给陌生地址）。想让所有访问者免填 Key，请在部署平台的环境变量里配置 AI_API_KEY / AI_VISION_MODEL。</p>
             <div className="modal-actions"><button className="primary-btn" onClick={onSaveSettings}>保存并重连</button><button className="ghost-btn" onClick={() => setSettingsOpen(false)}>取消</button></div>
+          </div>
+        </div>
+      )}
+
+      {libModalOpen && (
+        <div className="modal-mask" onClick={() => setLibModalOpen(false)}>
+          <div className="modal" ref={(el) => { modalRefs.current.lib = el; }} role="dialog" aria-modal="true" aria-label="保存到课文库" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head"><h2>保存到课文库</h2><button className="icon-btn" onClick={() => setLibModalOpen(false)} aria-label="关闭"><X size={16} /></button></div>
+            <p className="muted small">把当前作业的「标题 + 中文提示 + 英文原文」存成一节课，之后就能从左侧「我的课文库」里像课文一样选出来反复练习（只存在本机浏览器）。</p>
+            <div className="lib-preview">
+              <div><span className="muted">标题</span><strong>{title.trim() || (chinese.trim() ? chinese.trim().slice(0, 12) + '…' : '未命名作业')}</strong></div>
+              <div><span className="muted">中文提示</span><strong className={chinese.trim() ? '' : 'warn'}>{chinese.trim() ? chinese.trim().length + ' 字' : '还没有，至少要有中文提示'}</strong></div>
+              <div><span className="muted">英文原文</span><strong className={currentOriginal.trim() ? '' : 'warn'}>{currentOriginal.trim() ? currentOriginal.trim().split(/\s+/).filter(Boolean).length + ' 词' : '没填，练习时没有原文对照'}</strong></div>
+            </div>
+            {myLibs.length > 0 && (
+              <div className="lib-picker">
+                <div className="muted small">存到已有课文库：</div>
+                {myLibs.map((lib) => {
+                  const picked = libPickId === lib.id && !newLibName.trim();
+                  return (
+                    <label key={lib.id} className={'lib-option' + (picked ? ' active' : '')}>
+                      <input type="radio" name="bt-lib" checked={picked} onChange={() => { setLibPickId(lib.id); setNewLibName(''); }} />
+                      <Library size={13} />
+                      <span>{lib.name}</span>
+                      <span className="muted small">（{lib.lessons.length} 课）</span>
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+            <label>或新建一个课文库<input value={newLibName} onChange={(e) => setNewLibName(e.target.value)} placeholder="例如：我的新概念 2 / 高考真题精读" /></label>
+            {libTip ? <div className="lib-tip" role="alert">{libTip}</div> : null}
+            <div className="modal-actions">
+              <button className="primary-btn" onClick={saveToLibrary}>{newLibName.trim() ? (myLibs.some((l) => l.name === newLibName.trim()) ? '存入该库' : '新建并保存') : '保存'}</button>
+              <button className="ghost-btn" onClick={() => setLibModalOpen(false)}>取消</button>
+            </div>
           </div>
         </div>
       )}

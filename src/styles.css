@@ -414,3 +414,54 @@ mark.hl { background: #ffe3e3; color: inherit; padding: 0 2px; border-radius: 2p
   input, select, textarea,
   .ocr-mode, .material-modal select, .material-modal textarea { font-size: 16px !important; }
 }
+
+/* ---------- 自建课文库（侧栏） ---------- */
+.my-libs { margin: 0 4px 8px; display: flex; flex-direction: column; gap: 3px; }
+.my-libs-head { display: flex; align-items: center; justify-content: space-between; }
+.my-libs-head .side-title { padding: 4px 2px; }
+.lib-add { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 7px; color: #a9bdc9; border: 1px solid #3a4f5e; }
+.lib-add:hover { color: #fff; background: rgba(255,255,255,.1); }
+.lib-empty { font-size: 11.5px; line-height: 1.65; color: #7f99aa; padding: 4px 4px 2px; }
+.lib-row { display: flex; align-items: center; border-radius: 8px; }
+.lib-row.active { background: rgba(66,150,255,.18); }
+.lib-tab { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; padding: 6px 8px; border-radius: 8px; color: #c7d6df; font-size: 12.5px; text-align: left; }
+.lib-tab:hover { background: rgba(255,255,255,.06); }
+.lib-row.active .lib-tab { color: #fff; }
+.lib-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lib-count { font-size: 10.5px; color: #a9bdc9; background: rgba(255,255,255,.1); border-radius: 999px; padding: 1px 6px; }
+.lib-del { display: none; padding: 4px; border-radius: 6px; color: #8fa6b5; margin-right: 4px; }
+.lib-row:hover .lib-del { display: inline-flex; }
+.lib-del:hover { color: #ff9a9a; background: rgba(255,255,255,.08); }
+/* 课文行：内置册只有按钮，自建库多一个删除按钮 */
+.lesson-row { display: flex; align-items: center; border-radius: 8px; }
+.lesson-row.active { background: rgba(66,150,255,.18); }
+.lesson-row .lesson-item { flex: 1; min-width: 0; }
+.lesson-row.active .lesson-item { color: #fff; }
+.lesson-del { display: none; padding: 4px; border-radius: 6px; color: #8fa6b5; margin-right: 4px; }
+.lesson-row:hover .lesson-del { display: inline-flex; }
+.lesson-del:hover { color: #ff9a9a; background: rgba(255,255,255,.08); }
+
+/* ---------- 英文原文（标准答案）折叠栏 ---------- */
+.original-fold { margin-top: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); overflow: hidden; }
+.fold-head { display: flex; align-items: center; gap: 8px; width: 100%; padding: 11px 14px; text-align: left; color: var(--text); }
+.fold-head:hover { background: #f7f9fb; }
+.fold-title { font-weight: 600; font-size: 13.5px; white-space: nowrap; }
+.fold-head .muted { margin-left: auto; text-align: right; }
+.original-textarea { min-height: 150px; border: none; border-top: 1px solid var(--line); border-radius: 0; }
+.original-textarea:focus { outline-offset: 0; }
+
+/* ---------- 保存到课文库弹窗 ---------- */
+.lib-preview { background: #f7f9fb; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; display: flex; flex-direction: column; gap: 7px; font-size: 13px; }
+.lib-preview > div { display: flex; gap: 10px; align-items: baseline; }
+.lib-preview .muted { min-width: 64px; }
+.lib-preview .warn { color: var(--gold); }
+.lib-picker { display: flex; flex-direction: column; gap: 5px; margin-bottom: 12px; }
+.modal .lib-option { display: flex; align-items: center; gap: 7px; color: var(--text); font-size: 13px; margin-bottom: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; }
+.modal .lib-option.active { border-color: var(--brand); background: #f0f6ff; }
+.modal .lib-option input { width: auto; margin: 0; }
+.lib-tip { color: var(--red); font-size: 12.5px; margin: -4px 0 10px; }
+
+@media screen and (max-width: 900px) {
+  .fold-head { flex-wrap: wrap; }
+  .fold-head .muted { margin-left: 0; width: 100%; text-align: left; }
+}
