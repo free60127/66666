@@ -1,0 +1,16 @@
+{
+  "name": "回译本 · 你的私人英语工坊",
+  "short_name": "回译本",
+  "description": "看中文写英文的回译训练，AI 逐句批改并和原文对照。",
+  "lang": "zh-CN",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#10222e",
+  "theme_color": "#10222e",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

@@ -4,10 +4,21 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#10222e" />
-    <meta name="description" content="回译本：面向新概念英语的回译训练 AI 工作台，实时生成逐句错误解析、润色与原文对照" />
-    <!-- 内联 SVG 图标：以前没有 favicon，每次加载都多一个 404 请求 -->
-    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2310222e'/%3E%3Ctext x='32' y='46' font-size='40' text-anchor='middle' fill='%23ffffff' font-family='sans-serif'%3E%E5%9B%9E%3C/text%3E%3C/svg%3E" />
-    <title>回译本 · 新概念回译训练</title>
+    <meta name="description" content="回译本 · 你的私人英语工坊：看中文写英文的回译训练，AI 逐句批改并和原文对照。支持自带课文与任意 OpenAI 兼容接口。" />
+    <!--
+      图标：全部由 public/icon.svg 生成，改图标请改那个源文件再跑 node tools/make-icons.mjs。
+      顺序有讲究 —— 支持 SVG 的浏览器优先吃第一条（矢量，任何尺寸都锐利），
+      其余按 sizes 挑最合适的一档。
+    -->
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/icon-32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/icon-16.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <!-- 主屏图标在 iOS 上默认带高光/圆角，这两个 meta 让它保持设计原样 -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <title>回译本 · 你的私人英语工坊</title>
   </head>
   <body>
     <div id="root"></div>

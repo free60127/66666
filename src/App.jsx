@@ -268,6 +268,15 @@ function parseAssignmentText(raw) {
   return { title, chinese, draft };
 }
 
+/**
+ * 站名只在这里定义一次。
+ *
+ * index.html 的 <title> **会被下面的 effect 覆盖** —— 两处各写一份，
+ * 就会出现"改了 index.html 却不生效"的怪事（实测踩过：HTML 里改了，浏览器里还是旧的）。
+ */
+const SITE_NAME = '回译本';
+const SITE_TAGLINE = '你的私人英语工坊';
+
 function lessonLabel(lesson) {
   return lesson ? `Lesson ${lesson.lesson} · ${lesson.title_en || lesson.title_cn}` : '';
 }
@@ -709,9 +718,9 @@ function App() {
 
   // 页面标题跟随当前作业：导出 PDF / 另存网页时文件名才有意义（原来是恒定标题）
   useEffect(() => {
-    if (view === 'result' && result?.title) document.title = result.title + ' · 回译本';
-    else if (view === 'quiz') document.title = '自测题 · 回译本';
-    else document.title = '回译本 · 新概念回译训练';
+    if (view === 'result' && result?.title) document.title = result.title + ' · ' + SITE_NAME;
+    else if (view === 'quiz') document.title = '自测题 · ' + SITE_NAME;
+    else document.title = SITE_NAME + ' · ' + SITE_TAGLINE;
   }, [view, result?.title]);
 
   const activeLib = useMemo(() => myLibs.find((l) => l.id === myLibId) || null, [myLibs, myLibId]);
@@ -1978,7 +1987,7 @@ function App() {
           })}
         </div>
       )}
-      <label>或新建一个课文库<input value={newLibName} onChange={(e) => setNewLibName(e.target.value)} placeholder="例如：我的新概念 2 / 高考真题精读" /></label>
+      <label>或新建一个课文库<input value={newLibName} onChange={(e) => setNewLibName(e.target.value)} placeholder="例如：我的第二册 / 高考真题精读" /></label>
     </>
   );
 
@@ -1992,7 +2001,7 @@ function App() {
         <div className="side-section">
           <div className="side-title">课文库</div>
           <div className="book-tabs">
-            {[1, 2, 3, 4].map((n) => <button key={n} className={!myLibId && book === n ? 'active' : ''} onClick={() => handleBookChange(n)}>新概念 {n}</button>)}
+            {[1, 2, 3, 4].map((n) => <button key={n} className={!myLibId && book === n ? 'active' : ''} onClick={() => handleBookChange(n)}>第 {n} 册</button>)}
           </div>
 
           <div className="my-libs">
@@ -2122,7 +2131,7 @@ function App() {
                   // 自建库课文：book 是 'my' 这个标记值，不能当成册号渲染（原来会显示"第 my 册"）
                   <span className="match-text">当前课文：<b>我的课文库</b> · 第 {matchedLesson.lesson} 课{matchedLesson.title_cn ? ' · ' + matchedLesson.title_cn : ''}（{CONFIDENCE_LABEL[matchConfidence] || matchConfidence || '手动选择'}）{mode === 'free' ? '，当前按自由模式' : '，原文将自动带入分析'}</span>
                 ) : (
-                  <span className="match-text">已识别可能有课文：新概念英语第 {matchedLesson.book} 册 · Lesson {matchedLesson.lesson} · {matchedLesson.title_en}（{CONFIDENCE_LABEL[matchConfidence] || matchConfidence || '未匹配'}{matchScore != null ? ` · 匹配分 ${matchScore}` : ''}）{mode === 'free' ? '，当前按自由模式' : '，原文将自动带入分析'}</span>
+                  <span className="match-text">已识别可能有课文：第 {matchedLesson.book} 册 · Lesson {matchedLesson.lesson} · {matchedLesson.title_en}（{CONFIDENCE_LABEL[matchConfidence] || matchConfidence || '未匹配'}{matchScore != null ? ` · 匹配分 ${matchScore}` : ''}）{mode === 'free' ? '，当前按自由模式' : '，原文将自动带入分析'}</span>
                 )}
                 {mode === 'free'
                   ? <button className="link" onClick={applyMatchedLesson}>改用这个课文</button>
@@ -2135,7 +2144,7 @@ function App() {
               <button className={mode === 'free' ? 'active' : ''} onClick={() => setMode('free')}><PenLine size={15} />自由模式</button>
             </div>
             <div className="title-row">
-              <div className="title-field"><label htmlFor="bt-title">作业标题</label><input id="bt-title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="例如：新概念2 lesson 11" /></div>
+              <div className="title-field"><label htmlFor="bt-title">作业标题</label><input id="bt-title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="例如：第 2 册 lesson 11" /></div>
               <div className={'timer-box' + (timer.running ? ' running' : '')}>
                 <Timer size={16} />
                 <strong className="timer-display" title="本次练习用时"><ElapsedDisplay timer={timer} /></strong>
