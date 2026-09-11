@@ -1,40 +1,53 @@
 // 与后端 /api 通信的小工具
-export async function api(path, options = {}) {
-  const res = await fetch(path, {
-    headers: { 'Content-Type': 'application/json' },
-    ...options,
-  });
+// 统一超时：以前裸 fetch 没有超时，网络卡死时首屏状态、课程列表、生成请求会一直挂着。
+export const TIMEOUT = { fast: 15000, normal: 30000, upload: 60000 };
+
+/** 带超时的 fetch。超时统一转成可读错误，避免 AbortError 直接冒到界面上。 */
+async function request(path, options = {}, timeoutMs = TIMEOUT.normal) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(path, { ...options, signal: controller.signal });
+  } catch (e) {
+    if (e && e.name === 'AbortError') {
+      throw new Error(`请求超时（${Math.round(timeoutMs / 1000)} 秒）：请检查网络后重试`);
+    }
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export async function api(path, options = {}, timeoutMs = TIMEOUT.normal) {
+  const res = await request(path, { headers: { 'Content-Type': 'application/json' }, ...options }, timeoutMs);
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || ('请求失败: ' + res.status));
   return data;
 }
 
 /** 与 api() 相同，但把 HTTP 状态码一并返回 —— 同步推送需要区分 409（版本冲突）。 */
-async function apiRaw(path, options = {}) {
-  const res = await fetch(path, {
-    headers: { 'Content-Type': 'application/json' },
-    ...options,
-  });
+async function apiRaw(path, options = {}, timeoutMs = TIMEOUT.normal) {
+  const res = await request(path, { headers: { 'Content-Type': 'application/json' }, ...options }, timeoutMs);
   const data = await res.json().catch(() => ({}));
   return { ok: res.ok, status: res.status, data };
 }
 
-export const getStatus = () => api('/api/status');
-export const getLessons = (book) => api('/api/lessons' + (book ? '?book=' + book : ''));
-export const getLesson = (book, n) => api('/api/lessons/' + (n == null ? book : book + '/' + n));
+export const getStatus = () => api('/api/status', {}, TIMEOUT.fast);
+export const getLessons = (book) => api('/api/lessons' + (book ? '?book=' + book : ''), {}, TIMEOUT.fast);
+export const getLesson = (book, n) => api('/api/lessons/' + (n == null ? book : book + '/' + n), {}, TIMEOUT.fast);
 export const matchLesson = (payload) => api('/api/match', { method: 'POST', body: JSON.stringify(payload) });
 export const analyze = (payload) => api('/api/analyze', { method: 'POST', body: JSON.stringify(payload) });
-export const getAnalyzeJob = (jobId) => api('/api/analyze/' + jobId);
+export const getAnalyzeJob = (jobId) => api('/api/analyze/' + jobId, {}, TIMEOUT.fast);
 export const generateMaterial = (payload) => api('/api/generate-material', { method: 'POST', body: JSON.stringify(payload) });
-export const getMaterialJob = (jobId) => api('/api/generate-material/' + jobId);
-// 拍照 / 图片识别：提交图片 → 轮询识别结果
-export const ocr = (payload) => api('/api/ocr', { method: 'POST', body: JSON.stringify(payload ?? {}) });
-export const getOcrJob = (jobId) => api('/api/ocr/' + jobId);
+export const getMaterialJob = (jobId) => api('/api/generate-material/' + jobId, {}, TIMEOUT.fast);
+// 拍照 / 图片识别：提交图片 → 轮询识别结果（要上传 base64 图片，给更长的超时）
+export const ocr = (payload) => api('/api/ocr', { method: 'POST', body: JSON.stringify(payload ?? {}) }, TIMEOUT.upload);
+export const getOcrJob = (jobId) => api('/api/ocr/' + jobId, {}, TIMEOUT.fast);
 // 音标兜底查询（模型没返回 phonetic 时用）
 export const getPhonetic = (word) => api('/api/phonetic?word=' + encodeURIComponent(word));
 // 收藏知识点自测题：提交 → 轮询结果
 export const quiz = (payload) => api('/api/quiz', { method: 'POST', body: JSON.stringify(payload ?? {}) });
-export const getQuizJob = (jobId) => api('/api/quiz/' + jobId);
+export const getQuizJob = (jobId) => api('/api/quiz/' + jobId, {}, TIMEOUT.fast);
 
 /* ---------- 云同步（同步码） ---------- */
 export const getSyncInfo = () => api('/api/sync/info');

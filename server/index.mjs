@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { SYSTEM_PROMPT, buildUserMessage, MATERIAL_PROMPT, buildMaterialMessage, QUIZ_PROMPT, buildQuizMessage, AI_LEVEL_KEYS, DEFAULT_AI_LEVEL, normalizeLevel } from './prompt.mjs';
 import { recognizeImage } from './ocr.mjs';
-import { createSyncStore, emptySnapshot, isValidSyncCode, newSyncCode, sanitizeSnapshot } from './sync.mjs';
+import { MAX_SNAPSHOT_BYTES, createSyncStore, emptySnapshot, isValidSyncCode, newSyncCode, sanitizeSnapshot } from './sync.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -305,17 +305,38 @@ function json(res, code, obj) {
   res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8' });
   res.end(body);
 }
-async function readBody(req) {
+const MAX_BODY_BYTES = 20 * 1024 * 1024; // 拍照识别会上传 base64 图片，所以放到 20MB
+/**
+ * 读取并解析 JSON 请求体。
+ * - 超限时不再 req.destroy()：那样客户端收到的是"连接被重置"，看不到原因。
+ *   这里改为把剩余数据排空后回 413，客户端能拿到标准 JSON 错误。
+ * - JSON 非法时回 400，而不是当成空对象 —— 否则会被后续校验报成"缺少 xxx 字段"，把人往错的方向带。
+ * @param {number} maxBytes 本次允许的最大体积（云同步这类接口传更小值，避免解析超大 body）
+ */
+async function readBody(req, maxBytes = MAX_BODY_BYTES) {
   const chunks = [];
   let size = 0;
+  let tooLarge = false;
   for await (const c of req) {
+    if (tooLarge) continue; // 继续把请求体读完，保证连接状态正常、响应能送达
     size += c.length;
-    // 拍照识别会上传 base64 图片，放宽到 20MB，避免大图直接把内存打爆
-    if (size > 20 * 1024 * 1024) { req.destroy(); throw new HttpError(413, '请求体过大（超过 20MB），请压缩图片后重试'); }
+    if (size > maxBytes) { tooLarge = true; chunks.length = 0; continue; }
     chunks.push(c);
   }
+  if (tooLarge) throw new HttpError(413, `请求体过大（超过 ${Math.round(maxBytes / 1024 / 1024)}MB），请精简后重试`);
   if (!chunks.length) return {};
-  try { return JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { return {}; }
+  const text = Buffer.concat(chunks).toString('utf8').trim();
+  if (!text) return {};
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch (e) {
+    throw new HttpError(400, 'JSON 格式错误：' + String((e && e.message) || '').slice(0, 120));
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new HttpError(400, '请求体必须是一个 JSON 对象');
+  }
+  return parsed;
 }
 const DEFAULT_MAX_TOKENS = Number(process.env.AI_MAX_TOKENS || 20000);
 const FALLBACK_MAX_TOKENS = 8192;
@@ -678,15 +699,20 @@ const server = http.createServer(async (req, res) => {
       }
       if (req.method === 'POST') {
         if (rateLimited(req)) return json(res, 429, { error: '同步过于频繁，请稍后再试' });
-        const body = await readBody(req);
-        const data = sanitizeSnapshot(body.data);
-        if (!data) return json(res, 413, { error: '同步数据过大或格式不正确（上限 2MB）' });
+        // 快照本身限 2MB，给 JSON 包装留点余量即可，不必解析 20MB 的 body
+        const body = await readBody(req, MAX_SNAPSHOT_BYTES + 256 * 1024);
+        const check = sanitizeSnapshot(body.data);
+        if (!check.ok) return json(res, 413, { error: check.error });
+        const data = check.data;
         const doc = await syncStore.read(code);
         if (!doc) return json(res, 404, { error: '同步码不存在，请检查是否输错' });
         const baseVersion = Number(body.baseVersion);
         if (Number.isFinite(baseVersion) && baseVersion !== doc.version) {
           // 云端已被其它设备改过：把最新数据带回去，让前端合并后重试
           return json(res, 409, { error: '云端已被其它设备更新', version: doc.version, updatedAt: doc.updatedAt, data: doc.data });
+        }
+        if (check.dropped && (check.dropped.favorites || check.dropped.history)) {
+          console.warn('同步快照丢弃了超限条目:', JSON.stringify(check.dropped));
         }
         const next = { version: doc.version + 1, updatedAt: Date.now(), device: String(body.device || '').slice(0, 40), data };
         await syncStore.write(code, next);
@@ -707,8 +733,15 @@ const server = http.createServer(async (req, res) => {
       });
     }
     if (p === '/api/lessons' && req.method === 'GET') {
-      const requestedBook = Number(url.searchParams.get('book'));
-      const book = isValidBook(requestedBook) ? requestedBook : null;
+      // 非法 book 以前会被悄悄当成 null → 返回全部 348 课，前端以为筛选成功了。
+      // 现在：不传 = 全部；传了但不是 1-4 = 明确 400。
+      const rawBook = url.searchParams.get('book');
+      let book = null;
+      if (rawBook !== null && rawBook.trim() !== '') {
+        const n = Number(rawBook);
+        if (!isValidBook(n)) return json(res, 400, { error: 'book 必须是 1-4 的整数（不传则返回全部课次）' });
+        book = n;
+      }
       const lessons = allLessons(book).map((l) => ({
         book: l.book, lesson: l.lesson, title_en: l.title_en, title_cn: l.title_cn,
         pdf_page: l.pdf_page, englishLen: l.english.length, chineseLen: l.chinese.length,
