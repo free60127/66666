@@ -1171,6 +1171,7 @@ function App() {
   };
 
   const loadDemo = () => {
+    genTokenRef.current += 1; // 正在跑的生成任务作废，避免它完成时把示例视图抢回结果页
     setResult(DEMO_LESSON_18);
     setView('result');
     setError('');
@@ -1284,7 +1285,7 @@ function App() {
                 <Sparkles size={16} />AI 生成训练素材
               </button>
               <label className="ocr-mode-wrap">润色等级
-                <select className="ocr-mode" value={polishLevel} onChange={(e) => { setPolishLevel(e.target.value); localStorage.setItem(LEVEL_KEY, e.target.value); }} title="AI 润色版、高级句式与推荐表达都会匹配该考试难度">
+                <select className="ocr-mode" value={polishLevel} onChange={(e) => { setPolishLevel(e.target.value); safeSet(LEVEL_KEY, e.target.value); }} title="AI 润色版、高级句式与推荐表达都会匹配该考试难度">
                   {AI_LEVELS.map((lv) => <option key={lv} value={lv}>{lv}</option>)}
                 </select>
               </label>
