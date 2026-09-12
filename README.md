@@ -52,7 +52,7 @@
 
 ## 测试
 
-    npm test          # 账号 52 项 + 同步存储 18 项 + 收藏/SM-2 49 项 + 同课对比 50 项（纯 node，无需外部服务）
+    npm test          # 账号 52 + 同步存储 18 + 任务保留/清理 12 + 收藏/SM-2 49 + 同课对比 50 项（纯 node，无需外部服务）
     npm run test:auth # 账号服务 Worker 44 项（auth-worker，走本地 D1 垫片）
     node tools/e2e-b6b7.mjs   # 真实浏览器链路 35 项：两次练习对比、收藏复习、跨设备进度合并（自带 mock 模型与后端）
 
@@ -71,6 +71,7 @@
 | AI_MAX_TOKENS | 单次生成最大输出 token（默认 20000，输出被截断时自动重试更高上限） | 20000 |
 | PORT | 后端端口 | 8787 |
 | JOB_TTL_DAYS | 任务（批改结果）保留天数 = **分享链接的有效期**（默认 3650 天 ≈ 长期有效；调小可控制存储体积，如 90） | 3650 |
+| JOB_MAX_COUNT | 结果**最多保留多少条**（默认 2000），超出自动从最旧的删；挡住"堆满存储"，调小更保守（如 500） | 2000 |
 
 前端「AI 设置」弹窗也可临时填 Base URL / Model / Key（仅存本机 localStorage，发给本地后端）；正式部署请一律用后端 .env。
 
@@ -148,9 +149,19 @@
 | GET | /api/quiz/:jobId | 轮询自测题：`{ok, job:{jobId, status, data:{title, level, count, questions[{type,question,options,answer,explanation,source}]}, error}}` |
 | GET | /api/analyze/:jobId | 轮询作业状态：`{ok, job:{jobId, status, data?, error?}}`，status 为 pending / running / done / error |
 
-所有任务（分析 / 素材 / OCR / 自测题）都会持久化到服务端的键值存储（配了 `UPSTASH_*` 就是云端 Redis，否则是容器本地 `data/kv/`，一条一个键），后端重启、重新部署都不会丢。结果页「复制分享链接」生成 `#job=<jobId>` 链接，**任何人打开都能恢复同一次批改结果**；链接的有效期 = 任务保留期 `JOB_TTL_DAYS`（默认 3650 天 ≈ 长期有效，配了 Upstash 时跨部署持久，链接不会因为发版失效）。前端还会在本机浏览器保存最近 20 条历史记录。
+所有任务（分析 / 素材 / OCR / 自测题）都会持久化到服务端的键值存储（配了 `UPSTASH_*` 就是云端 Redis，否则是容器本地 `data/kv/`，一条一个键），后端重启、重新部署都不会丢。结果页「复制分享链接」生成 `#job=<jobId>` 链接，**任何人打开都能恢复同一次批改结果**；前端还会在本机浏览器保存最近 20 条历史记录。
 
-> 分享链接取的是**服务端**那条记录：对方设备上没有你的本机缓存，所以链接一旦超出保留期（或链接被改动）就打不开，页面会明确提示并建议改用「导出 PDF」。当前保留期随时可在 `/api/status` 的 `jobs.ttlDays` 里查到。
+### 分享链接的有效期与自动清理
+
+分享链接取的是**服务端**那条记录（对方设备上没有你的本机缓存），所以它能不能打开，完全取决于服务端还留不留这条记录。两层机制各管一头：
+
+| 机制 | 默认 | 作用 |
+| --- | --- | --- |
+| 保留期 `JOB_TTL_DAYS` | 3650 天 | 链接"长期有效"；**被打开一次就按当前保留期续期**，所以调大之后老链接也会跟着续上 |
+| 条数上限 `JOB_MAX_COUNT` | 2000 条 | 防**堆满存储**：超过就从最旧的自动删（Upstash 免费额度 256MB 是和云同步、账号共用的一个库，写满会连同步和登录一起挂） |
+| 内存副本 | 6 小时 | 只是快路径，KV 才是权威；内存清理**不会**删 KV 那份 |
+
+存储体积参考：一条完整结果约 15–60 KB（`src/demo.js` 里那份完整结果实测 13.7 KB），2000 条 ≈ 30–120 MB。当前保留期 / 上限 / 已保留条数随时可在 `/api/status` 的 `jobs` 字段里查到，服务端启动日志也会打印存储键数。链接真打不开时页面会明确提示，并建议改用「导出 PDF」长期留存。
 
 `/api/analyze/:jobId` 在 status=done 时 job.data 结构：{ title, chinese, draft, ai, original, aiLevel, overall{score,scoreBreakdown[{label,score,max,comment}],issues,summary,highlights,advice}, sentences[{cn,draft,ai,original,findings[{category,from,to,level,explanation,dimensions,synonyms[{word,phonetic,meaning,register,tone,strength,usage,example}],examples,idiom}]}], vocabularyNotes[{word,phonetic,type,meaning,morphology{parts,image,family},dimensions,synonyms,examples,note}], idiomHighlights, advancedSentences, bonusExpressions }。
 

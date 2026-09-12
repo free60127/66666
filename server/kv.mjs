@@ -57,6 +57,8 @@ export function createUpstashKv({ url, token }) {
     },
     async del(key) { await cmd(['DEL', key]); },
     async incrBy(key, n) { return Number(await cmd(['INCRBY', key, String(n)])); },
+    /** 键总数：用来在启动日志里给出"离存储上限还有多远"的量级（免费额度按 256MB 计） */
+    async dbSize() { return Number(await cmd(['DBSIZE'])) || 0; },
   };
 }
 
@@ -104,6 +106,10 @@ export function createFileKv(dir) {
       const body = JSON.stringify({ v: String(next), e: exp });
       try { fs.writeFileSync(f, body); } catch (e) { if (isMissing(e)) { ensure(); fs.writeFileSync(f, body); } else throw e; }
       return next;
+    },
+    /** 键总数（本地就是文件个数）；顺带能给出占用字节，用于日志里的量级提示 */
+    async dbSize() {
+      try { return fs.readdirSync(dir).filter((n) => n.endsWith('.json')).length; } catch { return 0; }
     },
   };
 }

@@ -275,10 +275,11 @@ export function createFileStore(dir) {
 /**
  * 按环境变量选择驱动。
  * 配了 UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN 就用 Upstash，否则退回本地文件。
+ * @param {string} dataDir 本地文件驱动的数据根目录（调用方传 `data/`，可用 DATA_DIR 环境变量整体搬走）
  */
-export function createSyncStore(root) {
+export function createSyncStore(dataDir) {
   const url = String(process.env.UPSTASH_REDIS_REST_URL || '').trim();
   const token = String(process.env.UPSTASH_REDIS_REST_TOKEN || '').trim();
   if (url && token) return createUpstashStore({ url, token });
-  return createFileStore(path.join(root, 'data', 'sync'));
+  return createFileStore(path.join(dataDir, 'sync'));
 }

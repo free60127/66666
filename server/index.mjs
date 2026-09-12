@@ -28,8 +28,11 @@ loadEnv();
 
 const PORT = Number(process.env.PORT || 8787);
 const DIST = path.join(ROOT, 'dist');
+// 本地数据目录（键值存储 / 云同步文件）。默认 <仓库>/data，可用 DATA_DIR 换位置
+// （测试要隔离数据、或自托管想把数据放到别的盘时用得上）。
+const DATA_DIR = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(ROOT, 'data');
 // 云同步存储：配了 Upstash 就用它（持久），否则退回本地文件（托管平台上重启会丢）
-const syncStore = createSyncStore(ROOT);
+const syncStore = createSyncStore(DATA_DIR);
 // 「能不能当持久存储用」要分环境看：
 //  - Upstash：本来就是持久服务 → true
 //  - 本地文件：自己电脑/自托管 VPS 上磁盘是自己的 → 持久；但托管平台（Render 等）的文件系统是
@@ -47,7 +50,7 @@ const kv = (() => {
   const url = String(process.env.UPSTASH_REDIS_REST_URL || '').trim();
   const token = String(process.env.UPSTASH_REDIS_REST_TOKEN || '').trim();
   if (url && token) return createUpstashKv({ url, token });
-  return createFileKv(path.join(ROOT, 'data', 'kv'));
+  return createFileKv(path.join(DATA_DIR, 'kv'));
 })();
 const kvDurable = kv.durable || !HOSTED;
 const accountsOn = kvDurable;
@@ -285,7 +288,6 @@ async function lookupPhonetic(rawWord) {
   return phonetic;
 }
 
-const DATA_DIR = path.join(ROOT, 'data');
 /**
  * 任务保留期 = 分享链接的有效期。
  *
@@ -351,9 +353,61 @@ function renewJobTtl(job) {
   if (jobRenewedAt.size > 5000) jobRenewedAt.clear(); // 防无限增长：最坏是多写几次 KV，不影响正确性
   const last = jobRenewedAt.get(job.jobId) || 0;
   if (Date.now() - last < JOB_RENEW_MS) return;
-  jobRenewedAt.set(job.jobId, Date.now());
   Promise.resolve(kv.set(JOB_PREFIX + job.jobId, JSON.stringify(job), JOB_TTL_SEC))
     .catch(() => { /* 续期失败不影响本次读取；下次打开再试 */ });
+}
+
+/* ---------- 自动清理：保留期之外再加"总量上限" ----------
+ * 只有 TTL 挡不住"量堆满"这件事：TTL 是 10 年，而 Upstash 免费额度是 256MB —— 而且这
+ * 256MB 是**和云同步、账号共用的**，写满之后收藏同步和登录会一起开始失败。
+ *
+ * 所以再加一层按条数的兜底：只保留最近 JOB_MAX_COUNT 条，多出来的从**最旧的**开始删。
+ * 实现用一个自增序号 + 淘汰指针，不扫描键空间（SCAN 在 Upstash 上按命令计费）：
+ *   · 每完成一次批改：INCR 取序号 + 写一条「序号 → jobId」的小映射键（各 1 条命令）
+ *   · 超过上限时：读一条映射 → 删任务键 + 删映射（1 读 2 删），每次只淘汰一条
+ * 换算：2000 条 × 40KB ≈ 80MB，安全落在 256MB 内，也给同步数据留足空间。
+ * 想更保守就调小 JOB_MAX_COUNT（例：500）。
+ */
+const JOB_MAX_COUNT = (() => {
+  const n = Number(String(process.env.JOB_MAX_COUNT ?? '').trim());
+  return Number.isFinite(n) && n > 0 ? n : 2000;
+})();
+const JOB_SEQ_KEY = 'bts:jobs:seq';
+const JOB_SEQ_PREFIX = 'bts:jobseq:';
+let jobSeq = 0;      // 已发放的最大序号
+let jobEvicted = 0;  // 已淘汰到的序号（指针左边都已删除）
+const seqKeyOf = (n) => JOB_SEQ_PREFIX + String(n).padStart(12, '0');
+
+/** 启动时把序号指针读回来，并把淘汰指针推到"当前应有的位置"，避免重启后一次性补删上万条 */
+async function loadJobSeq() {
+  try {
+    jobSeq = Number(await kv.get(JOB_SEQ_KEY)) || 0;
+    jobEvicted = Math.max(0, jobSeq - JOB_MAX_COUNT);
+    if (jobSeq) console.log('任务序号: ' + jobSeq + ' · 保留上限 ' + JOB_MAX_COUNT + ' 条');
+  } catch { /* 存储不可用时先跳过，新任务照样能生成 */ }
+}
+
+/** 登记一条新任务；超出上限时顺手淘汰最旧的一条。失败不影响本次生成。 */
+async function registerJob(jobId) {
+  if (!jobId) return;
+  try {
+    jobSeq = Number(await kv.incrBy(JOB_SEQ_KEY, 1)) || jobSeq + 1;
+    await kv.set(seqKeyOf(jobSeq), jobId, JOB_TTL_SEC);
+    while (jobSeq - jobEvicted > JOB_MAX_COUNT) {
+      jobEvicted += 1;
+      const key = seqKeyOf(jobEvicted);
+      const oldId = await kv.get(key);
+      if (oldId) {
+        // 内存那份也要删：findJob 先查内存，只删 KV 的话被淘汰的任务在本次进程内仍然打得开
+        jobs.delete(oldId);
+        await kv.del(JOB_PREFIX + oldId);
+        console.log('自动清理：删除最旧的任务 ' + oldId + '（保留上限 ' + JOB_MAX_COUNT + ' 条）');
+      }
+      await kv.del(key);
+    }
+  } catch (e) {
+    console.error('任务登记/清理失败:', e.message);
+  }
 }
 
 /**
@@ -936,8 +990,8 @@ const server = http.createServer(async (req, res) => {
         books: [...getCorpora().values()].map((c) => ({ book: c.book, lessons: c.lessons.length, source: c.source })),
         sync: { store: syncStore.kind, durable: syncDurable, hosted: HOSTED },
         accounts: { enabled: accountsOn, durable: kvDurable },
-        // 分享链接（#job=xxx）的有效期：服务端保留多久，链接就能打开多久
-        jobs: { store: kv.kind, durable: kvDurable, ttlDays: JOB_TTL_DAYS },
+        // 分享链接（#job=xxx）的有效期与清理策略：保留多久、最多留多少条
+        jobs: { store: kv.kind, durable: kvDurable, ttlDays: JOB_TTL_DAYS, max: JOB_MAX_COUNT, retained: Math.max(0, jobSeq - jobEvicted) },
       });
     }
     if (p === '/api/lessons' && req.method === 'GET') {
@@ -992,6 +1046,7 @@ const server = http.createServer(async (req, res) => {
 
       const jobId = randomUUID();
       saveJob({ jobId, kind: 'material', title: '素材：' + topic, status: 'pending', createdAt: Date.now(), data: null, error: null });
+      registerJob(jobId); // 登记序号 + 超上限时淘汰最旧的任务
       runMaterialJob(jobId, { topic, level, style, baseUrl, model, apiKey });
       return json(res, 200, { ok: true, jobId, status: 'pending' });
     }
@@ -1041,6 +1096,7 @@ const server = http.createServer(async (req, res) => {
       const mode = ['auto', 'handwriting', 'printed'].includes(body.mode) ? body.mode : 'auto';
       const jobId = randomUUID();
       saveJob({ jobId, kind: 'ocr', title: '图片识别 · ' + (side === 'chinese' ? '中文' : '英文'), status: 'pending', createdAt: Date.now(), data: null, error: null });
+      registerJob(jobId);
       runOcrJob(jobId, { image, side, mode, vision });
       return json(res, 200, { ok: true, jobId, status: 'pending' });
     }
@@ -1070,6 +1126,7 @@ const server = http.createServer(async (req, res) => {
 
       const jobId = randomUUID();
       saveJob({ jobId, kind: 'quiz', title: '自测题 · ' + count + ' 题', status: 'pending', createdAt: Date.now(), data: null, error: null });
+      registerJob(jobId);
       runQuizJob(jobId, { points, count, level, baseUrl, model, apiKey });
       return json(res, 200, { ok: true, jobId, status: 'pending' });
     }
@@ -1103,6 +1160,7 @@ const server = http.createServer(async (req, res) => {
 
       const jobId = randomUUID();
       saveJob({ jobId, kind: 'analyze', title, status: 'pending', createdAt: Date.now(), data: null, error: null });
+      registerJob(jobId);
       // 立即返回任务号，后台再调用模型；手机端/弱网不会因长时间占用请求而卡死
       runAnalyzeJob(jobId, {
         title, chinese, draft, original: lesson ? lesson.english : userOriginal,
@@ -1137,7 +1195,12 @@ server.listen(PORT, () => {
   console.log('账号功能: ' + (accountsOn ? '已启用（存储 ' + kv.kind + '）' : '未启用（存储不持久）')
     + '  SMTP: ' + (process.env.SMTP_USER && process.env.SMTP_PASS ? '已配置' : '未配置（找回密码不可用）'));
   console.log('分享链接: 结果保留 ' + JOB_TTL_DAYS + ' 天（存储 ' + kv.kind + (kvDurable ? ' · 持久' : ' · 本机文件')
-    + '）· 改保留期用 JOB_TTL_DAYS');
+    + '）· 超出 ' + JOB_MAX_COUNT + ' 条自动淘汰最旧的（JOB_TTL_DAYS / JOB_MAX_COUNT 可调）');
+  // 存储用量（键数）：给"离上限还有多远"一个量级；免费额度 256MB / 单库
+  Promise.resolve(kv.dbSize())
+    .then((n) => console.log('存储用量: ' + n + ' 个键' + (kv.kind === 'upstash' ? '（Upstash 免费额度 256MB，单条结果约 15-60KB）' : '（本机 data/kv）')))
+    .catch(() => { /* 用量只是提示，读不到就算了 */ });
+  loadJobSeq(); // 任务序号 / 淘汰指针：重启后接着上次的位置淘汰，不会一次性补删
   if (!syncDurable) {
     console.warn('⚠️  未配置 UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN：同步数据写在容器本地磁盘，'
       + '托管平台重新部署或重启后会丢失。生产环境请按 .env.example 配置云端存储。');
