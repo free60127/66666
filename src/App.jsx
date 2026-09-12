@@ -17,6 +17,7 @@ import { useAccount } from './hooks/useAccount.js'
 import { useJobRunner } from './hooks/useJobRunner.js'
 import { useModals } from './hooks/useModals.js'
 import { useLibraries } from './hooks/useLibraries.js'
+import { useEditor } from './hooks/useEditor.js'
 import { useFavorites } from './hooks/useFavorites.js'
 import ElapsedDisplay from './components/ElapsedDisplay.jsx'
 import { ResultSheet } from './components/ResultSheet/index.jsx'
@@ -177,9 +178,6 @@ function App() {
     return Number.isFinite(n) && n > 0 ? n : 18;
   });
   const [matchedLesson, setMatchedLesson] = useState(null);
-  const [title, setTitle] = useState('');
-  const [chinese, setChinese] = useState('');
-  const [draft, setDraft] = useState('');
   // 生成链路的繁忙/进度/计时（hooks/useJobRunner.js）；变量名沿用原来的，调用点不用改
   const {
     busy, step: progressStep, message: progressMsg, elapsed,
@@ -194,18 +192,27 @@ function App() {
   const [error, setError] = useState('');
   const [result, setResult] = useState(null);
   const [view, setView] = useState('editor');
-  const [materialTopic, setMaterialTopic] = useState('');
-  const [materialLevel, setMaterialLevel] = useState('中级');
-  const [materialStyle, setMaterialStyle] = useState('生活故事');
   const {
     busy: materialBusy, elapsed: materialElapsed,
     run: runMaterialJob,
   } = useJobRunner();
   materialBusyRef.current = materialBusy;
-  const [materialKeywords, setMaterialKeywords] = useState([]);
-  const [generatedOriginal, setGeneratedOriginal] = useState('');
-  const [matchConfidence, setMatchConfidence] = useState('');
-  const [matchScore, setMatchScore] = useState(null);
+
+  // 编辑区（hooks/useEditor.js）：作业内容 + AI 素材生成；变量名沿用原来的
+  const {
+    title, setTitle, chinese, setChinese, draft, setDraft,
+    manualOriginal, setManualOriginal, originalOpen, setOriginalOpen,
+    generatedOriginal, setGeneratedOriginal, materialKeywords, setMaterialKeywords,
+    matchConfidence, setMatchConfidence, matchScore, setMatchScore,
+    materialTopic, setMaterialTopic, materialLevel, setMaterialLevel, materialStyle, setMaterialStyle,
+    handleGenerateMaterial: generateMaterialNow, clearEditor,
+  } = useEditor({
+    settings,
+    runMaterialJob,
+    setError,
+    setMatchedLesson,
+    setMode,
+  });
   const [currentJobId, setCurrentJobId] = useState('');
   const [historyList, setHistoryList] = useState(loadHistory);
   // 收藏夹（本机 localStorage）
@@ -261,8 +268,6 @@ function App() {
   // 避免在"打开库里的课文后直接点新建"时让用户重复保存一份完全相同的内容。
   const savedSnapshotRef = useRef('');
   // 自由模式的「英文原文（标准答案）」：填了才能在结果里做原文对照
-  const [manualOriginal, setManualOriginal] = useState('');
-  const [originalOpen, setOriginalOpen] = useState(false);
   // 润色等级：让润色版与推荐表达匹配用户目标考试的难度
   const [polishLevel, setPolishLevel] = useState(() => {
     const saved = safeGet(LEVEL_KEY, '');
@@ -841,44 +846,11 @@ function App() {
     safeSet('bt-lesson', String(matchedLesson.lesson));
   };
 
-  const handleGenerateMaterial = async () => {
-    const topic = materialTopic.trim();
-    if (!topic) { setError('请填写素材主题'); return; }
-    setError('');
-    try {
-      await runMaterialJob({
-        submit: () => generateMaterial({
-          topic, level: materialLevel, style: materialStyle,
-          baseUrl: settings.baseUrl, model: settings.model, apiKey: settings.apiKey,
-        }),
-        fetchJob: getMaterialJob,
-        intervalMs: POLL_ANALYZE_MS,
-        timeoutMs: TIMEOUT_ANALYZE_MS,
-        maxFailures: 10,
-        netError: '网络不稳定，暂时无法获取素材，请重试',
-        timeoutError: '生成素材超时（超过10分钟），请重新提交',
-        onData: (data) => {
-          const d = data || {};
-          if (!d.original || !d.chinese) throw new Error('AI 返回内容不完整，请重试');
-          setTitle(d.title || topic);
-          setChinese(d.chinese);
-          setDraft('');
-          setGeneratedOriginal(d.original);
-          // AI 素材的原文也要填进「英文原文」输入框，否则用户只看到空框
-          // （之前只写进 generatedOriginal，折叠栏显示"已自动带入 N 词"但框里是空的）
-          setManualOriginal(d.original || '');
-          setMaterialKeywords(d.keywords || []);
-          setMatchedLesson(null);
-          setMode('free');
-          setMatchConfidence('none');
-          setMatchScore(null);
-          setMaterialOpen(false);
-        },
-      });
-    } catch (e) {
-      setError(e.message || '素材生成失败');
-    }
-  };
+  /** 素材生成：弹窗里的按钮（成功后由 hook 关弹窗） */
+  const handleGenerateMaterial = useCallback(
+    () => generateMaterialNow(() => setMaterialOpen(false)),
+    [generateMaterialNow, setMaterialOpen],
+  );
 
   const addToHistory = (jobId, jobTitle, data, durationMs) => {
     saveResultCache(jobId, data);
