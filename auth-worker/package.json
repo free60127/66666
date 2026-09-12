@@ -1,0 +1,14 @@
+{
+  "name": "hyt-auth",
+  "version": "0.1.0",
+  "private": true,
+  "description": "回译本 · 账号服务（Cloudflare Worker + D1）",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "migrate:local": "wrangler d1 migrations apply hyt-auth-db --local",
+    "migrate:remote": "wrangler d1 migrations apply hyt-auth-db --remote",
+    "tail": "wrangler tail"
+  }
+}

@@ -5,7 +5,7 @@ import { loadResultCache } from '../../storage.js';
 import { tallyCategories } from '../../progress.js';
 import { hasMorphology, favFromFinding, favFromVocab, favFromIdiom, favFromExpression } from '../../favorites.js';
 import { LEVEL_LABEL } from '../../constants.js';
-import { DraftText, SynRow, Phonetic, SpeakButton, FavStar, FindingExtras } from './bits.jsx';
+import { DraftText, FavStar, FindingExtras, Phonetic, SpeakButton, SynRow } from './bits.jsx';
 
 // 知识点分类 → 结果页的颜色标记（与 styles.css 里的 .cat-* 对应）
 const CATEGORY_COLOR = {

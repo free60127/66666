@@ -1,9 +1,9 @@
 /**
  * 间隔重复复习面板（收藏夹里的一张一张过）。
  */import React from 'react';
-import { CheckCircle2 } from 'lucide-react';
 import { formatTime } from '../../format.js';
 import { sm2Review, nextDueAt, dueLabel, FAV_KIND_LABEL, FAV_GRADES } from '../../favorites.js';
+import { CheckCircle2 } from 'lucide-react';
 
 export function FavReviewPanel({ session, items, onReveal, onGrade, onSkip, onExit }) {
   const total = session.ids.length;

@@ -1045,7 +1045,7 @@ const server = http.createServer(async (req, res) => {
 
       const r = await handlers();
       if (!r.ok) return json(res, r.status || 400, { error: r.error });
-      const { ok: _ok, status, ...rest } = r;
+      const { status, ...rest } = r; // ok 由下面统一回 true，不需要透传
       return json(res, status || 200, { ok: true, ...rest });
     }
     if (p === '/api/health') return json(res, 200, { ok: true });

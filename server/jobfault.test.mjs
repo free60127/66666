@@ -30,8 +30,7 @@ const DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'bt-jobfault-'));
 console.log('=== 任务异常兜底测试 ===\n');
 
 const mock = http.createServer((req, res) => {
-  let body = '';
-  req.on('data', (c) => { body += c; });
+  req.on('data', () => { /* 请求体用不上，读掉即可 */ });
   req.on('end', () => {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ choices: [{ message: { content: JSON.stringify({

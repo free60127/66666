@@ -54,6 +54,7 @@
 ## 测试
 
     npm test          # 账号 52 + 同步 18 + 任务保留/清理 12 + 限流/客户端 IP 30 + 任务异常兜底 6 + 收藏/SM-2 49 + 同课对比 50 + 课文库 45 项（纯 node）
+    npm run lint      # ESLint：hooks 依赖、未定义标识符、JSX 里用了没导入的组件（构建期发现不了的那类）
     npm run test:auth # 账号服务 Worker 44 项（auth-worker，走本地 D1 垫片；该目录未纳入仓库时跳过）
     node tools/e2e-b6b7.mjs   # 真实浏览器链路 35 项：两次练习对比、收藏复习、跨设备进度合并（自带 mock 模型与后端）
 

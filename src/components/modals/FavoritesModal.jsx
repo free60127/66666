@@ -46,7 +46,7 @@ export default function FavoritesModal({
                       <option value="expression">加分表达</option>
                     </select>
                     <button className="ghost-btn" onClick={onStartReview} disabled={!favorites.length} title="按间隔重复安排复习：今天到期的收藏">
-                      <Flame size={14} />今日待复习{dueCount ? ` (${favDueCount})` : ''}
+                      <Flame size={14} />今日待复习{dueCount ? ` (${dueCount})` : ''}
                     </button>
                   </div>
                   {favorites.length === 0 ? (

@@ -2,8 +2,8 @@
  * 结果页里反复出现的小组件：标红原稿、近义词行、音标、朗读按钮、收藏星标、知识点补充。
  * 都是叶子组件（不碰 App 状态），抽出来之后结果页那 800 行才有地方安放。
  */import React, { useEffect, useState } from 'react';
-import { Star, Volume2 } from 'lucide-react';
 import { getPhonetic } from '../../api.js';
+import { Star, Volume2 } from 'lucide-react';
 
 export function collectMarks(text, findings) {
   const src = String(text || '');

@@ -10,7 +10,7 @@
  * 注意：不要为了"显示当前用时"而把每秒的 tick 放进 App 状态 ——
  * 那会让整个 App 每秒重渲染一次；显示交给 <ElapsedDisplay>，它自己 tick。
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react'
 
 const TIMER_KEY = 'bt-timer';
 const EMPTY = { running: false, startedAt: null, accumulated: 0, lessonKey: '' };

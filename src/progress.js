@@ -9,13 +9,6 @@
  * 本模块**不碰任何存储**：要看历史里存的结果缓存，由调用方把读取函数传进来（readResult）。
  */
 
-/** 只留下"真的分析过"的结果（有句子数组且有内容） */
-function usableResults(results) {
-  return (Array.isArray(results) ? results : []).filter(
-    (r) => r && typeof r === 'object' && Array.isArray(r.sentences) && r.sentences.length,
-  );
-}
-
 /** 一次结果里的问题类型分布（level=study 的"对照学习"不算问题，不进榜） */
 export function tallyCategories(results) {
   const byCat = new Map();

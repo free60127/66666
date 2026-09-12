@@ -8,8 +8,8 @@
  * 这里**只管状态与计时**，不管"提交什么、拿到数据做什么" —— 那部分留在调用方，
  * 所以行为与原来完全一致，只是不再重复。
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { submitAndPoll } from './pollJob.js';
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { submitAndPoll } from './pollJob.js'
 
 export function useJobRunner() {
   const [busy, setBusy] = useState(false);

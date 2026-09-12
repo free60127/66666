@@ -34,15 +34,8 @@ jobs:
       - name: 测试（账号 / 同步 / 任务清理 / 限流 / 收藏 / 同课对比）
         run: npm test
 
-      - name: 测试（账号服务 Worker，可选）
-        run: |
-          # auth-worker/ 目前还没纳入仓库（未跟踪目录）：没有就跳过，
-          # 否则部署会被一个不在版本库里的测试卡死（曾经真的卡过一次）。
-          if [ -f auth-worker/tests/auth.test.mjs ]; then
-            npm run test:auth
-          else
-            echo "::notice::auth-worker/ 不在仓库里，跳过这步"
-          fi
+      - name: 测试（账号服务 Worker，259 项断言）
+        run: npm run test:auth
 
       - name: 构建（构建失败同样不该放过）
         run: npm run build

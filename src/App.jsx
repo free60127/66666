@@ -1,39 +1,33 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  BookOpen, Camera, CheckCircle2, ChevronDown, ChevronRight, Cloud, Copy, Download, Flame, FolderPlus, History,
+  ImagePlus, Library, LoaderCircle, PanelLeftClose, PanelLeftOpen, PenLine, Settings, Sparkles, Star, Timer,
+  Upload, UserRound, WandSparkles, X,
+} from 'lucide-react';
 // mammoth（894 KB 源码）只在"上传 DOCX"这一个功能里用到，
 // 改为 handleDocx 内动态 import，避免它被打进首屏主包。
-import {
-  ArrowLeft, BookOpen, Camera, CheckCircle2, ChevronDown, ChevronRight, ClipboardCopy, Cloud, Copy, Download,
-  FileText, Flame, FolderPlus, History, ImagePlus, Library, Link2, LoaderCircle, PanelLeftClose, PanelLeftOpen,
-  PenLine, Plus, Settings, Sparkles, Star, Timer, Trash2, Upload, UserRound, Volume2, WandSparkles, X,
-} from 'lucide-react';
-import {
-  createLibrary, ensureLessonIds, findLesson, loadLibraries, mergeLibraries, moveLesson,
-  removeLesson, removeLibrary, renameLesson, renumberLibrary, saveLibraries, upsertLesson,
-} from './lessonLibrary.js';
-import { analyze, generateMaterial, getAnalyzeJob, getLessons, getLesson, getMaterialJob, getOcrJob, getQuizJob, getStatus, loadSettings, matchLesson, ocr, quiz, saveSettings, wakeUp } from './api.js';
-import { DEMO_LESSON_18, DEMO_LESSONS } from './demo.js';
-import { FAV_GRADES, FAV_KIND_LABEL, dueFavorites, dueLabel, dueOf, favoritesToText, favFromExpression, favFromFinding, favFromIdiom, favFromVocab, filterFavorites, hasMorphology, loadFavorites, mergeFavorites, morphologyText, nextDueAt, saveFavorites, sm2Review, withSchedule } from './favorites.js';
-import { buildLocalQuiz, favoritesToQuizPoints, quizToText } from './quiz.js';
-import { formatTime, formatDuration } from './format.js';
-import { loadHistory, loadResultCache, pruneResultCache, safeGet, safeSet, saveHistory, saveResultCache } from './storage.js';
-import { useTimer } from './hooks/useTimer.js';
-import { submitAndPoll } from './hooks/pollJob.js';
-import { useCloudSync } from './hooks/useCloudSync.js';
-import { useAccount } from './hooks/useAccount.js';
-import { useJobRunner } from './hooks/useJobRunner.js';
-import { useModals } from './hooks/useModals.js';
-import { useFavorites } from './hooks/useFavorites.js';
+import { createLibrary, ensureLessonIds, findLesson, loadLibraries, mergeLibraries, moveLesson, removeLesson, removeLibrary, renameLesson, renumberLibrary, saveLibraries, upsertLesson } from './lessonLibrary.js'
+import { analyze, generateMaterial, getAnalyzeJob, getLessons, getLesson, getMaterialJob, getOcrJob, getStatus, loadSettings, matchLesson, ocr, saveSettings, wakeUp } from './api.js'
+import { DEMO_LESSON_18, DEMO_LESSONS } from './demo.js'
+import { mergeHistory } from './sync.js'
+import { hasMorphology, mergeFavorites, morphologyText, saveFavorites } from './favorites.js'
+import { formatDuration } from './format.js';
+import { POLL_ANALYZE_MS, POLL_OCR_MS, TIMEOUT_ANALYZE_MS, TIMEOUT_OCR_MS } from './constants.js';
+import { loadHistory, loadResultCache, pruneResultCache, safeGet, safeSet, saveHistory, saveResultCache } from './storage.js'
+import { useTimer } from './hooks/useTimer.js'
+import { submitAndPoll } from './hooks/pollJob.js'
+import { useCloudSync } from './hooks/useCloudSync.js'
+import { useAccount } from './hooks/useAccount.js'
+import { useJobRunner } from './hooks/useJobRunner.js'
+import { useModals } from './hooks/useModals.js'
+import { useFavorites } from './hooks/useFavorites.js'
 import ElapsedDisplay from './components/ElapsedDisplay.jsx';
 import { ResultSheet } from './components/ResultSheet/index.jsx';
-import { FavReviewPanel } from './components/ResultSheet/Review.jsx';
 import { QuizSheet } from './components/ResultSheet/Quiz.jsx';
-import { LEVEL_LABEL } from './constants.js';
 import Sidebar from './components/Sidebar.jsx';
-import FavoritesModal from './components/modals/FavoritesModal.jsx';
-import HistoryModal from './components/modals/HistoryModal.jsx';
-import LessonEditModal from './components/modals/LessonEditModal.jsx';
-
-
+import FavoritesModal from './components/modals/FavoritesModal.jsx'
+import HistoryModal from './components/modals/HistoryModal.jsx'
+import LessonEditModal from './components/modals/LessonEditModal.jsx'
 const AI_LEVELS = ['小初', '高考英语', '四六级', '考研/专四', '专八'];
 const DEFAULT_AI_LEVEL = '四六级';
 const LEVEL_KEY = 'bt-polish-level';
@@ -67,7 +61,6 @@ function normalizeResult(data) {
 }
 
 /* ---------- 拍照 / 图片识别（OCR）前端预处理 ---------- */
-const OCR_MODE_LABEL = { auto: '自动识别', handwriting: '手写体优先', printed: '印刷体优先' };
 // OCR 的三个目标框（中文提示 / 英文初稿 / 英文原文）
 const OCR_LABEL = { chinese: '中文提示', english: '英文初稿', original: '英文原文' };
 
@@ -191,8 +184,7 @@ function App() {
   // 生成链路的繁忙/进度/计时（hooks/useJobRunner.js）；变量名沿用原来的，调用点不用改
   const {
     busy, step: progressStep, message: progressMsg, elapsed,
-    setBusy, setStep: setProgressStep, setMessage: setProgressMsg,
-    run: runJob, cancelWait: cancelProgress, startTimer: startProgressTimer, stopTimer: stopProgressTimer,
+    run: runJob, cancelWait: cancelProgress,
   } = useJobRunner();
   // 「取消等待」：只让界面立刻解锁，**不停后台轮询** ——
   // 生成请求已经发出去了（钱已经花了），停掉轮询等于白花；继续跑完还能进「历史结果」。
@@ -317,9 +309,9 @@ function App() {
    * 状态与动作都在 hooks/useFavorites.js；变量名沿用原来的，调用点不用改。 */
   const {
     favorites, setFavorites, favQuery, setFavQuery, favKind, setFavKind, favTip, setFavTip,
-    favReview, setFavReview, favDue, favDueCount, visibleFavorites, favHandlers, favFileRef,
-    quizData, quizCount, setQuizCount, quizShowAnswers, setQuizShowAnswers, quizTip, setQuizTip, quizBusy,
-    toggleFavorite, removeFavorite, clearFavorites, exportFavorites, importFavorites, copyFavorites,
+    favReview, setFavReview, favDueCount, visibleFavorites, favHandlers, favFileRef,
+    quizData, quizCount, setQuizCount, quizShowAnswers, setQuizShowAnswers, quizTip, quizBusy,
+    removeFavorite, clearFavorites, exportFavorites, importFavorites, copyFavorites,
     startReview, gradeFavReview, skipFavReview, generateQuiz, copyQuiz,
   } = useFavorites({
     flash: (setter, msg, ms) => flashTip(setter, msg, ms),
@@ -377,6 +369,8 @@ function App() {
       }
     })();
     return () => { alive = false; };
+    // 刻意只在挂载时跑一次：selectLesson 每次渲染都是新函数，放进来会变成每次渲染都重新拉课表
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // 通过分享链接 #job=xxx 打开时，直接恢复该次生成结果（即使后端重启过，任务已持久化）
@@ -731,7 +725,7 @@ function App() {
    * 状态机在 hooks/useCloudSync.js；这里只提供"本机数据 + 合并写回 + 提示"三件事，
    * 变量名沿用原来的，所以下面所有调用点都不用改。 */
   const {
-    syncCode, setSyncCode, syncMeta, syncBusy, syncTip, setSyncTip,
+    syncCode, setSyncCode, syncMeta, syncBusy, syncTip,
     codeInput, setCodeInput, syncLost, setSyncLost,
     runSync, startNewSync, useExistingCode, copySyncCode, stopSync,
   } = useCloudSync({
@@ -743,8 +737,7 @@ function App() {
   /* ---------- 账号 ----------
    * 状态与动作都在 hooks/useAccount.js；变量名沿用原来的，调用点不用改。 */
   const {
-    account, setAccount, accountsOn, accountHasSync, setAccountHasSync,
-    authOpen, setAuthOpen, authMode, setAuthMode, authBusy, authTip, setAuthTip, authForm, bindPw, setBindPw,
+    account, accountsOn, authOpen, setAuthOpen, authMode, authBusy, authTip, authForm, bindPw, setBindPw,
     authField, openAuth, doSignIn, doSignUp, doForgot, doReset, doSignOut, doSignOutEverywhere, doBindSync,
   } = useAccount({
     syncCode, setSyncCode, setSyncLost, runSync,
@@ -908,8 +901,8 @@ function App() {
           baseUrl: settings.baseUrl, model: settings.model, apiKey: settings.apiKey,
         }),
         fetchJob: getMaterialJob,
-        intervalMs: 2500,
-        timeoutMs: 10 * 60 * 1000,
+        intervalMs: POLL_ANALYZE_MS,
+        timeoutMs: TIMEOUT_ANALYZE_MS,
         maxFailures: 10,
         netError: '网络不稳定，暂时无法获取素材，请重试',
         timeoutError: '生成素材超时（超过10分钟），请重新提交',
@@ -1039,8 +1032,8 @@ function App() {
             visionModel: settings.visionModel,
           }),
           fetchJob: getOcrJob,
-          intervalMs: 1500,
-          timeoutMs: 3 * 60 * 1000,
+          intervalMs: POLL_OCR_MS,
+          timeoutMs: TIMEOUT_OCR_MS,
           maxFailures: 8,
           netError: '网络不稳定，暂时无法获取识别结果，请重试',
           timeoutError: '识别超时（超过 3 分钟），请换更清晰的照片或重新拍一张',
@@ -1152,8 +1145,8 @@ function App() {
           baseUrl: settings.baseUrl, model: settings.model, apiKey: settings.apiKey,
         }),
         fetchJob: getAnalyzeJob,
-        intervalMs: 2500,
-        timeoutMs: 10 * 60 * 1000,
+        intervalMs: POLL_ANALYZE_MS,
+        timeoutMs: TIMEOUT_ANALYZE_MS,
         maxFailures: 10,
         netError: '网络不稳定，暂时无法获取生成结果，请重试',
         timeoutError: '生成超时（超过10分钟），请重新提交',

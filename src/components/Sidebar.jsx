@@ -1,5 +1,5 @@
 import React from 'react';
-import { BookOpen, Download, FolderPlus, Library, ListOrdered, PenLine, Plus, Settings, Trash2, X } from 'lucide-react';
+import { Download, FolderPlus, Library, ListOrdered, PenLine, Plus, Settings, Trash2, X } from 'lucide-react';
 
 /**
  * 左侧栏：课文库（内置 4 册 + 我的课文库）+ 搜课 + 课文列表 + 底部设置/备份入口。

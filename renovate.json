@@ -1,0 +1,82 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":semanticCommitsDisabled"
+  ],
+  "description": [
+    "依赖自动更新。为什么需要：仓库里 vite / @vitejs/plugin-react / lucide-react / mammoth",
+    "都是手动钉住的版本，久了就没人升 —— 越拖越难升（大版本一起跳的时候最容易砸）。",
+    "策略：补丁与小版本自动开 PR（有 npm test + 61 项真实浏览器断言兜底），",
+    "大版本单独开 PR 并打标签，由人确认后再合。"
+  ],
+  "timezone": "Asia/Shanghai",
+  "schedule": [
+    "before 6am on monday"
+  ],
+  "rangeStrategy": "bump",
+  "packageRules": [
+    {
+      "description": "补丁/小版本：自动合并前的门是 CI（npm test + lint + build）",
+      "matchUpdateTypes": [
+        "patch",
+        "minor"
+      ],
+      "automerge": false,
+      "labels": [
+        "deps",
+        "auto"
+      ]
+    },
+    {
+      "description": "大版本：单独 PR + 标签，必须人工确认",
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "labels": [
+        "deps",
+        "major"
+      ],
+      "dependencyDashboardApproval": true
+    },
+    {
+      "description": "React 全家桶一起升，别拆开（版本必须对齐）",
+      "matchPackageNames": [
+        "react",
+        "react-dom"
+      ],
+      "groupName": "react"
+    },
+    {
+      "description": "Vite 与官方插件一起升",
+      "matchPackageNames": [
+        "vite",
+        "@vitejs/plugin-react"
+      ],
+      "groupName": "vite"
+    },
+    {
+      "description": "eslint 及其插件一起升",
+      "matchPackageNames": [
+        "eslint",
+        "@eslint/js",
+        "eslint-plugin-react",
+        "eslint-plugin-react-hooks",
+        "globals"
+      ],
+      "groupName": "eslint"
+    }
+  ],
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": [
+      "before 6am on the first day of the month"
+    ]
+  },
+  "vulnerabilityAlerts": {
+    "labels": [
+      "security"
+    ],
+    "automerge": false
+  }
+}

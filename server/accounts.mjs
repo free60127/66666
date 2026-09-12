@@ -359,7 +359,7 @@ export function createAccounts({ kv, mail, env = process.env, sent }) {
         await kv.del(K_RESET(e)); // 发不出去就把码撤掉，避免"用户没收到但库里占着"
         // 附上底层细节（截断）—— 只关系到服务端自己的发信能力，不涉及任何用户数据；
         // 有它才能一眼看出是"认证失败"还是"连接被拒"，否则又得去翻日志。
-        const detail = r && r.error ? `　[${String(r.error).slice(0, 140)}]` : '';
+        const detail = r && r.error ? ` [${String(r.error).slice(0, 140)}]` : '';
         return { ok: false, status: 503, error: (MAIL_REASON[r && r.code] || MAIL_FAIL) + detail };
       }
       return { ok: true, status: 200 };

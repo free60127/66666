@@ -5,11 +5,10 @@
  * 纯逻辑（排期、合并、筛选）早就在 favorites.js / quiz.js 里了，
  * 这里收拢的是它们的**状态与动作**（弹窗筛选、复习会话、自测题生命周期）。
  */
-import { useMemo, useRef, useState } from 'react';
-import {
-  dueFavorites, favoritesToText, filterFavorites, loadFavorites, saveFavorites, sm2Review, withSchedule,
-} from '../favorites.js';
+import { useCallback, useMemo, useRef, useState } from 'react';
+import { dueFavorites, favoritesToText, filterFavorites, loadFavorites, mergeFavorites, saveFavorites, sm2Review, withSchedule } from '../favorites.js';
 import { buildLocalQuiz, favoritesToQuizPoints, quizToText } from '../quiz.js';
+import { POLL_QUIZ_MS, TIMEOUT_QUIZ_MS } from '../constants.js';;
 import { quiz as quizApi, getQuizJob } from '../api.js';
 import { useJobRunner } from './useJobRunner.js';
 
@@ -36,7 +35,7 @@ export function useFavorites({ flash, setView, settings, polishLevel, isOpen, op
   const { busy: quizBusy, run: runQuizJob } = useJobRunner();
 
   /* ---------- 收藏夹（本机保存，无需数据库） ---------- */
-  const toggleFavorite = (item) => {
+  const toggleFavorite = useCallback((item) => {
     if (!item || !item.id) return;
     const exists = favorites.some((x) => x.id === item.id);
     const next = exists
@@ -45,7 +44,8 @@ export function useFavorites({ flash, setView, settings, polishLevel, isOpen, op
     const ok = saveFavorites(next);
     setFavorites(next);
     flash(setFavTip, exists ? '已取消收藏' : (ok ? '已收藏，可在右上角「收藏夹」随时复习' : '收藏失败：本机存储空间可能已满，请先导出备份'));
-  };
+  }, [favorites, flash]);
+
   const removeFavorite = (id) => {
     const next = favorites.filter((x) => x.id !== id);
     saveFavorites(next);
@@ -153,8 +153,8 @@ export function useFavorites({ flash, setView, settings, polishLevel, isOpen, op
           baseUrl: settings.baseUrl, model: settings.model, apiKey: settings.apiKey,
         }),
         fetchJob: getQuizJob,
-        intervalMs: 2000,
-        timeoutMs: 5 * 60 * 1000,
+        intervalMs: POLL_QUIZ_MS,
+        timeoutMs: TIMEOUT_QUIZ_MS,
         maxFailures: 8,
         netError: '网络不稳定，暂时无法获取题目',
         timeoutError: '生成超时或题目为空，请重试',
@@ -188,7 +188,7 @@ export function useFavorites({ flash, setView, settings, polishLevel, isOpen, op
     } catch { flash(setQuizTip, '复制失败，请手动选择文本', 2500); }
   };
   const favoritedIds = useMemo(() => new Set(favorites.map((x) => x.id)), [favorites]);
-  const favHandlers = useMemo(() => ({ has: (id) => favoritedIds.has(id), toggle: toggleFavorite }), [favoritedIds, favorites]);
+  const favHandlers = useMemo(() => ({ has: (id) => favoritedIds.has(id), toggle: toggleFavorite }), [favoritedIds, toggleFavorite]);
 
   return {
     favorites, setFavorites, favQuery, setFavQuery, favKind, setFavKind, favTip, setFavTip,

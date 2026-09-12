@@ -2,7 +2,6 @@
  * 收藏知识点自测卷（题目 / 答案分离，可导出 PDF）。
  */import React from 'react';
 import { ArrowLeft, ClipboardCopy, Download, Star } from 'lucide-react';
-import { quiz } from '../../api.js';
 
 export function QuizSheet({ quiz, showAnswers, onToggleAnswers, onBack, onBackToFav, onCopy, tip }) {
   const qs = quiz && Array.isArray(quiz.questions) ? quiz.questions : [];

@@ -32,8 +32,7 @@ console.log('=== 任务保留 / 自动清理测试 ===\n');
 
 /* ---------- 假模型：秒回一份最小结果 ---------- */
 const mock = http.createServer((req, res) => {
-  let body = '';
-  req.on('data', (c) => { body += c; });
+  req.on('data', () => { /* 请求体用不上，读掉即可 */ });
   req.on('end', () => {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({

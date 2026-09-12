@@ -8,9 +8,9 @@
  * 边界：本机数据由调用方通过 `local` 传进来、合并结果通过 `applyMerged` 写回，
  * 这里只负责"跟云端对齐"这件事。
  */
-import { useEffect, useRef, useState } from 'react';
-import { createNewSyncCode, loadSyncCode, loadSyncMeta, saveSyncCode, saveSyncMeta, syncOnce } from '../sync.js';
-import { pullCloudSync } from '../api.js';
+import { useEffect, useRef, useState } from 'react'
+import { createNewSyncCode, loadSyncCode, loadSyncMeta, saveSyncCode, saveSyncMeta, syncOnce } from '../sync.js'
+import { pullCloudSync } from '../api.js'
 
 export function useCloudSync({ local, applyMerged, flash }) {
   const [syncCode, setSyncCode] = useState(loadSyncCode);

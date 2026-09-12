@@ -6,9 +6,9 @@
  * 抽出来的原因：这是一整套独立状态（账号 / 验证码流程 / 绑定同步码）+ 9 个异步动作，
  * 与编辑逻辑毫无关系，却在 App 里占了 177 行。
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react'
 import * as acct from '../account.js';
-import { saveSyncCode } from '../sync.js';
+import { saveSyncCode } from '../sync.js'
 
 export function useAccount({ syncCode, setSyncCode, setSyncLost, runSync, flash }) {
   const [account, setAccount] = useState(acct.loadAccount);

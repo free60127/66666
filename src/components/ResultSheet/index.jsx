@@ -5,8 +5,8 @@
  * 这一整块原来长在 App.jsx 里（占全文约四分之一），但它是**纯展示**：
  * 只依赖 result / history / 收藏回调，不碰任何编辑态。拆出来之后 App 只剩"编排"。
  */import React from 'react';
-import { ArrowLeft, CheckCircle2, ClipboardCopy, Download, Link2 } from 'lucide-react';
 import { formatDuration } from '../../format.js';
+import { ArrowLeft, CheckCircle2, ClipboardCopy, Download, Link2 } from 'lucide-react';
 import { DraftText } from './bits.jsx';
 import { ErrorProfile, Section, SentenceCard, VocabularyNotes, IdiomHighlights, SummaryBlock } from './cards.jsx';
 import { PracticeCompare } from './Compare.jsx';

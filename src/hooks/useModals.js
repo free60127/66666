@@ -7,7 +7,7 @@
  *
  * 注意：这里**只管开关与焦点**，弹窗的渲染仍在各自的组件里（components/modals/*）。
  */
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react'
 
 export function useModals({ getCloseCamera, getMaterialBusy }) {
   const [settingsOpen, setSettingsOpen] = useState(false);

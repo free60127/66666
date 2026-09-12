@@ -1,0 +1,38 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "hyt-auth",
+  "main": "src/index.js",
+  "compatibility_date": "2026-09-11",
+  "observability": {
+    "enabled": true
+  },
+
+  // D1：只存账号与会话。
+  // 同步快照**不放这里** —— 账号约 1.1 KB/人，同步快照 20–100 KB/人，差 40 倍以上。
+  // 免费版单库 500 MB：放账号能装 47 万人，放同步只能装 1 万人。
+  //
+  // 建库：npx wrangler d1 create hyt-auth-db
+  // 然后把输出的 database_id 粘到下面。
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "hyt-auth-db",
+      "database_id": "PASTE_DATABASE_ID_HERE"
+    }
+  ],
+
+  // 找到密码邮件用的 SMTP（QQ 邮箱 + 授权码，个人免费）。用 secret 配置，不要写在这里：
+  //   npx wrangler secret put SMTP_USER   # 例如 3338095791@qq.com
+  //   npx wrangler secret put SMTP_PASS   # QQ 邮箱「授权码」，不是 QQ 密码
+  "vars": {
+    "SMTP_HOST": "smtp.qq.com",
+    "SMTP_PORT": "465",
+    "SERVICE_NAME": "回译本",
+    // 允许跨域调用本 Worker 的来源（逗号分隔）。回译本前端在 Render 上，属于不同源。
+    // 部署后按实际域名改这里，别留 *。
+    "ALLOWED_ORIGINS": "https://back-translate-studio.onrender.com,http://localhost:5173,http://localhost:8787"
+  }
+
+  // 自定义域（可选，等 hyt.free60127.top 想用起来时再取消注释）：
+  // "routes": [{ "pattern": "hyt-auth.free60127.top", "custom_domain": true }]
+}
