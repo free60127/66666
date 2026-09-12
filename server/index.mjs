@@ -339,6 +339,52 @@ function saveJob(job) {
 }
 
 /**
+ * 把任务标记为失败（safeRun 的兜底动作）。
+ * 一定要写进 job.error：用户看到的是「明确失败 + 原因」，而不是一直转圈到超时。
+ */
+function markJobFailed(jobId, e) {
+  const message = (e && e.message) || '未知错误';
+  const apply = (job) => {
+    if (!job) return;
+    job.status = 'error';
+    job.error = '服务端任务异常：' + message + '（请重试；若反复出现请把这句话发给开发者）';
+    job.updatedAt = Date.now();
+    saveJob(job);
+  };
+  try {
+    const mem = jobs.get(jobId);
+    if (mem) { apply(mem); return undefined; }
+    // 连 job 都没拿到（比如 findJob 自己就抛了）：按内存 → KV 的顺序再试一次，
+    // 仍然失败就只记日志 —— 兜底动作本身绝不能再抛出去。
+    return Promise.resolve()
+      .then(() => findJob(jobId))
+      .then(apply)
+      .catch((err) => console.error('[job] 标记失败时又失败:', jobId, err && err.message));
+  } catch (err) {
+    console.error('[job] 标记失败:', jobId, err && err.message);
+    return undefined;
+  }
+}
+
+/**
+ * 任务入口的统一兜底。
+ *
+ * 为什么必须有：四条链路（分析/素材/OCR/自测题）都是 `runXxxJob(jobId, …)` 这样
+ * **即发即忘**地调用的，没有任何 .catch()。而 Node 15+ 对未处理的 Promise 拒绝
+ * 默认是**直接结束进程** —— 一次 Upstash 抖动、一次 KV 读失败，就能把整个服务带走，
+ * 所有正在跑的 30-120 秒任务一起陪葬（用户看到「生成中」永远转圈，钱也白花了）。
+ * 这里把三件事绑在一起：记日志（带任务名 + jobId）、把任务标为 error、绝不冒泡。
+ */
+function safeRun(name, jobId, fn) {
+  return Promise.resolve()
+    .then(fn)
+    .catch((e) => {
+      console.error('[job] ' + name + ' 异常:', jobId, (e && e.stack) || e);
+      return markJobFailed(jobId, e);
+    });
+}
+
+/**
  * 只清内存里的副本（**不动 KV**）。
  *
  * 内存清理和 KV 保留期必须分开，两个原因：
@@ -426,10 +472,19 @@ async function registerJob(jobId) {
 }
 
 /**
+ * 故障演练开关（生产不设这个环境变量）：
+ *   FAULT_INJECT=findJob:1  → 第 1 次 findJob 抛错（只影响这一次）
+ * 用来回归「任务入口抛异常不能把进程带走」这条 —— 没有它就只能靠线上偶发故障来发现。
+ */
+const FAULT_INJECT = String(process.env.FAULT_INJECT || '');
+let faultFindJobLeft = FAULT_INJECT.includes('findJob') ? Math.max(1, Number(FAULT_INJECT.split(':')[1]) || 1) : 0;
+
+/**
  * 取任务：内存没有就去 KV 找。
  * **部署重启后靠这一步把进行中的任务捞回来** —— 这是本次改动的全部意义。
  */
 async function findJob(jobId) {
+  if (faultFindJobLeft > 0) { faultFindJobLeft -= 1; throw new Error('fault-inject: findJob 失败（演练用）'); }
   const mem = jobs.get(jobId);
   if (mem) return mem;
   try {
@@ -1064,7 +1119,7 @@ const server = http.createServer(async (req, res) => {
       const jobId = randomUUID();
       saveJob({ jobId, kind: 'material', title: '素材：' + topic, status: 'pending', createdAt: Date.now(), data: null, error: null });
       registerJob(jobId); // 登记序号 + 超上限时淘汰最旧的任务
-      runMaterialJob(jobId, { topic, level, style, baseUrl, model, apiKey });
+      safeRun('material', jobId, () => runMaterialJob(jobId, { topic, level, style, baseUrl, model, apiKey }));
       return json(res, 200, { ok: true, jobId, status: 'pending' });
     }
     const materialMatch = p.match(/^\/api\/generate-material\/([A-Za-z0-9-]{8,64})$/);
@@ -1114,7 +1169,7 @@ const server = http.createServer(async (req, res) => {
       const jobId = randomUUID();
       saveJob({ jobId, kind: 'ocr', title: '图片识别 · ' + (side === 'chinese' ? '中文' : '英文'), status: 'pending', createdAt: Date.now(), data: null, error: null });
       registerJob(jobId);
-      runOcrJob(jobId, { image, side, mode, vision });
+      safeRun('ocr', jobId, () => runOcrJob(jobId, { image, side, mode, vision }));
       return json(res, 200, { ok: true, jobId, status: 'pending' });
     }
     const ocrMatch = p.match(/^\/api\/ocr\/([A-Za-z0-9-]{8,64})$/);
@@ -1144,7 +1199,7 @@ const server = http.createServer(async (req, res) => {
       const jobId = randomUUID();
       saveJob({ jobId, kind: 'quiz', title: '自测题 · ' + count + ' 题', status: 'pending', createdAt: Date.now(), data: null, error: null });
       registerJob(jobId);
-      runQuizJob(jobId, { points, count, level, baseUrl, model, apiKey });
+      safeRun('quiz', jobId, () => runQuizJob(jobId, { points, count, level, baseUrl, model, apiKey }));
       return json(res, 200, { ok: true, jobId, status: 'pending' });
     }
     const quizMatch = p.match(/^\/api\/quiz\/([A-Za-z0-9-]{8,64})$/);
@@ -1179,10 +1234,10 @@ const server = http.createServer(async (req, res) => {
       saveJob({ jobId, kind: 'analyze', title, status: 'pending', createdAt: Date.now(), data: null, error: null });
       registerJob(jobId);
       // 立即返回任务号，后台再调用模型；手机端/弱网不会因长时间占用请求而卡死
-      runAnalyzeJob(jobId, {
+      safeRun('analyze', jobId, () => runAnalyzeJob(jobId, {
         title, chinese, draft, original: lesson ? lesson.english : userOriginal,
         lesson, lessonNo, baseUrl, model, apiKey, level,
-      });
+      }));
       return json(res, 200, { ok: true, jobId, status: 'pending' });
     }
     const jobMatch = p.match(/^\/api\/analyze\/([A-Za-z0-9-]{8,64})$/);
@@ -1219,6 +1274,20 @@ server.listen(PORT, () => {
     .catch(() => { /* 用量只是提示，读不到就算了 */ });
   console.log('限流: ' + RATE_MAX + ' 次/分钟 · 可信代理 ' + TRUST_PROXY_HOPS + ' 跳'
     + (TRUST_CF_IP ? ' · 信任 CF-Connecting-IP' : '') + '（TRUST_PROXY_HOPS / TRUST_CF_CONNECTING_IP 可调）');
+  // 跳数配多了是**静默失效**（fail-open）：多信任一跳，XFF 里客户端自己伪造的那一段就会被当成真实 IP。
+  // 方向不对称：配少了只会退回 socket（大家共用一个桶，误伤但安全），配多了等于限流不存在。
+  if (TRUST_PROXY_HOPS >= 2) {
+    console.warn('⚠️  限流信任 ' + TRUST_PROXY_HOPS + ' 跳代理。'
+      + '如果前面实际只有 ' + (TRUST_PROXY_HOPS - 1) + ' 层，X-Forwarded-For 里"客户端能自己写的那一段"'
+      + '会被当成真实 IP —— 攻击者每次换个假 IP 就能绕过限流（fail-open），而界面上没有任何症状。');
+    console.warn('   请确认前面真的有 ' + TRUST_PROXY_HOPS + ' 层可信代理：'
+      + 'Render 直连 = 1；Cloudflare / Nginx 在 Render 前面 = 2；本机或自托管直连 = 0。'
+      + '当前生效值可查 /api/status 的 rateLimit 字段。');
+  }
+  if (TRUST_PROXY_HOPS === 0 && TRUST_CF_IP) {
+    console.warn('⚠️  TRUST_CF_CONNECTING_IP=1 但可信代理跳数为 0：CF 头会优先于 0 跳生效，'
+      + '请确认源站不可被直连（否则攻击者自带这个头即可绕过限流）。');
+  }
   loadJobSeq(); // 任务序号 / 淘汰指针：重启后接着上次的位置淘汰，不会一次性补删
   if (!syncDurable) {
     console.warn('⚠️  未配置 UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN：同步数据写在容器本地磁盘，'
@@ -1230,6 +1299,19 @@ server.listen(PORT, () => {
   } else if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
     console.warn('⚠️  未配置 SMTP_USER / SMTP_PASS：注册登录可用，但「找回密码」发不出邮件。');
   }
+});
+
+/* ---------- 进程级兜底：只记日志，绝不退出 ----------
+ * Node 15+ 默认把「未处理的 Promise 拒绝」当致命错误 —— 直接结束进程。
+ * 对这个服务来说代价太大：一次外部存储抖动就会把正在跑的任务全丢掉。
+ * 所以这里记下来继续跑（HTTP 层自己有 try/catch，会回 500）。
+ * 真到了不可恢复的地步，健康检查会失败，部署平台自然会重启 —— 那是平台该管的事，
+ * 不该由一次偶发的网络错误来决定。 */
+process.on('unhandledRejection', (reason) => {
+  console.error('[unhandledRejection]', (reason && (reason.stack || reason.message)) || reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[uncaughtException]', (err && (err.stack || err.message)) || err);
 });
 
 /* ---------- 退出前落盘 ----------

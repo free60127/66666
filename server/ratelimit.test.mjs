@@ -62,9 +62,13 @@ const boot = async (extraEnv = {}) => {
     AI_API_KEY: 'mock',
     ...extraEnv,
   };
-  const proc = spawn(process.execPath, ['server/index.mjs'], { env, stdio: 'ignore' });
+  // 捕获 stdout/stderr：既要断言启动警告，也要避免测试输出被日志淹没
+  const proc = spawn(process.execPath, ['server/index.mjs'], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+  let logs = '';
+  proc.stdout.on('data', (d) => { logs += String(d); });
+  proc.stderr.on('data', (d) => { logs += String(d); });
   for (let i = 0; i < 50; i += 1) {
-    try { if ((await fetch(`http://127.0.0.1:${port}/api/health`)).ok) return { port, proc }; } catch { /* 还没起来 */ }
+    try { if ((await fetch(`http://127.0.0.1:${port}/api/health`)).ok) return { port, proc, logs: () => logs }; } catch { /* 还没起来 */ }
     await sleep(300);
   }
   throw new Error('服务端启动超时（端口 ' + port + '）');
@@ -130,6 +134,23 @@ try {
   check('hops=2 时按右起第二跳（真实客户端）计数', properChain.every((s) => s === 200), properChain.join(','));
   const properChainAgain = await series(srv.port, 1, () => ({ 'x-forwarded-for': `10.6.6.6, 203.0.113.88, 172.16.0.1` }));
   check('同一真实客户端用满额度后被拦（与伪造的左端无关）', eq(properChainAgain, [429]), properChainAgain.join(','));
+
+  // ★ 跳数配多了是**静默失效**（fail-open）：这里把这个危险方向钉成断言，
+  //   让以后改这段代码的人一眼看到"多信一跳 = 客户端可控段变成 IP"。
+  const failOpen = await series(srv.port, 7, (i) => ({ 'x-forwarded-for': `1.1.1.${i}, 203.0.113.7` }));
+  check('★ 文档化：hops=2 但实际只有 1 层时，2 段头会取【最左】（客户端可控）→ 每次换一个假值即可绕过',
+    eq(failOpen, Array(7).fill(200)), '状态码 ' + failOpen.join(','));
+
+  // 启动时必须把这件事喊出来（不能静默）
+  const logs = srv.logs();
+  check('启动警告：信任 ≥2 跳时打印醒目提示（含 fail-open 说明）',
+    /信任 2 跳代理/.test(logs) && /fail-open/.test(logs), logs.split(String.fromCharCode(10)).filter((l) => l.includes('⚠️')).join(' | ').slice(0, 120));
+  await stop(srv);
+
+  /* 2e. hops=1 / 0 时不该出现这条警告（避免狼来了） */
+  srv = await boot({ TRUST_PROXY_HOPS: '1' });
+  await sleep(300);
+  check('hops=1 时不打多跳警告', !/信任 1 跳代理/.test(srv.logs()));
 } catch (e) {
   check('脚本执行未抛错', false, e && e.message);
 } finally {
