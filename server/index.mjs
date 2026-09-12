@@ -7,6 +7,7 @@ import { SYSTEM_PROMPT, buildUserMessage, MATERIAL_PROMPT, buildMaterialMessage,
 import { recognizeImage } from './ocr.mjs';
 import { MAX_SNAPSHOT_BYTES, createSyncStore, emptySnapshot, isValidSyncCode, newSyncCode, sanitizeSnapshot } from './sync.mjs';
 import { createUpstashKv, createFileKv } from './kv.mjs';
+import { resolveClientIp, trustProxyHops, trustCloudflareHeader } from './client-ip.mjs';
 import { createAccounts } from './accounts.mjs';
 import { sendMail } from './mailer.mjs';
 
@@ -218,18 +219,32 @@ function resolveEndpoint({ bodyBase, bodyKey, fallbackBase, fallbackKey }) {
 }
 
 /* ---------- 限流（内存滑动窗口，按来源 IP） ----------
- * 只是"减速带"：挡脚本批量刷接口，不承担鉴权职责。 */
+ * 只是"减速带"：挡脚本批量刷接口，不承担鉴权职责。
+ *
+ * ⚠️ 取 IP 必须谨慎：X-Forwarded-For 是**客户端可以自己写的**请求头，
+ * 只有代理**追加在右端**的那部分才可信：
+ *     攻击者发：X-Forwarded-For: 1.2.3.4, 5.6.7.8
+ *     边缘代理追加后：1.2.3.4, 5.6.7.8, <真实 IP>
+ * 原实现取 [0]（最左）—— 等于"客户端说自己是哪个 IP 就是哪个"：每次换一个假 IP
+ * 就能无限刷模型接口（每个请求都在真花钱）。登录失败锁定也用了这个 IP，同样会被绕过。
+ * 现在从**右往左**数自己信任的代理层数，左端一律不信。 */
+const TRUST_PROXY_HOPS = trustProxyHops(process.env, HOSTED);
+// CF-Connecting-IP 由 Cloudflare 边缘覆写、客户端改不动 —— 但**只有确定流量必经 CF** 时才可信：
+// 源站能被直连时，攻击者自己带这个头反而绕过限流。所以做成显式开关。
+const TRUST_CF_IP = trustCloudflareHeader(process.env);
+
+function clientIp(req) {
+  return resolveClientIp({
+    headers: req.headers || {},
+    socketIp: req.socket?.remoteAddress || '',
+    hops: TRUST_PROXY_HOPS,
+    trustCf: TRUST_CF_IP,
+  });
+}
 const RATE_MAX = Number(process.env.RATE_LIMIT_PER_MIN || 30);
 const RATE_WINDOW_MS = 60_000;
 const rateBuckets = new Map();
-function clientIp(req) {
-  const sock = req.socket?.remoteAddress || 'unknown';
-  if (process.env.RENDER || process.env.TRUST_PROXY === '1') {
-    const xff = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();
-    if (xff) return xff;
-  }
-  return sock;
-}
+
 function rateLimited(req) {
   const now = Date.now();
   const ip = clientIp(req);
@@ -992,6 +1007,8 @@ const server = http.createServer(async (req, res) => {
         accounts: { enabled: accountsOn, durable: kvDurable },
         // 分享链接（#job=xxx）的有效期与清理策略：保留多久、最多留多少条
         jobs: { store: kv.kind, durable: kvDurable, ttlDays: JOB_TTL_DAYS, max: JOB_MAX_COUNT, retained: Math.max(0, jobSeq - jobEvicted) },
+        // 限流按什么算"一个客户端"：可信代理跳数配错会让限流失效（或被自己人误伤）
+        rateLimit: { perMin: RATE_MAX, trustProxyHops: TRUST_PROXY_HOPS, trustCfIp: TRUST_CF_IP },
       });
     }
     if (p === '/api/lessons' && req.method === 'GET') {
@@ -1200,6 +1217,8 @@ server.listen(PORT, () => {
   Promise.resolve(kv.dbSize())
     .then((n) => console.log('存储用量: ' + n + ' 个键' + (kv.kind === 'upstash' ? '（Upstash 免费额度 256MB，单条结果约 15-60KB）' : '（本机 data/kv）')))
     .catch(() => { /* 用量只是提示，读不到就算了 */ });
+  console.log('限流: ' + RATE_MAX + ' 次/分钟 · 可信代理 ' + TRUST_PROXY_HOPS + ' 跳'
+    + (TRUST_CF_IP ? ' · 信任 CF-Connecting-IP' : '') + '（TRUST_PROXY_HOPS / TRUST_CF_CONNECTING_IP 可调）');
   loadJobSeq(); // 任务序号 / 淘汰指针：重启后接着上次的位置淘汰，不会一次性补删
   if (!syncDurable) {
     console.warn('⚠️  未配置 UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN：同步数据写在容器本地磁盘，'

@@ -12,7 +12,15 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import { chromium } from 'file:///D:/AI/66666-main/tools/shotter/node_modules/playwright/index.mjs';
+// playwright 装在 tools/shotter 下（本机跑真实浏览器用）；CI 里没装 —— 给出明确提示而不是
+// 一句 ERR_MODULE_NOT_FOUND。
+let chromium;
+try {
+  ({ chromium } = await import('file:///D:/AI/66666-main/tools/shotter/node_modules/playwright/index.mjs'));
+} catch {
+  console.error('缺少 playwright：本机跑 `cd tools/shotter && npm i` 后再执行本脚本（CI 不跑这条链路）。');
+  process.exit(2);
+}
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const PORT = Number(process.env.E2E_PORT || 8912);

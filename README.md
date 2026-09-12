@@ -52,7 +52,7 @@
 
 ## 测试
 
-    npm test          # 账号 52 + 同步存储 18 + 任务保留/清理 12 + 收藏/SM-2 49 + 同课对比 50 项（纯 node，无需外部服务）
+    npm test          # 账号 52 + 同步 18 + 任务保留/清理 12 + 限流/客户端 IP 27 + 收藏/SM-2 49 + 同课对比 50 项（纯 node）
     npm run test:auth # 账号服务 Worker 44 项（auth-worker，走本地 D1 垫片）
     node tools/e2e-b6b7.mjs   # 真实浏览器链路 35 项：两次练习对比、收藏复习、跨设备进度合并（自带 mock 模型与后端）
 
@@ -72,6 +72,8 @@
 | PORT | 后端端口 | 8787 |
 | JOB_TTL_DAYS | 任务（批改结果）保留天数 = **分享链接的有效期**（默认 3650 天 ≈ 长期有效；调小可控制存储体积，如 90） | 3650 |
 | JOB_MAX_COUNT | 结果**最多保留多少条**（默认 2000），超出自动从最旧的删；挡住"堆满存储"，调小更保守（如 500） | 2000 |
+| TRUST_PROXY_HOPS | 自己在几层可信代理之后（决定限流怎么取客户端 IP；托管平台默认 1，本机直连 0，Cloudflare→Render 这种两层结构设 2） | 1 |
+| TRUST_CF_CONNECTING_IP | 设 1 时优先用 Cloudflare 的 `CF-Connecting-IP`（**只在源站不可被直连时**才开，否则反而能绕过限流） | 关 |
 
 前端「AI 设置」弹窗也可临时填 Base URL / Model / Key（仅存本机 localStorage，发给本地后端）；正式部署请一律用后端 .env。
 
@@ -242,6 +244,7 @@
 - 若在 Render 环境变量里填了 `AI_API_KEY`，Key 只存在你的服务器上，别人无需 Key 即可使用；请留意调用量。
 - 若留空让使用者自填 Key，该 Key 会随请求先发到你的后端再转发给模型服务商——请只把链接分享给信任的人。
 - 前端放到 GitHub Pages 后，**API Key 依然只经过你的后端**，没有任何新增泄露面。
+- **限流按"真实客户端 IP"计数**：`X-Forwarded-For` 是客户端能自己写的头，只取代理**追加在右端**的那一跳（`TRUST_PROXY_HOPS` 配自己前面有几层可信代理：托管平台默认 1，本机直连 0，Cloudflare→Render 两层就设 2）。跳数配错会让限流被伪造头绕过——每个请求都在真花钱——所以当前生效值可从 `/api/status` 的 `rateLimit` 字段核对，`server/ratelimit.test.mjs` 里有对应回归（含"每次换伪造 XFF 仍被限流"这条 PoC）。
 
 ## 说明与声明
 

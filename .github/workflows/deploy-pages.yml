@@ -48,6 +48,14 @@ jobs:
       - name: 安装依赖
         run: npm ci
 
+      # 部署前必须先过测试：以前这里只有 build → deploy，测试写了却不在关键路径上，
+      # 一个会让限流失效的改动照样能一路部署到线上。
+      - name: 测试（账号 / 同步 / 任务清理 / 限流 / 收藏 / 同课对比）
+        run: npm test
+
+      - name: 测试（账号服务 Worker）
+        run: npm run test:auth
+
       - name: 解析后端地址（仓库变量 VITE_API_BASE 优先，否则用 Render 默认地址）
         id: cfg
         run: |
