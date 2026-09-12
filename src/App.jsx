@@ -676,7 +676,10 @@ function App() {
       const hist = Array.isArray(data?.history) ? data.history : [];
       if (!libs.length && !favs.length && !hist.length) throw new Error('文件里没有可导入的数据');
 
-      const { list: nextLibs, libsAdded, lessonsAdded } = mergeLibraries(myLibs, libs);
+      // 导入进来的课文可能来自"还没有稳定 id"的旧备份 —— 写入前统一补上，
+      // 否则这些课文的「编辑 / 改序号」会因为找不到条目而毫无反应（实测踩过）
+      const { list: mergedLibs, libsAdded, lessonsAdded } = mergeLibraries(myLibs, libs);
+      const { list: nextLibs } = ensureLessonIds(mergedLibs);
       if (libsAdded || lessonsAdded) { setMyLibs(nextLibs); saveLibraries(nextLibs); }
 
       let favAdded = 0;
@@ -710,7 +713,9 @@ function App() {
   /** 把同步合并回来的快照写回本机；只有真的变了才 setState（避免触发自动推送形成回环）。 */
   const applyMergedSnapshot = (merged) => {
     let changed = false;
-    if (JSON.stringify(myLibs) !== JSON.stringify(merged.libraries)) { setMyLibs(merged.libraries); saveLibraries(merged.libraries); changed = true; }
+    // 云端数据可能来自旧版本（没有 lid）—— 落盘前补齐，否则编辑/改序号会失灵
+    const mergedLibs = ensureLessonIds(merged.libraries).list;
+    if (JSON.stringify(myLibs) !== JSON.stringify(mergedLibs)) { setMyLibs(mergedLibs); saveLibraries(mergedLibs); changed = true; }
     if (JSON.stringify(favorites) !== JSON.stringify(merged.favorites)) { setFavorites(merged.favorites); saveFavorites(merged.favorites); changed = true; }
     if (JSON.stringify(historyList) !== JSON.stringify(merged.history)) { setHistoryList(merged.history); saveHistory(merged.history); changed = true; }
     return changed;
@@ -753,7 +758,12 @@ function App() {
     if (!window.confirm(`从课文库删除「${label}」？
 
 （其它课的序号不会自动变；想补齐空档点「我的课文库」旁的「重排序号」）`)) return;
-    const next = removeLesson(myLibs, libId, lessonOrNo && lessonOrNo.lid ? lessonOrNo.lid : lessonOrNo);
+    // 传进来的可能是"整个课文对象"（侧栏/弹窗），也可能是序号或 lid：
+    // 没有稳定 id 的老数据要退回用序号，否则 Number(对象) = NaN，删除会静默失效
+    const target = (lessonOrNo && typeof lessonOrNo === 'object')
+      ? (lessonOrNo.lid || lessonOrNo.lesson)
+      : lessonOrNo;
+    const next = removeLesson(myLibs, libId, target);
     setMyLibs(next);
     saveLibraries(next);
     flashTip(setToast, '已删除课文「' + label + '」', 3000);
@@ -762,24 +772,36 @@ function App() {
   /** 打开「编辑课文」弹窗（改标题 / 改序号） */
   const openLessonEdit = (libId, lesson) => {
     if (!lesson) return;
-    setLessonEdit({ libId, lid: lesson.lid });
+    // 同时记住序号：万一这条数据还没有稳定 id（导入/同步进来的旧数据），
+    // 也能按序号定位到它 —— 不能让"点编辑没反应"这种事再发生
+    setLessonEdit({ libId, lid: lesson.lid || '', lesson: lesson.lesson });
+  };
+
+  /** 按 { libId, lid, lesson } 找到要编辑的那节课（lid 优先，退回序号） */
+  const resolveEditLesson = (target) => {
+    if (!target) return null;
+    const lib = myLibs.find((x) => x.id === target.libId);
+    return findLesson(lib, target.lid) || findLesson(lib, target.lesson);
   };
 
   /** 保存编辑：先改标题，再按需挪序号；两件事落在同一份新列表上。 */
   const saveLessonEdit = ({ title_cn, title_en, lesson: targetNo }) => {
     const cur = lessonEdit;
     if (!cur) return;
-    const lib = myLibs.find((x) => x.id === cur.libId);
-    const before = findLesson(lib, cur.lid);
+    const before = resolveEditLesson(cur);
     if (!before) { setLessonEdit(null); return; }
-    let next = renameLesson(myLibs, cur.libId, cur.lid, { title_cn, title_en });
+    // 老数据（没有稳定 id）在这里补一个：这一次编辑之后它就固定下来了
+    const withIds = ensureLessonIds(myLibs).list;
+    const lid = before.lid || (findLesson(withIds.find((x) => x.id === cur.libId), before.lesson) || {}).lid;
+    if (!lid) { setLessonEdit(null); return; }
+    let next = renameLesson(withIds, cur.libId, lid, { title_cn, title_en });
     const wantNo = Math.round(Number(targetNo) || before.lesson);
-    if (wantNo !== before.lesson) next = moveLesson(next, cur.libId, cur.lid, wantNo);
-    const after = findLesson(next.find((x) => x.id === cur.libId), cur.lid);
+    if (wantNo !== before.lesson) next = moveLesson(next, cur.libId, lid, wantNo);
+    const after = findLesson(next.find((x) => x.id === cur.libId), lid);
     setMyLibs(next);
     if (!saveLibraries(next)) { flashTip(setToast, '写入本机存储失败（空间可能已满）', 4000); return; }
     // 正在练这一课：标题/序号同步刷新，免得编辑器里还显示旧标题
-    if (myLibId === cur.libId && matchedLesson && matchedLesson.lid === cur.lid) {
+    if (myLibId === cur.libId && matchedLesson && (matchedLesson.lid === lid || matchedLesson.lesson === before.lesson)) {
       setMatchedLesson(after);
       setLessonId(after.lesson);
       if (title_cn && title_cn !== before.title_cn) setTitle(title_cn);
@@ -1839,7 +1861,7 @@ function App() {
 
       <LessonEditModal
         open={Boolean(lessonEdit)}
-        lesson={findLesson(myLibs.find((x) => x.id === (lessonEdit && lessonEdit.libId)), lessonEdit && lessonEdit.lid)}
+        lesson={resolveEditLesson(lessonEdit)}
         onClose={() => setLessonEdit(null)}
         onSave={saveLessonEdit}
         onDelete={(lesson) => { setLessonEdit(null); deleteMyLesson(lessonEdit.libId, lesson, lesson.title_cn); }}

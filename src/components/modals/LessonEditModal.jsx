@@ -25,7 +25,10 @@ export default function LessonEditModal({ open, lesson, onClose, onSave, onDelet
   }, [open, lesson]);
 
   if (!open || !lesson) return null;
-  const empty = !titleCn.trim() && !lesson.title_cn;
+  // 只有"本来就没标题且输入框也为空"才算空。
+  // 否则会出一个很坑的陷阱：只填了英文标题的课文，想把序号改一下却发现保存是灰的，
+  // 看起来就像"点了没反应"。（真清空标题的情况由 renameLesson 兜住：空值不覆盖原值）
+  const empty = !titleCn.trim() && !titleEn.trim() && !lesson.title_cn && !lesson.title_en;
 
   return (
     <div className="modal-mask" onClick={onClose}>

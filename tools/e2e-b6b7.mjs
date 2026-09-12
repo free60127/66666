@@ -418,6 +418,43 @@ try {
     await sleep(500);
     L = await lib();
     ok('★ 重排序号：2 → 1（补齐删课留下的空档）', L && L[0].no === 1, JSON.stringify(L && L.map((x) => x.no)));
+
+    // ⑤ 回归：**导入**一份没有稳定 id 的旧备份后，编辑按钮必须照样能用
+    // （曾经这里点了没反应：一次性迁移只管"打开页面时已存在"的数据）
+    {
+      const legacy = {
+        app: 'back-translate-studio',
+        exportedAt: new Date().toISOString(),
+        libraries: [{
+          id: 'lib-legacy-import', name: '旧备份库', createdAt: Date.now(),
+          lessons: [{ book: 'my', lesson: 2, title_cn: '旧备份里的课文', title_en: '', chinese: '旧中文', english: 'old english', source: '自建', createdAt: 1 }],
+        }],
+        favorites: [],
+        history: [],
+      };
+      await page.click('.side-footer >> text=备份');
+      await page.waitForSelector('.modal');
+      await page.setInputFiles('.modal input[type="file"]', { name: 'legacy.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(legacy)) });
+      await sleep(800);
+      await page.click('.modal-head .icon-btn');
+      await sleep(300);
+      await page.click('.lib-row >> text=旧备份库');
+      await sleep(400);
+      const imported = page.locator('.lesson-row').first();
+      await imported.hover();
+      await imported.locator('.lesson-edit').click();
+      await page.waitForSelector('[aria-label="编辑课文"]', { timeout: 8000 });
+      const field = await page.locator('[aria-label="编辑课文"] input >> nth=0').inputValue();
+      ok('★ 导入的旧备份（没有稳定 id）也能打开编辑弹窗', field === '旧备份里的课文', field);
+      await page.fill('[aria-label="编辑课文"] input >> nth=0', '旧备份课文（改过）');
+      await page.click('[aria-label="编辑课文"] >> text=保存');
+      await sleep(500);
+      const fixed = await page.evaluate(() => {
+        const l = JSON.parse(localStorage.getItem('bt-lesson-libraries') || '[]').find((x) => x.name === '旧备份库');
+        return l && { cn: l.lessons[0].title_cn, lid: l.lessons[0].lid };
+      });
+      ok('导入的旧课文改名成功，并补上了稳定 id', fixed && fixed.cn === '旧备份课文（改过）' && /^lsn-/.test(fixed.lid || ''), JSON.stringify(fixed));
+    }
   }
 
   /* ---------- 分享链接：对方设备上没有你的本机缓存，也要能打开 ---------- */
