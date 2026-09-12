@@ -24,6 +24,8 @@ import { FavReviewPanel } from './components/ResultSheet/Review.jsx';
 import { QuizSheet } from './components/ResultSheet/Quiz.jsx';
 import { LEVEL_LABEL } from './constants.js';
 import Sidebar from './components/Sidebar.jsx';
+import FavoritesModal from './components/modals/FavoritesModal.jsx';
+import HistoryModal from './components/modals/HistoryModal.jsx';
 
 
 const AI_LEVELS = ['小初', '高考英语', '四六级', '考研/专四', '专八'];
@@ -2116,111 +2118,16 @@ function App() {
         </div>
       )}
 
-      {historyOpen && (
-        <div className="modal-mask" onClick={() => setHistoryOpen(false)}>
-          <div className="modal history-modal" ref={(el) => { modalRefs.current.history = el; }} role="dialog" aria-modal="true" aria-label="历史作业" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-head"><h2>历史作业</h2><button className="icon-btn" onClick={() => setHistoryOpen(false)} aria-label="关闭"><X size={16} /></button></div>
-            {historyList.length === 0 ? <p className="muted">暂无历史记录。生成一次完整分析后，记录会自动保存在这里；此功能上线前生成的旧作业不会自动补录。</p> : (
-              <div className="history-list">
-                {historyList.map((h) => (
-                  <button className="history-item" key={h.jobId} onClick={() => loadHistoryJob(h.jobId)}>
-                    <span className="history-info"><strong>{h.title || '回译作业'}</strong><span className="muted small">{formatTime(h.time)}{h.durationMs ? ` · 用时 ${formatDuration(h.durationMs)}` : ''}</span></span>
-                    <span className="history-link">查看结果</span>
-                  </button>
-                ))}
-              </div>
-            )}
-            <p className="muted small">历史记录保存在当前浏览器；每次结果也会持久化在后端 7 天，可通过分享链接在任何设备打开。</p>
-          </div>
-        </div>
-      )}
+      <HistoryModal open={historyOpen} onClose={() => setHistoryOpen(false)} modalRef={(el) => { modalRefs.current.history = el; }} items={historyList} onOpen={loadHistoryJob} />
 
-      {favOpen && (
-        <div className="modal-mask" onClick={() => setFavOpen(false)}>
-          <div className="modal fav-modal" ref={(el) => { modalRefs.current.fav = el; }} role="dialog" aria-modal="true" aria-label="收藏夹" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-head">
-              <h2>{favReview ? '今日复习' : `收藏夹（${favorites.length}）`}</h2>
-              <button className="icon-btn" onClick={() => { setFavOpen(false); setFavReview(null); }} aria-label="关闭"><X size={16} /></button>
-            </div>
-            {favReview ? (
-              <FavReviewPanel
-                session={favReview}
-                items={favorites}
-                onReveal={() => setFavReview((r) => (r ? { ...r, revealed: true } : r))}
-                onGrade={gradeFavReview}
-                onSkip={skipFavReview}
-                onExit={() => setFavReview(null)}
-              />
-            ) : (
-              <>
-                <div className="fav-toolbar">
-                  <input className="fav-search" value={favQuery} onChange={(e) => setFavQuery(e.target.value)} placeholder="搜索单词、短语或解释…" />
-                  <select className="ocr-mode" value={favKind} onChange={(e) => setFavKind(e.target.value)}>
-                    <option value="all">全部</option>
-                    <option value="finding">错题 / 辨析</option>
-                    <option value="vocab">核心词</option>
-                    <option value="idiom">习语</option>
-                    <option value="expression">加分表达</option>
-                  </select>
-                  <button className="ghost-btn" onClick={startReview} disabled={!favorites.length} title="按间隔重复安排复习：今天到期的收藏">
-                    <Flame size={14} />今日待复习{favDueCount ? ` (${favDueCount})` : ''}
-                  </button>
-                </div>
-                {favorites.length === 0 ? (
-                  <p className="muted">还没有收藏。在作业结果里点每条知识点右上角的 ☆ 就能收藏，之后在这里直接复习，不用再打开整份作业。</p>
-                ) : visibleFavorites.length === 0 ? (
-                  <p className="muted">没有匹配的收藏。</p>
-                ) : (
-                  <div className="fav-list">
-                    {visibleFavorites.map((x) => {
-                      const due = dueOf(x) <= Date.now();
-                      return (
-                        <div className={'fav-item' + (due ? ' due' : '')} key={x.id}>
-                          <div className="fav-item-head">
-                            <span className="fav-kind">{FAV_KIND_LABEL[x.kind] || x.kind}</span>
-                            {x.category ? <span className="fav-cat">{x.category}</span> : null}
-                            {x.level ? <span className={'fav-level ' + x.level}>{LEVEL_LABEL[x.level] || x.level}</span> : null}
-                            <span className={'fav-due' + (due ? ' now' : '')}>{due ? '待复习' : dueLabel(x)}</span>
-                            <span className="fav-date">{formatTime(x.createdAt)}</span>
-                            <button className="icon-btn fav-del" onClick={() => removeFavorite(x.id)} title="删除这条收藏"><Trash2 size={14} /></button>
-                          </div>
-                          <div className="fav-title">{x.title}</div>
-                          {x.body ? <div className="fav-body">{x.body}</div> : null}
-                          {x.extra ? <div className="fav-extra">{x.extra}</div> : null}
-                          {x.source ? <div className="fav-source">来自：{x.source}{x.sourceLevel ? ' · 润色等级 ' + x.sourceLevel : ''}</div> : null}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-                <div className="fav-quiz">
-                  <div className="fav-quiz-title">根据收藏自测</div>
-                  <div className="fav-quiz-row">
-                    <label className="fav-quiz-count">题目数量
-                      <select className="ocr-mode" value={quizCount} onChange={(e) => setQuizCount(Number(e.target.value))}>
-                        {[5, 10, 15, 20, 30, 50].map((n) => <option key={n} value={n}>{n} 题</option>)}
-                      </select>
-                    </label>
-                    <button className="primary-btn" onClick={generateQuiz} disabled={quizBusy || !favorites.length}>
-                      {quizBusy ? <LoaderCircle className="spin" size={15} /> : <WandSparkles size={15} />}
-                      {quizBusy ? 'AI 正在出题…' : '生成自测题'}
-                    </button>
-                  </div>
-                  <p className="muted small">按当前筛选范围出题（{favKind === 'all' ? '全部收藏' : (FAV_KIND_LABEL[favKind] || favKind)}），难度跟随「润色等级 {polishLevel}」；生成后点「导出 PDF」即可打印，答案统一印在最后。</p>
-                </div>
-                <div className="fav-footer">
-                  <button className="ghost-btn sm" onClick={exportFavorites}><Download size={14} />导出备份</button>
-                  <button className="ghost-btn sm" onClick={() => favFileRef.current?.click()}><Upload size={14} />导入备份</button>
-                  <button className="ghost-btn sm" onClick={copyFavorites} disabled={!favorites.length}><ClipboardCopy size={14} />复制全部</button>
-                  <button className="ghost-btn sm" onClick={clearFavorites} disabled={!favorites.length}><Trash2 size={14} />清空</button>
-                  <input ref={favFileRef} type="file" accept="application/json,.json" hidden onChange={(e) => { const f = e.target.files && e.target.files[0]; e.target.value = ''; importFavorites(f); }} />
-                </div>
-                <p className="muted small">收藏与<b>复习进度</b>保存在本机浏览器（不依赖数据库）；配了同步码时会跟着一起同步，多设备之间以复习得更新的那份为准。清除浏览器数据、换浏览器 / 设备、或更换域名都会导致收藏丢失，建议定期「导出备份」。</p>
-              </>
-            )}
-          </div>
-        </div>
-      )}
+      <FavoritesModal
+        open={favOpen} onClose={() => { setFavOpen(false); setFavReview(null); }} modalRef={(el) => { modalRefs.current.fav = el; }}
+        favorites={favorites} visibleFavorites={visibleFavorites} favQuery={favQuery} onQuery={setFavQuery} favKind={favKind} onKind={setFavKind} dueCount={favDueCount}
+        review={favReview} onStartReview={startReview} onGrade={gradeFavReview} onSkip={skipFavReview} onExitReview={() => setFavReview(null)}
+        onReveal={() => setFavReview((r) => (r ? { ...r, revealed: true } : r))} onRemove={removeFavorite}
+        onExport={exportFavorites} onImportClick={() => favFileRef.current?.click()} favFileRef={favFileRef} onImportFile={importFavorites} onCopy={copyFavorites} onClear={clearFavorites}
+        quizCount={quizCount} onQuizCount={setQuizCount} onGenerateQuiz={generateQuiz} quizBusy={quizBusy} polishLevel={polishLevel}
+      />
 
       {settingsOpen && (
         <div className="modal-mask" onClick={() => setSettingsOpen(false)}>
