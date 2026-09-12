@@ -66,9 +66,9 @@ export default function LessonEditModal({ open, lesson, onClose, onSave, onDelet
           />
         </label>
         <p className="muted small">
-          改序号 = 把它<b>挪到第 {Number.isFinite(no) && no > 0 ? no : 1} 位</b>，中间的课整体顺移，
-          最后统一补成 1、2、3…（不会出现重号或空档）。
-          删课留下的空档（比如 1、3）用侧栏「我的课文库」旁的<b>重排序号</b>一键补齐。
+          改序号 = 把它<b>放到第 {Number.isFinite(no) && no > 0 ? no : 1} 课</b>，中间的课整体顺移，
+          整库序号会自动补齐成 1、2、3…（不会出现重号或空档）。
+          如果只想补齐删课留下的空档（比如 1、3），用侧栏「我的课文库」旁的<b>重排序号</b>一键搞定。
         </p>
         {empty ? <div className="lib-tip" role="alert">标题不能为空</div> : null}
         <div className="modal-actions">

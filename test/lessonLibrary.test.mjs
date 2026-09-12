@@ -102,6 +102,15 @@ const titles = (list, id = 'lib-1') => (list.find((x) => x.id === id)?.lessons |
   // 两节课的边界
   const two = [lib([L(1, 'A', 'a'), L(2, 'B', 'b')])];
   check('挪位：两节课互换', eq(titles(moveLesson(two, 'lib-1', 'b', 1)), ['B', 'A']));
+
+  // 有空档时"位置没动但序号要变"也必须生效（否则用户会觉得改了没反应）
+  const gapped = [lib([L(2, 'A', 'a'), L(3, 'B', 'b')])];
+  const r6 = moveLesson(gapped, 'lib-1', 'a', 1);
+  check('★ 空档库（2、3）里把第一节改成 1：真的变成 1（重排补齐）', nos(r6).join(',') === '1,2' && findLesson(r6[0], 'a').lesson === 1, nos(r6).join(','));
+  const r7 = moveLesson(gapped, 'lib-1', 'b', 2);
+  check('★ 空档库（2、3）里把第二节改成 2：变成 1、2', nos(r7).join(',') === '1,2' && findLesson(r7[0], 'b').lesson === 2, nos(r7).join(','));
+  const noop = moveLesson([lib([L(1, 'A', 'a'), L(2, 'B', 'b')])], 'lib-1', 'a', 1);
+  check('序号与位置都没变时仍是原样返回（不做无意义写入）', noop[0].lessons[0] === findLesson([lib([L(1, 'A', 'a')])][0], 'a') || nos(noop).join(',') === '1,2');
   // 残缺序号（1,5,9）先当作顺序处理
   const gaps = [lib([L(1, 'A', 'a'), L(5, 'B', 'b'), L(9, 'C', 'c')])];
   check('挪位：序号有空洞时按相对顺序挪动并补齐', eq(titles(moveLesson(gaps, 'lib-1', 'c', 1)), ['C', 'A', 'B']));

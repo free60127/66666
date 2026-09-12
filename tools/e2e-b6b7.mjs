@@ -427,7 +427,10 @@ try {
         exportedAt: new Date().toISOString(),
         libraries: [{
           id: 'lib-legacy-import', name: '旧备份库', createdAt: Date.now(),
-          lessons: [{ book: 'my', lesson: 2, title_cn: '旧备份里的课文', title_en: '', chinese: '旧中文', english: 'old english', source: '自建', createdAt: 1 }],
+          lessons: [
+            { book: 'my', lesson: 1, title_cn: '旧备份里的课文', title_en: '', chinese: '旧中文', english: 'old english', source: '自建', createdAt: 1 },
+            { book: 'my', lesson: 3, title_cn: '旧备份第二篇', title_en: '', chinese: '旧中文二', english: 'old english 2', source: '自建', createdAt: 2 },
+          ],
         }],
         favorites: [],
         history: [],
@@ -454,6 +457,17 @@ try {
         return l && { cn: l.lessons[0].title_cn, lid: l.lessons[0].lid };
       });
       ok('导入的旧课文改名成功，并补上了稳定 id', fixed && fixed.cn === '旧备份课文（改过）' && /^lsn-/.test(fixed.lid || ''), JSON.stringify(fixed));
+
+      // 空档库（1、3）里把第 3 课改成 2 → 序号必须真的变（曾经"位置没动就原样返回"，看着像没反应）
+      const imported2 = page.locator('.lesson-row').nth(1);
+      await imported2.hover();
+      await imported2.locator('.lesson-edit').click();
+      await page.waitForSelector('[aria-label="编辑课文"]');
+      await page.fill('[aria-label="编辑课文"] input[type="number"]', '2');
+      await page.click('[aria-label="编辑课文"] .primary-btn');
+      await sleep(500);
+      const nos = await page.evaluate(() => JSON.parse(localStorage.getItem('bt-lesson-libraries') || '[]').find((x) => x.name === '旧备份库').lessons.map((x) => x.lesson));
+      ok('★ 空档库（1、3）里把第 3 课改成 2：序号真的变成 1、2', nos.join(',') === '1,2', nos.join(','));
     }
   }
 

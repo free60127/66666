@@ -133,8 +133,12 @@ export function moveLesson(list, libId, lid, targetNo) {
   const ordered = [...lib.lessons].sort((a, b) => (Number(a.lesson) || 0) - (Number(b.lesson) || 0));
   const from = ordered.findIndex((l) => l.lid === lid);
   if (from < 0) return list;
-  const to = Math.min(ordered.length, Math.max(1, Math.round(Number(targetNo) || from + 1))) - 1;
-  if (to === from) return list;
+  const want = Math.min(ordered.length, Math.max(1, Math.round(Number(targetNo) || from + 1)));
+  const to = want - 1;
+  // 只有在"位置和序号都没变"时才算无事发生。
+  // 若列表带空档（例：2、3），用户把第一节课改成 1 —— 位置没动但序号要变，
+  // 这时必须继续走下去（重排会把空档补掉），否则用户会觉得"改了没反应"。
+  if (to === from && (Number(ordered[from].lesson) || 0) === want) return list;
   const moving = ordered.splice(from, 1)[0];
   ordered.splice(to, 0, moving);
   return mapLib(list, libId, (x) => ({ ...x, lessons: ordered.map((l, i) => (l.lesson === i + 1 ? l : { ...l, lesson: i + 1 })) }));
