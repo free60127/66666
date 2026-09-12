@@ -1,15 +1,13 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { BookOpen, Camera, CheckCircle2, ChevronDown, ChevronRight, Cloud, Copy, Download, Flame, FolderPlus, History, ImagePlus, Library, LoaderCircle, PanelLeftClose, PanelLeftOpen, PenLine, Settings, Sparkles, Star, Timer, Upload, UserRound, WandSparkles, X } from 'lucide-react'
 // mammoth（894 KB 源码）只在"上传 DOCX"这一个功能里用到，
 // 改为 handleDocx 内动态 import，避免它被打进首屏主包。
 import { ensureLessonIds, mergeLibraries, saveLibraries } from './lessonLibrary.js'
-import { analyze, generateMaterial, getAnalyzeJob, getLessons, getLesson, getMaterialJob, getOcrJob, getStatus, loadSettings, matchLesson, ocr, saveSettings, wakeUp } from './api.js'
-import { DEMO_LESSON_18, DEMO_LESSONS } from './demo.js'
+import { getOcrJob, getStatus, loadSettings, matchLesson, ocr, saveSettings } from './api.js'
 import { mergeHistory } from './sync.js'
-import { hasMorphology, mergeFavorites, morphologyText, saveFavorites } from './favorites.js'
-import { formatDuration } from './format.js'
-import { POLL_ANALYZE_MS, POLL_OCR_MS, TIMEOUT_ANALYZE_MS, TIMEOUT_OCR_MS } from './constants.js'
-import { loadHistory, loadResultCache, pruneResultCache, safeGet, safeSet, saveHistory, saveResultCache } from './storage.js'
+import { mergeFavorites, saveFavorites } from './favorites.js'
+import { POLL_OCR_MS, TIMEOUT_OCR_MS } from './constants.js'
+import { safeGet, safeSet, saveHistory } from './storage.js'
 import { useTimer } from './hooks/useTimer.js'
 import { submitAndPoll } from './hooks/pollJob.js'
 import { useCloudSync } from './hooks/useCloudSync.js'
@@ -21,6 +19,7 @@ import { useEditor } from './hooks/useEditor.js'
 import { lessonLabel } from './lessonLabel.js';
 import { useLessons } from './hooks/useLessons.js';
 import { useFavorites } from './hooks/useFavorites.js'
+import { useGeneration } from './hooks/useGeneration.js'
 import ElapsedDisplay from './components/ElapsedDisplay.jsx'
 import { ResultSheet } from './components/ResultSheet/index.jsx'
 import { QuizSheet } from './components/ResultSheet/Quiz.jsx'
@@ -35,30 +34,7 @@ const LEVEL_KEY = 'bt-polish-level';
 const LEVEL_ALIASES = { 考研英语: '考研/专四', 专四: '考研/专四' };
 const CONFIDENCE_LABEL = { high: '高置信度', medium: '中置信度', low: '低置信度', none: '未匹配', manual: '手动选择' };
 
-/* ---------- 结果数据归一化（前端兜底）----------
- * 服务端已经清洗过一次；这里再兜一次是因为分享链接与本机缓存里可能存着历史脏数据，
- * 而 ResultSheet 会直接索引 sentences[i].findings / notes[i].word —— 脏元素会让整棵树崩掉。 */
-function asObjectArray(value) {
-  return (Array.isArray(value) ? value : []).filter((x) => x && typeof x === 'object' && !Array.isArray(x));
-}
-function normalizeResult(data) {
-  if (!data || typeof data !== 'object') return null;
-  const overall = data.overall && typeof data.overall === 'object' && !Array.isArray(data.overall) ? data.overall : {};
-  return {
-    ...data,
-    overall: { ...overall, scoreBreakdown: asObjectArray(overall.scoreBreakdown) },
-    sentences: asObjectArray(data.sentences).map((s) => ({
-      ...s,
-      findings: asObjectArray(s.findings).map((f) => ({
-        ...f,
-        dimensions: Array.isArray(f.dimensions) ? f.dimensions.filter((x) => typeof x === 'string') : [],
-        synonyms: Array.isArray(f.synonyms) ? f.synonyms.filter((x) => x != null) : [],
-      })),
-    })),
-    vocabularyNotes: asObjectArray(data.vocabularyNotes),
-    idiomHighlights: asObjectArray(data.idiomHighlights),
-  };
-}
+// 结果数据归一化（normalizeResult）挪到 src/resultData.js —— 生成链路与它之外的调用点共用一份
 
 /* ---------- 拍照 / 图片识别（OCR）前端预处理 ---------- */
 // OCR 的三个目标框（中文提示 / 英文初稿 / 英文原文）
@@ -181,13 +157,10 @@ function App() {
     busy, step: progressStep, message: progressMsg, elapsed,
     run: runJob, cancelWait: cancelProgress,
   } = useJobRunner();
-  // 「取消等待」：只让界面立刻解锁，**不停后台轮询** ——
-  // 生成请求已经发出去了（钱已经花了），停掉轮询等于白花；继续跑完还能进「历史结果」。
-  const cancelGenRef = useRef(false);
+  // 「取消等待」标记归 hooks/useGeneration.js（那里才是唯一用它的地方）
   const [parsing, setParsing] = useState(false);
   const [fileName, setFileName] = useState('');
   const [error, setError] = useState('');
-  const [result, setResult] = useState(null);
   const [view, setView] = useState('editor');
   const {
     busy: materialBusy, elapsed: materialElapsed,
@@ -202,7 +175,7 @@ function App() {
     generatedOriginal, setGeneratedOriginal, materialKeywords, setMaterialKeywords,
     matchConfidence, setMatchConfidence, matchScore, setMatchScore,
     materialTopic, setMaterialTopic, materialLevel, setMaterialLevel, materialStyle, setMaterialStyle,
-    handleGenerateMaterial: generateMaterialNow, clearEditor,
+    handleGenerateMaterial: generateMaterialNow,
   } = useEditor({
     settings,
     runMaterialJob,
@@ -210,13 +183,10 @@ function App() {
     setMatchedLesson: clearMatchedLesson,
     setMode,
   });
-  const [currentJobId, setCurrentJobId] = useState('');
-  const [historyList, setHistoryList] = useState(loadHistory);
-  // 收藏夹（本机 localStorage）
+  // 结果 / 历史 / 分享提示由 hooks/useGeneration.js 持有（变量名沿用原来的）
   // 全局提示条：编辑器页也能看到（shareTip 只在结果页渲染，
   // 之前把"已保存课文/已新建作业"这类反馈发给了它，等于用户什么都看不到）
   const [toast, setToast] = useState('');
-  const [shareTip, setShareTip] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(() => {
     if (typeof window !== 'undefined' && window.innerWidth <= 900) return false;
     return safeGet('bt-sidebar', '') !== 'collapsed';
@@ -352,16 +322,15 @@ function App() {
 
   // 选课（hooks/useLessons.js）：内置课表 + 自建库选课；变量名沿用原来的
   const {
-    lessons, setLessons, book, setBook, lessonId, setLessonId, matchedLesson, setMatchedLesson,
+    lessons, book, setBook, lessonId, setLessonId, matchedLesson, setMatchedLesson,
     lessonQuery, setLessonQuery, visibleLessons,
     selectLesson, handleBookChange, selectMyLesson, applyMatchedLesson,
   } = useLessons({
-    activeLib, myLibs, myLibId, setMyLibId,
+    activeLib, myLibs, setMyLibId,
     setTitle, setChinese, setDraft, setGeneratedOriginal, setManualOriginal, setMaterialKeywords,
     setMatchConfidence, setMatchScore, setMode,
     runGenerateRef, refreshStatus, setError, markSavedSnapshot,
-    toast: (msg, ms) => flashTip(setToast, msg, ms),
-    setBackendWaking, genTokenRef, aliveRef,
+    setBackendWaking, genTokenRef,
   });
 
   // useLessons 就位后，把「课文被改名/挪位」「重排后当前课变了」的处理接上
@@ -384,42 +353,25 @@ function App() {
       : `lesson:${book}-${lessonId}`);
   const { timer, toggle: toggleTimer, reset: resetTimer, elapsedMsNow, hasElapsed } = useTimer(lessonKey);
 
+  /* ---------- 生成链路（hooks/useGeneration.js）----------
+   * 提交 → 轮询 → 入历史 → 结果页 / 分享 / 复制 / 离线示例；变量名沿用原来的，调用点不用改。
+   * 放在 useLessons / useTimer 之后：提交参数与 lessonKey 都来自那边。 */
+  const {
+    result, setResult, currentJobId, historyList, setHistoryList, shareTip,
+    currentOriginal,
+    runGenerate, cancelGenerate, openHistoryModal, loadHistoryJob,
+    shareResult, copyAll, loadDemo,
+  } = useGeneration({
+    title, chinese, draft, manualOriginal, generatedOriginal,
+    mode, book, lessonId, myLibId, matchedLesson, lessonKey,
+    settings, polishLevel, runJob, busy, cancelProgress, elapsedMsNow,
+    genTokenRef, aliveRef,
+    setView, setError, setHistoryOpen,
+    flashTip, setToast, runGenerateRef,
+  });
 
 
-  // 通过分享链接 #job=xxx 打开时，直接恢复该次生成结果（即使后端重启过，任务已持久化）
-  useEffect(() => {
-    const m = window.location.hash.match(/^#job=([A-Za-z0-9-]{8,64})/);
-    if (!m) return;
-    const jobId = m[1];
-    getAnalyzeJob(jobId).then((r) => {
-      if (!aliveRef.current) return;
-      if (r.job?.status === 'done' && r.job.data) {
-        setResult(normalizeResult(r.job.data)); // 归一化：坏数据不再让页面白屏，F5 也不会循环崩
-        setCurrentJobId(jobId);
-        setView('result');
-        setError('');
-      } else if (r.job?.status === 'error') {
-        setError(r.job.error || '该任务生成失败');
-      } else {
-        setError('该结果仍在生成中，请稍后刷新查看');
-      }
-    }).catch(() => {
-      if (!aliveRef.current) return;
-      // 服务端已经查不到这条任务时，用本机缓存恢复（分享者本人 / 同一台设备还留着结果）
-      const cached = loadResultCache(jobId);
-      if (cached) {
-        setResult(normalizeResult(cached));
-        setCurrentJobId(jobId);
-        setView('result');
-        setError('');
-      } else {
-        // 服务端只认它自己留着的记录（默认保留期见 /api/status 的 jobs.ttlDays）。
-        // 链接打不开时要给出可操作的下一步，而不是一句"不存在"。
-        setError('这条分享链接打不开了：服务端已经没有这次批改的记录（链接被改动过，或结果已超出保留期）。'
-          + '请让分享者重新「复制分享链接」发一次；想长期留存，用结果页的「导出 PDF」另存一份最稳妥。');
-      }
-    });
-  }, []);
+  // 分享链接 #job=xxx 的结果恢复归 useGeneration（连"打不开时怎么提示"一起搬过去了）
 
   // 页面标题跟随当前作业：导出 PDF / 另存网页时文件名才有意义（原来是恒定标题）
   useEffect(() => {
@@ -442,15 +394,6 @@ function App() {
    * 一册就 96 课（全书 348 课），靠翻列表找「Lesson 47」或「那篇讲春节的」都很痛苦。
    * 纯数字按课号优先 —— 输入 47 应该直接命中 Lesson 47，而不是标题里恰好含 47 的那几篇。
    */
-
-  // 本次作业的「英文原文（标准答案）」优先级：
-  // 用户手填 > AI 素材生成的原文 > 自建库课文自带的原文。
-  // 内置册留空，交给服务端按 book/lessonId 去语料里取（行为不变）。
-  const currentOriginal = manualOriginal.trim()
-    || generatedOriginal
-    || (myLibId ? (matchedLesson?.english || '') : '');
-
-
 
   /** 选中自建库（只切换侧栏列表，不改变当前作业）。 */
   const selectMyLib = useCallback((libId) => {
@@ -579,7 +522,7 @@ function App() {
     setView('editor');
     setResult(null);
     window.history.replaceState(null, '', window.location.pathname + window.location.search);
-  }, []);
+  }, [setResult]);
 
   /* ---------- 备份：课文库 + 收藏夹 + 历史 ---------- */
   const libraryLessonCount = myLibs.reduce((n, lib) => n + lib.lessons.length, 0);
@@ -748,81 +691,7 @@ function App() {
     [generateMaterialNow, setMaterialOpen],
   );
 
-  const addToHistory = (jobId, jobTitle, data, durationMs) => {
-    saveResultCache(jobId, data);
-    // lessonKey 一起进历史：结果页要靠它认出"上一次练的是同一课"（老记录没有，靠标题兜底）
-    const entry = { jobId, title: jobTitle || '回译作业', time: Date.now(), durationMs: Number(durationMs) || 0, lessonKey: String((data && data.lessonKey) || '') };
-    const next = [entry, ...historyList.filter((x) => x.jobId !== jobId)].slice(0, 20);
-    saveHistory(next);
-    pruneResultCache(next.map((x) => x.jobId)); // 结果缓存跟随历史条数淘汰，否则无限增长写满 5MB 配额
-    setHistoryList(next);
-  };
-
-  const openHistoryModal = () => {
-    setHistoryList(loadHistory());
-    setHistoryOpen(true);
-  };
-
-  // 连点两条历史时，先发的慢请求后返回会把后点的那条覆盖掉 —— 用请求令牌丢弃过期结果
-  const historyReqRef = useRef(0);
-  const loadHistoryJob = async (jobId) => {
-    const reqId = (historyReqRef.current += 1);
-    genTokenRef.current += 1; // 打开历史结果时作废掉正在跑的生成任务，避免它稍后抢回视图
-    // 优先用本机缓存，秒开且不受服务器任务清理影响
-    const cached = loadResultCache(jobId);
-    if (cached) {
-      setHistoryOpen(false);
-      setResult(normalizeResult(cached));
-      setCurrentJobId(jobId);
-      setView('result');
-      setError('');
-      window.history.replaceState(null, '', '#job=' + jobId);
-      return;
-    }
-    try {
-      const r = await getAnalyzeJob(jobId);
-      if (reqId !== historyReqRef.current) return;
-      const job = r.job;
-      setHistoryOpen(false);
-      if (job?.status === 'done' && job.data) {
-        setResult(normalizeResult(job.data));
-        setCurrentJobId(jobId);
-        setView('result');
-        setError('');
-        window.history.replaceState(null, '', '#job=' + jobId);
-      } else if (job?.status === 'error') {
-        setError(job.error || '该任务生成失败');
-      } else {
-        setError('该结果仍在生成中或已超时，请稍后再试');
-      }
-    } catch (e) {
-      if (reqId !== historyReqRef.current) return;
-      setHistoryOpen(false);
-      // 服务器任务已过期/重新部署丢失时，尝试用本机缓存的结果兜底
-      const fallback = loadResultCache(jobId);
-      if (fallback) {
-        setResult(normalizeResult(fallback));
-        setCurrentJobId(jobId);
-        setView('result');
-        setError('');
-        window.history.replaceState(null, '', '#job=' + jobId);
-      } else {
-        setError(e.message || '无法读取该结果');
-      }
-    }
-  };
-
-  const shareResult = async () => {
-    if (!currentJobId) { flashTip(setShareTip, '当前是离线示例，没有可分享的结果链接', 4000); return; }
-    const url = window.location.origin + window.location.pathname + '#job=' + currentJobId;
-    try {
-      await navigator.clipboard.writeText(url);
-      setError('');
-      flashTip(setShareTip, '分享链接已复制，可发给老师或同学', 4000);
-    } catch {
-      setShareTip('复制失败，请手动复制链接：' + url);
-    }
-  };
+  // 历史 / 分享动作（addToHistory / openHistoryModal / loadHistoryJob / shareResult）在 hooks/useGeneration.js
 
   /* ---------- 拍照 / 图片识别 ---------- */
   const handleOcrFiles = async (side, files) => {
@@ -941,116 +810,7 @@ function App() {
     }
   }, [camOpen]);
 
-  const runGenerate = async (overrideLessonId) => {
-    const id = overrideLessonId ?? lessonId;
-    const cn = chinese.trim();
-    const df = draft.trim();
-    if (!cn) { setError('请先上传包含中文提示的 DOCX，或填入中文提示'); return; }
-    if (!df) { setError('请先上传包含英文初稿的 DOCX，或填入英文初稿'); return; }
-    setError('');
-    cancelGenRef.current = false; // 新的生成开始，清掉上一次的取消标记
-    const myToken = (genTokenRef.current += 1);
-    // 点击生成时定格用时（本次练习从开始计时到提交用掉的时长）
-    const durationMs = elapsedMsNow(); // 定格「从开始计时到提交」的用时（不算等 AI 的时间）
-    let jobId = '';
-    try {
-      await runJob({
-        submit: () => analyze({
-          title: title.trim(), chinese: cn, draft: df,
-          book: mode === 'lesson' && !myLibId ? book : undefined,
-          lessonId: mode === 'lesson' && !myLibId ? id : undefined,
-          original: currentOriginal || undefined,
-          level: polishLevel,
-          baseUrl: settings.baseUrl, model: settings.model, apiKey: settings.apiKey,
-        }),
-        fetchJob: getAnalyzeJob,
-        intervalMs: POLL_ANALYZE_MS,
-        timeoutMs: TIMEOUT_ANALYZE_MS,
-        maxFailures: 10,
-        netError: '网络不稳定，暂时无法获取生成结果，请重试',
-        timeoutError: '生成超时（超过10分钟），请重新提交',
-        texts: { submit: '正在提交后台任务…', running: 'AI 正在后台生成（约1-2分钟）…', done: '生成完成' },
-        onJobId: (id2) => { jobId = id2; },
-        onData: (data) => {
-          // attemptTime：这次练习的时间戳。结果页要靠它判断"哪次才算上一次"
-          // （从历史里点开旧作业时，比它更晚的练习不能算"上次"）。
-          const enriched = { ...(data || {}), durationMs, lessonKey, attemptTime: Date.now() };
-          setResult(normalizeResult(enriched));
-          if (jobId) setCurrentJobId(jobId);
-          // 三种情况都不抢视图：生成期间用户切过课 / 点过「新建」/ 点过「取消等待」。
-          // 但结果照常入历史 —— 用户随时能从「历史结果」里打开。
-          const cancelled = cancelGenRef.current;
-          if (!cancelled && myToken === genTokenRef.current) setView('result');
-          if (jobId) {
-            addToHistory(jobId, (data && data.title) || title, enriched, durationMs);
-            window.history.replaceState(null, '', '#job=' + jobId);
-          }
-          if (cancelled) flashTip(setToast, '刚才那篇已经生成好，存进「历史结果」了', 6000);
-        },
-      });
-    } catch (e) {
-      setError(e.message);
-      setView('editor');
-    }
-  };
-
-  // 供 selectLesson 顺带触发生成用（见那里的注释）
-  runGenerateRef.current = runGenerate;
-
-  /**
-   * 取消等待（不是取消任务）。
-   *
-   * 生成请求已经发出去了、模型调用已经在跑、费用已经产生 ——
-   * 停掉轮询等于把这次调用白白扔掉。所以这里只做一件事：**让界面立刻解锁**，
-   * 后台继续轮询，跑完了照常存进「历史结果」，再给一条提示告诉用户去哪找。
-   */
-  const cancelGenerate = () => {
-    if (!busy) return;
-    cancelGenRef.current = true;
-    cancelProgress(); // 界面立刻解锁；后台轮询继续（见 hooks/useJobRunner.js 的说明）
-    flashTip(setToast, '已取消等待，可以继续编辑。后台仍在生成，完成后会存进「历史结果」。', 7000);
-  };
-
-  const loadDemo = () => {
-    genTokenRef.current += 1; // 正在跑的生成任务作废，避免它完成时把示例视图抢回结果页
-    setResult(DEMO_LESSON_18);
-    setView('result');
-    setError('');
-    setCurrentJobId('');
-    window.history.replaceState(null, '', window.location.pathname + window.location.search);
-  };
-
-  const copyAll = async () => {
-    if (!result) return;
-    const text = [
-      result.title,
-      result.aiLevel ? '润色等级：' + result.aiLevel : '',
-      result.durationMs ? '本次练习用时：' + formatDuration(result.durationMs) : '', '', '【中文译文】', result.chinese, '', '【原稿】', result.draft, '',
-      '【AI 修正版】', result.ai, '', '【课文原文】', result.original, '',
-      '【逐句解析】', result.overall?.summary || '', '',
-      '【分项得分】', ...(result.overall?.scoreBreakdown || []).map((b) => '· ' + b.label + '：' + b.score + '/' + (b.max || 20) + (b.comment ? '（' + b.comment + '）' : '')), '',
-      ...(result.sentences || []).flatMap((s, i) => [
-        String(i + 1) + '. ' + s.cn, '原稿：' + s.draft, 'AI 修正版：' + s.ai,
-        '原文：' + s.original, ...(s.findings || []).map((f) => {
-          const dims = Array.isArray(f.dimensions) && f.dimensions.length ? '（维度：' + f.dimensions.join('、') + '）' : '';
-          const syns = Array.isArray(f.synonyms) && f.synonyms.length ? '；近义词：' + f.synonyms.map((s) => typeof s === 'string' ? s : (s.word + (s.meaning ? ' ' + s.meaning : ''))).join(' / ') : '';
-          const idiom = f.idiom ? '；习语：' + f.idiom : '';
-          return '· [' + f.category + '] ' + f.from + ' → ' + f.to + '：' + f.explanation + dims + syns + idiom;
-        }), '',
-      ]),
-      '【词汇深度辨析】', ...(result.vocabularyNotes || []).map((v, i) => String(i + 1) + '. ' + v.word + (v.type ? '（' + v.type + '）' : '') + '：' + (v.meaning || '') + (v.note ? ' ' + v.note : '') + (hasMorphology(v.morphology) ? ' 【' + morphologyText(v.morphology) + '】' : '')), '',
-      '【地道习语】', ...(result.idiomHighlights || []).map((id, i) => String(i + 1) + '. ' + id.idiom + (id.common ? '（普通说法：' + id.common + '）' : '') + '：' + (id.explanation || '')), '',
-      '【可学习的高级句式】', ...(result.advancedSentences || []).map((a) => '· ' + a), '',
-      '【加分表达】', ...(result.bonusExpressions || []).map((b) => '· ' + b), '',
-    ].join('\n');
-    try {
-      await navigator.clipboard.writeText(text);
-      flashTip(setShareTip, '已复制完整解析到剪贴板', 2500);
-    } catch {
-      // 非 HTTPS / 局域网 http 下 navigator.clipboard 直接是 undefined，原来会静默抛错
-      flashTip(setShareTip, '复制失败：请手动选中文本复制（或改用 https 访问）', 4000);
-    }
-  };
+  // 生成动作（runGenerate / cancelGenerate / loadDemo / copyAll）都在 hooks/useGeneration.js
 
   // 顶栏「编辑器」：只切回编辑视图，不动任何内容（只清 #job= 免得刷新跳回结果页）。
 

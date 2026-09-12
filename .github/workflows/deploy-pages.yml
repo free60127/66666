@@ -52,6 +52,9 @@ jobs:
 
       # 部署前必须先过测试：以前这里只有 build → deploy，测试写了却不在关键路径上，
       # 一个会让限流失效的改动照样能一路部署到线上。
+      - name: 静态检查（ESLint + hook 作用域）
+        run: npm run lint
+
       - name: 测试（账号 / 同步 / 任务清理 / 限流 / 收藏 / 同课对比）
         run: npm test
 

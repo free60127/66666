@@ -22,13 +22,12 @@ import { lessonLabel } from '../lessonLabel.js';
  * @param {Function} o.setError 全局错误条（清空用）
  * @param {Function} o.setMode 切换课文/自由模式
  * @param {Function} o.markSavedSnapshot 记录"已保存快照"（判断作业有没有改动过）
- * @param {Function} o.toast 提示
  */
 export function useLessons({
-  activeLib, myLibs, myLibId, setMyLibId,
+  activeLib, myLibs, setMyLibId,
   setTitle, setChinese, setDraft, setGeneratedOriginal, setManualOriginal, setMaterialKeywords,
   setMatchConfidence, setMatchScore, setMode,
-  runGenerateRef, refreshStatus, setError, markSavedSnapshot, toast, setBackendWaking, genTokenRef, aliveRef,
+  runGenerateRef, refreshStatus, setError, markSavedSnapshot, setBackendWaking, genTokenRef,
 }) {
   const [lessons, setLessons] = useState([]);
   const [book, setBook] = useState(() => {
