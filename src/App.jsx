@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { BookOpen, Camera, CheckCircle2, ChevronDown, ChevronRight, Cloud, Copy, Download, Flame, FolderPlus, History, ImagePlus, Library, LoaderCircle, PanelLeftClose, PanelLeftOpen, PenLine, Settings, Sparkles, Star, Timer, Upload, UserRound, WandSparkles, X } from 'lucide-react'
 // mammoth（894 KB 源码）只在"上传 DOCX"这一个功能里用到，
 // 改为 handleDocx 内动态 import，避免它被打进首屏主包。
-import { mergeLibraries, saveLibraries } from './lessonLibrary.js'
+import { ensureLessonIds, mergeLibraries, saveLibraries } from './lessonLibrary.js'
 import { analyze, generateMaterial, getAnalyzeJob, getLessons, getLesson, getMaterialJob, getOcrJob, getStatus, loadSettings, matchLesson, ocr, saveSettings, wakeUp } from './api.js'
 import { DEMO_LESSON_18, DEMO_LESSONS } from './demo.js'
 import { mergeHistory } from './sync.js'
@@ -728,16 +728,6 @@ function App() {
       setBackupTip('导入失败：' + (e.message || '文件格式不正确'));
     }
   };
-
-  // 老数据迁移：给还没有稳定 id（lid）的自建课文补上并落盘。
-  // 必须落盘，而不是"每次读的时候临时生成" —— 临时 id 每次都会变，练习记录就对不上了。
-  useEffect(() => {
-    const { list, changed } = ensureLessonIds(myLibs);
-    if (!changed) return;
-    setMyLibs(list);
-    saveLibraries(list);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   /** 把同步合并回来的快照写回本机；只有真的变了才 setState（避免触发自动推送形成回环）。 */
   const applyMergedSnapshot = (merged) => {
