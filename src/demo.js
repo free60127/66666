@@ -1,6 +1,8 @@
 // 离线演示样本：来自用户提供的 lesson18 作业参考（docx）
 // 仅用于没有配置 API Key 时预览界面；真实生成由 /api/analyze 完成。
 export const DEMO_LESSON_18 = {
+  // 示例不是"练习记录"：用 demo 标记自己，结果页的「与上次对比」不会拿它去和真实练习配对
+  lessonKey: 'demo',
   title: 'Lesson 18 · He often does this!',
   chinese: '我在一家乡村小酒店吃过午饭后，就找我的提包。我曾把它放在门边的椅子上，可这会儿不见了！当我正在寻找时，酒店老板走了进来。\n“您吃得好吗？”他问。\n“很好，谢谢。”我回答，“但我付不了帐，我的提包没有了。”\n酒店老板笑了笑，马上走了出去。一会儿工夫他拿着我的提包回来了，把它还给了我。\n“实在抱歉，”他说，“我的狗把它弄到花园里去了，他常干这种事！”',
   draft: 'I was searching my bag after having lunch at a little village bar. I had put it on the chair beside the door. Nevertheless, I couldn’t find it! Just I was searching when the bar’s boss came over.\n“Do you have lunch well?” he asked.\n“Fine, thanks.” I replied,“but I can’t pay the bill, my bag is lost.”\nThe boss smiled, walked out quickly, and took my bag back in a while, then he returned it to me.\n“I’m so sorry,” he said.“My dog took it to the garden, and he is always doing it!”',

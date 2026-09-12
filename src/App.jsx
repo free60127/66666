@@ -12,7 +12,8 @@ import { createNewSyncCode, loadSyncCode, loadSyncMeta, mergeHistory, saveSyncCo
 import * as acct from './account.js';
 import { analyze, generateMaterial, getAnalyzeJob, getLessons, getLesson, getMaterialJob, getOcrJob, getPhonetic, getQuizJob, getStatus, loadSettings, matchLesson, ocr, pullCloudSync, quiz, saveSettings, wakeUp } from './api.js';
 import { DEMO_LESSON_18, DEMO_LESSONS } from './demo.js';
-import { FAV_KIND_LABEL, favoritesToText, favFromExpression, favFromFinding, favFromIdiom, favFromVocab, filterFavorites, hasMorphology, loadFavorites, mergeFavorites, morphologyText, saveFavorites } from './favorites.js';
+import { FAV_GRADES, FAV_KIND_LABEL, dueFavorites, dueLabel, dueOf, favoritesToText, favFromExpression, favFromFinding, favFromIdiom, favFromVocab, filterFavorites, hasMorphology, loadFavorites, mergeFavorites, morphologyText, nextDueAt, saveFavorites, sm2Review, withSchedule } from './favorites.js';
+import { compareWithPrevious, tallyCategories } from './progress.js';
 import { buildLocalQuiz, favoritesToQuizPoints, quizToText } from './quiz.js';
 
 const LEVEL_LABEL = { error: '必须改错', improve: '润色升级', study: '对照学习' };
@@ -575,6 +576,8 @@ function App() {
   const [favQuery, setFavQuery] = useState('');
   const [favKind, setFavKind] = useState('all');
   const [favTip, setFavTip] = useState('');
+  // 间隔重复复习会话：{ ids, index, revealed, reviewed, tally }
+  const [favReview, setFavReview] = useState(null);
   // 全局提示条：编辑器页也能看到（shareTip 只在结果页渲染，
   // 之前把"已保存课文/已新建作业"这类反馈发给了它，等于用户什么都看不到）
   const [toast, setToast] = useState('');
@@ -1525,7 +1528,8 @@ function App() {
 
   const addToHistory = (jobId, jobTitle, data, durationMs) => {
     saveResultCache(jobId, data);
-    const entry = { jobId, title: jobTitle || '回译作业', time: Date.now(), durationMs: Number(durationMs) || 0 };
+    // lessonKey 一起进历史：结果页要靠它认出"上一次练的是同一课"（老记录没有，靠标题兜底）
+    const entry = { jobId, title: jobTitle || '回译作业', time: Date.now(), durationMs: Number(durationMs) || 0, lessonKey: String((data && data.lessonKey) || '') };
     const next = [entry, ...historyList.filter((x) => x.jobId !== jobId)].slice(0, 20);
     saveHistory(next);
     pruneResultCache(next.map((x) => x.jobId)); // 结果缓存跟随历史条数淘汰，否则无限增长写满 5MB 配额
@@ -1543,7 +1547,7 @@ function App() {
     const exists = favorites.some((x) => x.id === item.id);
     const next = exists
       ? favorites.filter((x) => x.id !== item.id)
-      : [{ ...item, createdAt: Date.now() }, ...favorites];
+      : [{ ...withSchedule(item), createdAt: Date.now() }, ...favorites];
     const ok = saveFavorites(next);
     setFavorites(next);
     flashTip(setFavTip, exists ? '已取消收藏' : (ok ? '已收藏，可在右上角「收藏夹」随时复习' : '收藏失败：本机存储空间可能已满，请先导出备份'));
@@ -1560,6 +1564,46 @@ function App() {
     setFavorites([]);
     flashTip(setFavTip, '已清空收藏', 2500);
   };
+  /* ---------- 间隔重复复习（SM-2） ---------- */
+  // 今天到期的收藏（due <= now）。排期字段在收藏里，所以同步码一同步，两台设备的进度就是一份。
+  const favDue = useMemo(() => dueFavorites(favorites), [favorites]);
+  const favDueCount = favDue.length;
+
+  /** 开始一轮复习：把今天到期的收藏排成队列（拖得最久的先来） */
+  const startReview = () => {
+    setFavTip('');
+    setFavOpen(true);
+    const ids = dueFavorites(favorites).map((x) => x.id);
+    if (!ids.length) {
+      setFavReview(null);
+      flashTip(setFavTip, '今天没有到期的收藏，休息一下～', 3000);
+      return;
+    }
+    setFavReview({ ids, index: 0, revealed: false, reviewed: 0, tally: { forgot: 0, normal: 0, easy: 0 } });
+  };
+
+  /** 三档评分 → SM-2 更新排期 → 立即落盘（刷新/换设备都不丢） */
+  const gradeFavReview = (grade) => {
+    const r = favReview;
+    if (!r) return;
+    const id = r.ids[r.index];
+    const item = favorites.find((x) => x && x.id === id);
+    if (item) {
+      const updated = sm2Review(item, grade, Date.now());
+      const next = favorites.map((x) => (x.id === id ? updated : x));
+      saveFavorites(next);
+      setFavorites(next);
+    }
+    setFavReview({
+      ...r,
+      index: r.index + 1,
+      revealed: false,
+      reviewed: r.reviewed + (item ? 1 : 0),
+      tally: item ? { ...r.tally, [grade]: (r.tally[grade] || 0) + 1 } : r.tally,
+    });
+  };
+  const skipFavReview = () => setFavReview((r) => (r ? { ...r, index: r.index + 1, revealed: false } : r));
+
   const exportFavorites = () => {
     if (!favorites.length) { flashTip(setFavTip, '还没有收藏内容', 2000); return; }
     const blob = new Blob([JSON.stringify({ app: 'back-translate-studio', exportedAt: new Date().toISOString(), favorites }, null, 2)], { type: 'application/json' });
@@ -1912,7 +1956,9 @@ function App() {
       });
       if (outcome.aborted) return;
       setProgressStep(3); setProgressMsg('生成完成'); finishedOk = true;
-      const enriched = { ...(outcome.data || {}), durationMs };
+      // attemptTime：这次练习的时间戳。结果页要靠它判断"哪次才算上一次"
+      // （从历史里点开旧作业时，比它更晚的练习不能算"上次"）。
+      const enriched = { ...(outcome.data || {}), durationMs, lessonKey, attemptTime: Date.now() };
       setResult(normalizeResult(enriched));
       setCurrentJobId(jobId);
       // 三种情况都不抢视图：生成期间用户切过课 / 点过「新建」/ 点过「取消等待」。
@@ -2151,7 +2197,10 @@ function App() {
           </div>
           <button className="ghost-btn" onClick={backToEditor}><X size={15} />编辑器</button>
           <button className="ghost-btn" onClick={openHistoryModal}><History size={15} />历史结果{historyList.length ? ` (${historyList.length})` : ''}</button>
-          <button className="ghost-btn" onClick={() => setFavOpen(true)}><Star size={15} />收藏夹{favorites.length ? ` (${favorites.length})` : ''}</button>
+          <button className="ghost-btn" onClick={() => { setFavTip(''); setFavReview(null); setFavOpen(true); }}><Star size={15} />收藏夹{favorites.length ? ` (${favorites.length})` : ''}</button>
+          <button className={'ghost-btn due-btn' + (favDueCount ? ' has-due' : '')} onClick={startReview} title="按间隔重复安排：打开今天该复习的收藏">
+            <Flame size={15} />今日待复习{favDueCount ? ` (${favDueCount})` : ''}
+          </button>
         </header>
         {favTip ? <div className="fav-tip" role="status" aria-live="polite">{favTip}</div> : null}
         {toast ? <div className="fav-tip toast" role="status" aria-live="polite">{toast}</div> : null}
@@ -2382,7 +2431,7 @@ function App() {
           </section>
         ) : (
           <section className="result">
-            {result && <ResultSheet result={result} onBack={() => setView('editor')} onCopy={copyAll} onShare={shareResult} shareTip={shareTip} fav={favHandlers} history={historyList} />}
+            {result && <ResultSheet result={result} onBack={() => setView('editor')} onCopy={copyAll} onShare={shareResult} shareTip={shareTip} fav={favHandlers} history={historyList} jobId={currentJobId} />}
           </section>
         )}
       </main>
@@ -2553,63 +2602,86 @@ function App() {
       {favOpen && (
         <div className="modal-mask" onClick={() => setFavOpen(false)}>
           <div className="modal fav-modal" ref={(el) => { modalRefs.current.fav = el; }} role="dialog" aria-modal="true" aria-label="收藏夹" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-head"><h2>收藏夹（{favorites.length}）</h2><button className="icon-btn" onClick={() => setFavOpen(false)} aria-label="关闭"><X size={16} /></button></div>
-            <div className="fav-toolbar">
-              <input className="fav-search" value={favQuery} onChange={(e) => setFavQuery(e.target.value)} placeholder="搜索单词、短语或解释…" />
-              <select className="ocr-mode" value={favKind} onChange={(e) => setFavKind(e.target.value)}>
-                <option value="all">全部</option>
-                <option value="finding">错题 / 辨析</option>
-                <option value="vocab">核心词</option>
-                <option value="idiom">习语</option>
-                <option value="expression">加分表达</option>
-              </select>
+            <div className="modal-head">
+              <h2>{favReview ? '今日复习' : `收藏夹（${favorites.length}）`}</h2>
+              <button className="icon-btn" onClick={() => { setFavOpen(false); setFavReview(null); }} aria-label="关闭"><X size={16} /></button>
             </div>
-            {favorites.length === 0 ? (
-              <p className="muted">还没有收藏。在作业结果里点每条知识点右上角的 ☆ 就能收藏，之后在这里直接复习，不用再打开整份作业。</p>
-            ) : visibleFavorites.length === 0 ? (
-              <p className="muted">没有匹配的收藏。</p>
+            {favReview ? (
+              <FavReviewPanel
+                session={favReview}
+                items={favorites}
+                onReveal={() => setFavReview((r) => (r ? { ...r, revealed: true } : r))}
+                onGrade={gradeFavReview}
+                onSkip={skipFavReview}
+                onExit={() => setFavReview(null)}
+              />
             ) : (
-              <div className="fav-list">
-                {visibleFavorites.map((x) => (
-                  <div className="fav-item" key={x.id}>
-                    <div className="fav-item-head">
-                      <span className="fav-kind">{FAV_KIND_LABEL[x.kind] || x.kind}</span>
-                      {x.category ? <span className="fav-cat">{x.category}</span> : null}
-                      {x.level ? <span className={'fav-level ' + x.level}>{LEVEL_LABEL[x.level] || x.level}</span> : null}
-                      <span className="fav-date">{formatTime(x.createdAt)}</span>
-                      <button className="icon-btn fav-del" onClick={() => removeFavorite(x.id)} title="删除这条收藏"><Trash2 size={14} /></button>
-                    </div>
-                    <div className="fav-title">{x.title}</div>
-                    {x.body ? <div className="fav-body">{x.body}</div> : null}
-                    {x.extra ? <div className="fav-extra">{x.extra}</div> : null}
-                    {x.source ? <div className="fav-source">来自：{x.source}{x.sourceLevel ? ' · 润色等级 ' + x.sourceLevel : ''}</div> : null}
-                  </div>
-                ))}
-              </div>
-            )}
-            <div className="fav-quiz">
-              <div className="fav-quiz-title">根据收藏自测</div>
-              <div className="fav-quiz-row">
-                <label className="fav-quiz-count">题目数量
-                  <select className="ocr-mode" value={quizCount} onChange={(e) => setQuizCount(Number(e.target.value))}>
-                    {[5, 10, 15, 20, 30, 50].map((n) => <option key={n} value={n}>{n} 题</option>)}
+              <>
+                <div className="fav-toolbar">
+                  <input className="fav-search" value={favQuery} onChange={(e) => setFavQuery(e.target.value)} placeholder="搜索单词、短语或解释…" />
+                  <select className="ocr-mode" value={favKind} onChange={(e) => setFavKind(e.target.value)}>
+                    <option value="all">全部</option>
+                    <option value="finding">错题 / 辨析</option>
+                    <option value="vocab">核心词</option>
+                    <option value="idiom">习语</option>
+                    <option value="expression">加分表达</option>
                   </select>
-                </label>
-                <button className="primary-btn" onClick={generateQuiz} disabled={quizBusy || !favorites.length}>
-                  {quizBusy ? <LoaderCircle className="spin" size={15} /> : <WandSparkles size={15} />}
-                  {quizBusy ? 'AI 正在出题…' : '生成自测题'}
-                </button>
-              </div>
-              <p className="muted small">按当前筛选范围出题（{favKind === 'all' ? '全部收藏' : (FAV_KIND_LABEL[favKind] || favKind)}），难度跟随「润色等级 {polishLevel}」；生成后点「导出 PDF」即可打印，答案统一印在最后。</p>
-            </div>
-            <div className="fav-footer">
-              <button className="ghost-btn sm" onClick={exportFavorites}><Download size={14} />导出备份</button>
-              <button className="ghost-btn sm" onClick={() => favFileRef.current?.click()}><Upload size={14} />导入备份</button>
-              <button className="ghost-btn sm" onClick={copyFavorites} disabled={!favorites.length}><ClipboardCopy size={14} />复制全部</button>
-              <button className="ghost-btn sm" onClick={clearFavorites} disabled={!favorites.length}><Trash2 size={14} />清空</button>
-              <input ref={favFileRef} type="file" accept="application/json,.json" hidden onChange={(e) => { const f = e.target.files && e.target.files[0]; e.target.value = ''; importFavorites(f); }} />
-            </div>
-            <p className="muted small">收藏保存在<b>本机浏览器</b>（不依赖数据库）。清除浏览器数据、换浏览器 / 设备、或更换域名都会导致收藏丢失，建议定期「导出备份」。</p>
+                  <button className="ghost-btn" onClick={startReview} disabled={!favorites.length} title="按间隔重复安排复习：今天到期的收藏">
+                    <Flame size={14} />今日待复习{favDueCount ? ` (${favDueCount})` : ''}
+                  </button>
+                </div>
+                {favorites.length === 0 ? (
+                  <p className="muted">还没有收藏。在作业结果里点每条知识点右上角的 ☆ 就能收藏，之后在这里直接复习，不用再打开整份作业。</p>
+                ) : visibleFavorites.length === 0 ? (
+                  <p className="muted">没有匹配的收藏。</p>
+                ) : (
+                  <div className="fav-list">
+                    {visibleFavorites.map((x) => {
+                      const due = dueOf(x) <= Date.now();
+                      return (
+                        <div className={'fav-item' + (due ? ' due' : '')} key={x.id}>
+                          <div className="fav-item-head">
+                            <span className="fav-kind">{FAV_KIND_LABEL[x.kind] || x.kind}</span>
+                            {x.category ? <span className="fav-cat">{x.category}</span> : null}
+                            {x.level ? <span className={'fav-level ' + x.level}>{LEVEL_LABEL[x.level] || x.level}</span> : null}
+                            <span className={'fav-due' + (due ? ' now' : '')}>{due ? '待复习' : dueLabel(x)}</span>
+                            <span className="fav-date">{formatTime(x.createdAt)}</span>
+                            <button className="icon-btn fav-del" onClick={() => removeFavorite(x.id)} title="删除这条收藏"><Trash2 size={14} /></button>
+                          </div>
+                          <div className="fav-title">{x.title}</div>
+                          {x.body ? <div className="fav-body">{x.body}</div> : null}
+                          {x.extra ? <div className="fav-extra">{x.extra}</div> : null}
+                          {x.source ? <div className="fav-source">来自：{x.source}{x.sourceLevel ? ' · 润色等级 ' + x.sourceLevel : ''}</div> : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                <div className="fav-quiz">
+                  <div className="fav-quiz-title">根据收藏自测</div>
+                  <div className="fav-quiz-row">
+                    <label className="fav-quiz-count">题目数量
+                      <select className="ocr-mode" value={quizCount} onChange={(e) => setQuizCount(Number(e.target.value))}>
+                        {[5, 10, 15, 20, 30, 50].map((n) => <option key={n} value={n}>{n} 题</option>)}
+                      </select>
+                    </label>
+                    <button className="primary-btn" onClick={generateQuiz} disabled={quizBusy || !favorites.length}>
+                      {quizBusy ? <LoaderCircle className="spin" size={15} /> : <WandSparkles size={15} />}
+                      {quizBusy ? 'AI 正在出题…' : '生成自测题'}
+                    </button>
+                  </div>
+                  <p className="muted small">按当前筛选范围出题（{favKind === 'all' ? '全部收藏' : (FAV_KIND_LABEL[favKind] || favKind)}），难度跟随「润色等级 {polishLevel}」；生成后点「导出 PDF」即可打印，答案统一印在最后。</p>
+                </div>
+                <div className="fav-footer">
+                  <button className="ghost-btn sm" onClick={exportFavorites}><Download size={14} />导出备份</button>
+                  <button className="ghost-btn sm" onClick={() => favFileRef.current?.click()}><Upload size={14} />导入备份</button>
+                  <button className="ghost-btn sm" onClick={copyFavorites} disabled={!favorites.length}><ClipboardCopy size={14} />复制全部</button>
+                  <button className="ghost-btn sm" onClick={clearFavorites} disabled={!favorites.length}><Trash2 size={14} />清空</button>
+                  <input ref={favFileRef} type="file" accept="application/json,.json" hidden onChange={(e) => { const f = e.target.files && e.target.files[0]; e.target.value = ''; importFavorites(f); }} />
+                </div>
+                <p className="muted small">收藏与<b>复习进度</b>保存在本机浏览器（不依赖数据库）；配了同步码时会跟着一起同步，多设备之间以复习得更新的那份为准。清除浏览器数据、换浏览器 / 设备、或更换域名都会导致收藏丢失，建议定期「导出备份」。</p>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -2820,34 +2892,6 @@ function App() {
  * 只把 error 计入"常犯错误"，improve 单独算"可提升点" —— 混在一起会让学生误以为
  * 自己满篇是错，实际很多只是"还能更好"。
  */
-function tallyCategories(results) {
-  const byCat = new Map();
-  let errors = 0, improves = 0, sentences = 0, used = 0;
-  for (const r of results) {
-    if (!r || typeof r !== 'object') continue;
-    const sents = Array.isArray(r.sentences) ? r.sentences : [];
-    if (!sents.length) continue;
-    used += 1;
-    for (const sn of sents) {
-      if (!sn || typeof sn !== 'object') continue;
-      sentences += 1;
-      const fs = Array.isArray(sn.findings) ? sn.findings : [];
-      for (const f of fs) {
-        if (!f || typeof f !== 'object') continue;
-        const cat = String(f.category || '').trim();
-        if (!cat) continue;
-        const lv = String(f.level || 'error');
-        if (lv === 'study') continue; // 对照学习不是"错"，不进榜
-        const cur = byCat.get(cat) || { cat, total: 0, error: 0, improve: 0 };
-        cur.total += 1;
-        if (lv === 'improve') { cur.improve += 1; improves += 1; } else { cur.error += 1; errors += 1; }
-        byCat.set(cat, cur);
-      }
-    }
-  }
-  return { list: [...byCat.values()].sort((a, b) => b.total - a.total || b.error - a.error), errors, improves, sentences, used };
-}
-
 function ErrorProfile({ result, history }) {
   const [scope, setScope] = useState('recent'); // recent = 跨历史 | this = 只算本次
   const recent = useMemo(() => {
@@ -2906,7 +2950,171 @@ function ErrorProfile({ result, history }) {
   );
 }
 
-function ResultSheet({ result, onBack, onCopy, onShare, shareTip, fav, history }) {
+/**
+ * 间隔重复复习面板：一次一张，先回想再翻面，然后三档评分（忘了 / 一般 / 简单）。
+ * 评分写回收藏项（SM-2 更新 due），所以下次打开推给你的就是"该复习的那几张"。
+ */
+function FavReviewPanel({ session, items, onReveal, onGrade, onSkip, onExit }) {
+  const total = session.ids.length;
+  const done = Math.min(session.index, total);
+  const item = done < total ? items.find((x) => x && x.id === session.ids[done]) : null;
+  if (done >= total) {
+    const next = nextDueAt(items);
+    return (
+      <div className="fav-review">
+        <div className="fav-review-done">
+          <CheckCircle2 size={22} />
+          <strong>今日复习完成</strong>
+        </div>
+        <p className="muted small">
+          本次复习 {session.reviewed} 条 · 忘了 {session.tally.forgot} · 一般 {session.tally.normal} · 简单 {session.tally.easy}
+        </p>
+        <p className="muted small">{next ? '下一次到期：' + formatTime(next) + '（' + dueLabel({ due: next }) + '）' : '这些收藏都已排到以后，暂时没有到期项。'}</p>
+        <div className="fav-review-actions">
+          <button className="primary-btn" onClick={onExit}>回到收藏列表</button>
+        </div>
+      </div>
+    );
+  }
+  if (!item) {
+    return (
+      <div className="fav-review">
+        <p className="muted small">这条收藏已经不在了（可能刚被删除）。</p>
+        <div className="fav-review-actions"><button className="ghost-btn" onClick={onSkip}>跳过</button></div>
+      </div>
+    );
+  }
+  const now = Date.now();
+  const grades = ['forgot', 'normal', 'easy'].map((g) => ({ g, label: FAV_GRADES[g], days: sm2Review(item, g, now).interval }));
+  return (
+    <div className="fav-review">
+      <div className="fav-review-progress">
+        <span>{done + 1} / {total}</span>
+        <span className="fav-review-bar"><i style={{ width: (done / total) * 100 + '%' }} /></span>
+        <button className="ghost-btn sm" onClick={onExit}>退出复习</button>
+      </div>
+      <div className="fav-card">
+        <div className="fav-item-head">
+          <span className="fav-kind">{FAV_KIND_LABEL[item.kind] || item.kind}</span>
+          {item.category ? <span className="fav-cat">{item.category}</span> : null}
+          <span className="fav-date">{item.lastReviewed ? '上次复习 ' + formatTime(item.lastReviewed) + (item.lastGrade ? ' · ' + (FAV_GRADES[item.lastGrade] || '') : '') : '还没复习过'}</span>
+        </div>
+        <div className="fav-title">{item.title}</div>
+        {session.revealed ? (
+          <>
+            {item.body ? <div className="fav-body">{item.body}</div> : null}
+            {item.extra ? <div className="fav-extra">{item.extra}</div> : null}
+            {item.source ? <div className="fav-source">来自：{item.source}</div> : null}
+          </>
+        ) : (
+          <p className="muted small">先自己回想一遍，再翻面核对。</p>
+        )}
+      </div>
+      {session.revealed ? (
+        <div className="fav-review-grades">
+          {grades.map((x) => (
+            <button className={'grade-btn ' + x.g} key={x.g} onClick={() => onGrade(x.g)}>
+              <strong>{x.label}</strong>
+              <span>{x.days} 天后再见</span>
+            </button>
+          ))}
+        </div>
+      ) : (
+        <div className="fav-review-actions">
+          <button className="primary-btn" onClick={onReveal}>显示答案</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function fmtDelta(delta, unit = '') {
+  if (!delta) return '持平';
+  return (delta > 0 ? '+' : '') + delta + unit;
+}
+
+function pcTone(delta, lowerIsBetter) {
+  if (!delta) return 'flat';
+  return (lowerIsBetter ? delta < 0 : delta > 0) ? 'good' : 'bad';
+}
+
+/**
+ * 「同一课文 · 与上次对比」。
+ *
+ * 回译练习的价值在于**同一篇课文的第二次**：分数涨没涨、上次错的那几类这次还在不在。
+ * 数据本来就有（历史 + 结果缓存），这里只负责把它算出来摆在结果页最上面。
+ * 没有上一次同课记录时整块不渲染（不占位、不显示空壳）。
+ */
+function PracticeCompare({ result, history, jobId }) {
+  const cmp = useMemo(
+    () => compareWithPrevious({ history, result, jobId, readResult: loadResultCache }),
+    [history, result, jobId],
+  );
+  if (!cmp) return null;
+  const when = cmp.prev.daysAgo === 0 ? '今天' : cmp.prev.daysAgo === 1 ? '昨天'
+    : (cmp.prev.daysAgo != null ? cmp.prev.daysAgo + ' 天前' : formatTime(cmp.prev.time));
+  const summary = cmp.tried === 0
+    ? '上次没有可归类的问题类型，这次直接看逐句解析。'
+    : cmp.fixed === cmp.tried
+      ? `上次最集中的 ${cmp.tried} 类问题，这次一处都没再出现。`
+      : cmp.fixed
+        ? `上次最集中的 ${cmp.tried} 类问题里，${cmp.fixed} 类这次已经改掉${cmp.worse ? `，${cmp.worse} 类反而更多了` : ''}。`
+        : '上次的问题类型这次还在，重点看下面的逐句解析。';
+  return (
+    <section className="sheet-section practice-compare">
+      <div className="section-heading">
+        <span className="label-dot" />
+        <h2>同一课文 · 与上次对比</h2>
+        <span className="muted small">上次练习：{when}{cmp.prev.title ? ' · ' + cmp.prev.title : ''}</span>
+      </div>
+      <div className="pc-grid">
+        {cmp.score ? (
+          <div className={'pc-card ' + pcTone(cmp.score.delta, false)}>
+            <span className="pc-label">综合评分</span>
+            <span className="pc-value">{cmp.score.now == null ? '-' : cmp.score.now}<i className="pc-delta">{fmtDelta(cmp.score.delta)}</i></span>
+            <span className="pc-from">上次 {cmp.score.prev == null ? '-' : cmp.score.prev}</span>
+          </div>
+        ) : null}
+        <div className={'pc-card ' + pcTone(cmp.errors.delta, true)}>
+          <span className="pc-label">必改错误</span>
+          <span className="pc-value">{cmp.errors.now}<i className="pc-delta">{fmtDelta(cmp.errors.delta, ' 处')}</i></span>
+          <span className="pc-from">上次 {cmp.errors.prev} 处</span>
+        </div>
+        {cmp.improves.prev || cmp.improves.now ? (
+          <div className={'pc-card ' + pcTone(cmp.improves.delta, true)}>
+            <span className="pc-label">可提升</span>
+            <span className="pc-value">{cmp.improves.now}<i className="pc-delta">{fmtDelta(cmp.improves.delta, ' 处')}</i></span>
+            <span className="pc-from">上次 {cmp.improves.prev} 处</span>
+          </div>
+        ) : null}
+        {cmp.duration ? (
+          <div className={'pc-card ' + pcTone(cmp.duration.delta, true)}>
+            <span className="pc-label">本次用时</span>
+            <span className="pc-value">{formatDuration(cmp.duration.now)}<i className="pc-delta">{cmp.duration.delta === 0 ? '持平' : (cmp.duration.delta > 0 ? '慢了 ' : '快了 ') + formatDuration(Math.abs(cmp.duration.delta))}</i></span>
+            <span className="pc-from">上次 {formatDuration(cmp.duration.prev)}</span>
+          </div>
+        ) : null}
+      </div>
+      {cmp.items.length ? (
+        <div className="pc-cats">
+          <div className="pc-cats-title">上次的常犯类型，这次改掉了吗</div>
+          {cmp.items.map((it) => (
+            <div className={'pc-cat ' + it.state} key={'pc' + it.cat}>
+              <span className="pc-cat-name">{it.cat}</span>
+              <span className="pc-cat-num">{it.prev} → {it.now}</span>
+              <span className="pc-cat-state">
+                {it.state === 'fixed' ? '已改掉' : it.state === 'down' ? `少了 ${-it.delta} 处` : it.state === 'up' ? `多了 ${it.delta} 处` : '持平'}
+              </span>
+            </div>
+          ))}
+        </div>
+      ) : null}
+      <p className="pc-tip">{summary}</p>
+    </section>
+  );
+}
+
+function ResultSheet({ result, onBack, onCopy, onShare, shareTip, fav, history, jobId }) {
   const overall = result.overall || {};
   const sentences = result.sentences || [];
   const allFindings = sentences.flatMap((s) => s.findings || []);
@@ -2924,6 +3132,7 @@ function ResultSheet({ result, onBack, onCopy, onShare, shareTip, fav, history }
           {result.aiLevel ? <span className="sheet-duration">润色等级 {result.aiLevel}</span> : null}
           {result.durationMs ? <span className="sheet-duration">本次练习用时 {formatDuration(result.durationMs)}</span> : null}
         </header>
+        <PracticeCompare result={result} history={history} jobId={jobId} />
         <Section label="中文" tone="cn"><p>{result.chinese}</p></Section>
         <Section label="原稿" tone="draft" note="红色标记 = 必须改正的错误（纯润色升级不再标线，可在下方逐句解析里对照学习）"><p><DraftText text={result.draft} findings={allFindings} /></p></Section>
         <Section label="AI 修正版" tone="ai"><p>{result.ai}</p></Section>

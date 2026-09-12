@@ -346,6 +346,50 @@ mark.hl { background: #ffe3e3; color: inherit; padding: 0 2px; border-radius: 2p
 .score-num { width: 44px; font-size: 12px; color: var(--muted); text-align: right; flex-shrink: 0; }
 .score-comment { font-size: 12px; color: var(--muted); margin: 0 0 6px 102px; }
 
+/* 同一课文 · 与上次对比（B6） */
+.practice-compare { background: linear-gradient(180deg, #f7fbff, #fff); border: 1px solid #dbe8f7; border-radius: 12px; padding: 14px 16px; }
+.pc-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: 10px; }
+.pc-card { display: flex; flex-direction: column; gap: 2px; border: 1px solid var(--line); border-left: 4px solid #c9d3de; border-radius: 10px; padding: 8px 10px; background: #fff; }
+.pc-card.good { border-left-color: var(--green); }
+.pc-card.bad { border-left-color: var(--red); }
+.pc-label { font-size: 11.5px; color: var(--muted); }
+.pc-value { display: flex; align-items: baseline; gap: 6px; font-size: 21px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.pc-delta { font-size: 12px; font-style: normal; font-weight: 600; color: var(--muted); }
+.pc-card.good .pc-delta { color: var(--green); }
+.pc-card.bad .pc-delta { color: var(--red); }
+.pc-from { font-size: 11.5px; color: var(--muted); }
+.pc-cats { margin-top: 11px; }
+.pc-cats-title { font-size: 12px; font-weight: 700; color: var(--muted); margin-bottom: 4px; }
+.pc-cat { display: flex; align-items: center; gap: 9px; padding: 5px 0; border-top: 1px dashed var(--line); font-size: 12.5px; }
+.pc-cat-name { min-width: 84px; color: var(--text); }
+.pc-cat-num { font-variant-numeric: tabular-nums; color: var(--muted); }
+.pc-cat-state { margin-left: auto; font-size: 12px; border-radius: 999px; padding: 2px 9px; background: #f2f5f8; color: var(--muted); }
+.pc-cat.fixed .pc-cat-state { background: #e8f7ee; color: var(--green); }
+.pc-cat.down .pc-cat-state { background: #eef4ff; color: var(--blue); }
+.pc-cat.up .pc-cat-state { background: #fdecec; color: var(--red); }
+.pc-tip { margin: 11px 0 0; font-size: 12.5px; line-height: 1.7; color: var(--muted); }
+@media print { .pc-cats { break-inside: avoid; } }
+
+/* 间隔重复复习（B7） */
+.due-btn.has-due { border-color: #f0c98a; color: var(--gold); background: #fffaf0; }
+.fav-due { font-size: 11px; border-radius: 999px; padding: 2px 8px; background: #f2f5f8; color: var(--muted); }
+.fav-due.now { background: #fff3d6; color: var(--gold); font-weight: 600; }
+.fav-item.due { border-left-color: var(--brand); }
+.fav-review { display: flex; flex-direction: column; gap: 12px; }
+.fav-review-progress { display: flex; align-items: center; gap: 10px; font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.fav-review-bar { flex: 1; height: 6px; border-radius: 999px; background: #edf1f5; overflow: hidden; }
+.fav-review-bar i { display: block; height: 100%; background: var(--brand); }
+.fav-card { border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; background: #fff; min-height: 138px; }
+.fav-card .fav-title { font-size: 17px; }
+.fav-review-grades { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.grade-btn { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 9px 6px; border: 1px solid var(--line); border-radius: 10px; background: #fff; color: var(--text); }
+.grade-btn span { font-size: 11.5px; color: var(--muted); }
+.grade-btn:hover { border-color: var(--brand); }
+.grade-btn.forgot:hover { border-color: var(--red); background: #fdf3f2; }
+.grade-btn.easy:hover { border-color: var(--green); background: #f1faf4; }
+.fav-review-actions { display: flex; gap: 8px; justify-content: flex-end; }
+.fav-review-done { display: flex; align-items: center; gap: 8px; color: var(--green); font-size: 15px; }
+
 /* 拍照 / 图片识别（OCR） */
 .ocr-mode-wrap { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); }
 .ocr-mode { border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; font: inherit; font-size: 12.5px; color: var(--text); background: #fff; }

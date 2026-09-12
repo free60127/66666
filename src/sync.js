@@ -61,7 +61,9 @@ export function mergeHistory(localHistory, remoteHistory, limit = HISTORY_LIMIT)
  */
 export function mergeSnapshot(local, remote) {
   const { list: libraries, libsAdded, lessonsAdded } = mergeLibraries(local.libraries, remote && remote.libraries);
-  const { merged: favorites, added: favAdded } = mergeFavorites((remote && remote.favorites) || [], local.favorites);
+  // 收藏合并会把「复习进度（ease/interval/due/reps）」一起并过来：同一张卡在两台设备上都复习过时，
+  // 以复习得更新的那份为准 —— 否则后同步的那台会把另一台的进度顶掉。
+  const { merged: favorites, added: favAdded, updated: favUpdated } = mergeFavorites((remote && remote.favorites) || [], local.favorites);
   const history = mergeHistory(local.history, remote && remote.history);
   return {
     libraries,
@@ -71,6 +73,7 @@ export function mergeSnapshot(local, remote) {
       libsAdded,
       lessonsAdded,
       favAdded,
+      favUpdated: favUpdated || 0,
       histAdded: Math.max(0, history.length - (Array.isArray(local.history) ? local.history.length : 0)),
     },
   };
