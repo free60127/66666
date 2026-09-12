@@ -1,3 +1,4 @@
+import React from 'react';
 import { useEffect, useRef, useState } from 'react';
 import { Trash2, X } from 'lucide-react';
 
@@ -8,7 +9,7 @@ import { Trash2, X } from 'lucide-react';
  *   · 改序号 = **挪到第 N 位**，中间的课整体顺移，最后统一补齐 1…N（不会出现重号或空档）
  *   · 想补齐删课留下的空档（1、3 → 1、2），用侧栏「我的课文库」旁的「重排序号」
  */
-export default function LessonEditModal({ open, lesson, onClose, onSave, onDelete, modalRef }) {
+function LessonEditModal({ open, lesson, onClose, onSave, onDelete, modalRef }) {
   const [titleCn, setTitleCn] = useState('');
   const [titleEn, setTitleEn] = useState('');
   const [no, setNo] = useState(1);
@@ -84,3 +85,5 @@ export default function LessonEditModal({ open, lesson, onClose, onSave, onDelet
     </div>
   );
 }
+
+export default React.memo(LessonEditModal);

@@ -5,7 +5,7 @@ import { formatTime } from '../../format.js';
 import { sm2Review, nextDueAt, dueLabel, FAV_KIND_LABEL, FAV_GRADES } from '../../favorites.js';
 import { CheckCircle2 } from 'lucide-react';
 
-export function FavReviewPanel({ session, items, onReveal, onGrade, onSkip, onExit }) {
+function FavReviewPanelImpl({ session, items, onReveal, onGrade, onSkip, onExit }) {
   const total = session.ids.length;
   const done = Math.min(session.index, total);
   const item = done < total ? items.find((x) => x && x.id === session.ids[done]) : null;
@@ -78,4 +78,4 @@ export function FavReviewPanel({ session, items, onReveal, onGrade, onSkip, onEx
     </div>
   );
 }
-
+export const FavReviewPanel = React.memo(FavReviewPanelImpl);

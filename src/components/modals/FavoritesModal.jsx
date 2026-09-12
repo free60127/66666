@@ -10,7 +10,7 @@ import { FavReviewPanel } from '../ResultSheet/Review.jsx';
  * 纯展示：收藏数据、复习会话、筛选条件都由 App 持有，这里只负责渲染 + 回调。
  * 抽出来的原因：它是 App.jsx 里最长的一段 JSX（约 85 行），而且和编辑逻辑毫无关系。
  */
-export default function FavoritesModal({
+function FavoritesModal({
   open, onClose, modalRef,
   favorites, visibleFavorites, favQuery, onQuery, favKind, onKind, dueCount,
   review, onStartReview, onReveal, onGrade, onSkip, onExitReview,
@@ -105,3 +105,5 @@ export default function FavoritesModal({
           </div>
   );
 }
+
+export default React.memo(FavoritesModal);

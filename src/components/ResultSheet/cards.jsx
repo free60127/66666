@@ -26,7 +26,7 @@ const CATEGORY_COLOR = {
  * 只把 error 计入"常犯错误"，improve 单独算"可提升点" —— 混在一起会让学生误以为
  * 自己满篇是错，实际很多只是"还能更好"。
  */
-export function ErrorProfile({ result, history }) {
+function ErrorProfileImpl({ result, history }) {
   const [scope, setScope] = useState('recent'); // recent = 跨历史 | this = 只算本次
   const recent = useMemo(() => {
     if (scope === 'this') return [result];
@@ -84,11 +84,11 @@ export function ErrorProfile({ result, history }) {
   );
 }
 
-export function Section({ label, tone, note, children }) {
+function SectionImpl({ label, tone, note, children }) {
   return <section className={'sheet-section v-' + tone}><div className="section-heading"><span className="label-dot" /><h2>{label}</h2>{note ? <span className="section-note">{note}</span> : null}</div>{children}</section>;
 }
 
-export function SentenceCard({ index, sentence, result, fav }) {
+function SentenceCardImpl({ index, sentence, result, fav }) {
   const findings = sentence.findings || [];
   return (
     <div className="sentence-card">
@@ -120,11 +120,11 @@ export function SentenceCard({ index, sentence, result, fav }) {
   );
 }
 
-export function VersionRow({ label, tone, text }) {
+function VersionRowImpl({ label, tone, text }) {
   return <div className={'v-row ' + tone}><span className="v-label">{label}</span><p>{text}</p></div>;
 }
 
-export function VocabularyNotes({ items, result, fav }) {
+function VocabularyNotesImpl({ items, result, fav }) {
   const arr = Array.isArray(items) ? items.filter(Boolean) : [];
   if (!arr.length) return null;
   return (
@@ -166,7 +166,7 @@ export function VocabularyNotes({ items, result, fav }) {
   );
 }
 
-export function IdiomHighlights({ items, result, fav }) {
+function IdiomHighlightsImpl({ items, result, fav }) {
   const arr = Array.isArray(items) ? items.filter(Boolean) : [];
   if (!arr.length) return null;
   return (
@@ -190,7 +190,7 @@ export function IdiomHighlights({ items, result, fav }) {
   );
 }
 
-export function SummaryBlock({ title, tone, items, result, fav }) {
+function SummaryBlockImpl({ title, tone, items, result, fav }) {
   const arr = Array.isArray(items) ? items : [];
   if (!arr.length) return null;
   return (
@@ -216,3 +216,10 @@ export function SummaryBlock({ title, tone, items, result, fav }) {
 }
 
 /* ---------- 收藏知识点自测题 ---------- */
+export const ErrorProfile = React.memo(ErrorProfileImpl);
+export const Section = React.memo(SectionImpl);
+export const SentenceCard = React.memo(SentenceCardImpl);
+export const VersionRow = React.memo(VersionRowImpl);
+export const VocabularyNotes = React.memo(VocabularyNotesImpl);
+export const IdiomHighlights = React.memo(IdiomHighlightsImpl);
+export const SummaryBlock = React.memo(SummaryBlockImpl);

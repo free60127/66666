@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   BookOpen, Camera, CheckCircle2, ChevronDown, ChevronRight, Cloud, Copy, Download, Flame, FolderPlus, History,
   ImagePlus, Library, LoaderCircle, PanelLeftClose, PanelLeftOpen, PenLine, Settings, Sparkles, Star, Timer,
@@ -278,11 +278,11 @@ function App() {
     return AI_LEVELS.includes(level) ? level : DEFAULT_AI_LEVEL;
   });
 
-  const toggleSidebar = () => {
+  const toggleSidebar = useCallback(() => {
     const next = !sidebarOpen;
     safeSet('bt-sidebar', next ? 'open' : 'collapsed');
     setSidebarOpen(next);
-  };
+  }, [sidebarOpen]);
 
   // 提示条统一定时器：原来每处各起一个 setTimeout，连续两次操作时先到的 timer
   // 会把后一条提示提前清掉（提示"闪一下就没了"）。这里改成共用一个，写前先取消。
@@ -304,6 +304,7 @@ function App() {
   // 生成任务令牌：用户在生成过程中切课 / 点「新建」时作废，
   // 任务完成后就不再强行把视图抢回结果页（结果本身仍然保留并写入历史）。
   const genTokenRef = useRef(0);
+  const runGenerateRef = useRef(null);
 
   /* ---------- 收藏夹 / 复习 / 自测题 ----------
    * 状态与动作都在 hooks/useFavorites.js；变量名沿用原来的，调用点不用改。 */
@@ -322,9 +323,9 @@ function App() {
 
 
   // 手机端侧栏是覆盖层，选中课文后自动收起
-  const closeSidebarOnMobile = () => {
+  const closeSidebarOnMobile = useCallback(() => {
     if (window.innerWidth <= 900) setSidebarOpen(false);
-  };
+  }, []);
 
   const refreshStatus = async () => {
     try { setStatus(await getStatus()); } catch { setStatus(null); }
@@ -452,7 +453,7 @@ function App() {
   // 请求令牌：连点两课时，先发的慢请求若后返回，会把标题/中文覆盖成上一课的内容
   // （表现为侧栏高亮第 5 课、编辑区却是第 3 课）。挂载时的自动选课也会"迟到覆盖"用户的手动选择。
   const lessonReqRef = useRef(0);
-  const selectLesson = async (nextBook, nextLesson, autoGenerate = false) => {
+  const selectLesson = useCallback(async (nextBook, nextLesson, autoGenerate = false) => {
     const reqId = (lessonReqRef.current += 1);
     genTokenRef.current += 1; // 切课即作废正在跑的生成任务，避免它完成时抢回结果页
     setBook(nextBook);
@@ -485,26 +486,27 @@ function App() {
       setManualOriginal('');
       setMaterialKeywords([]);
     }
-    if (autoGenerate) setTimeout(() => runGenerate(nextLesson), 60);
-  };
+    // 走 ref 取当下的生成函数：否则 selectLesson 的依赖会一路拖到整个生成流程
+    if (autoGenerate) setTimeout(() => runGenerateRef.current && runGenerateRef.current(nextLesson), 60);
+  }, []);
 
-  const handleBookChange = (nextBook) => {
+  const handleBookChange = useCallback((nextBook) => {
     setMyLibId(''); // 切回内置册
     const first = lessons.find((l) => l.book === nextBook);
     if (first) selectLesson(nextBook, first.lesson);
     else setBook(nextBook);
-  };
+  }, [lessons, selectLesson]);
 
   /** 选中自建库（只切换侧栏列表，不改变当前作业）。 */
-  const selectMyLib = (libId) => {
+  const selectMyLib = useCallback((libId) => {
     setMyLibId(libId);
     setError('');
     const lib = myLibs.find((l) => l.id === libId);
     if (lib && !lib.lessons.length) flashTip(setToast, `「${lib.name}」还是空的：把当前作业存进去就能在这里选出来练习`, 4500);
-  };
+  }, [myLibs]);
 
   /** 从自建库载入一节课（本地数据，不发请求）。 */
-  const selectMyLesson = (libId, lessonNo) => {
+  const selectMyLesson = useCallback((libId, lessonNo) => {
     const lib = myLibs.find((x) => x.id === libId);
     const lesson = lib?.lessons.find((l) => l.lesson === Number(lessonNo));
     if (!lesson) return;
@@ -524,15 +526,15 @@ function App() {
     setMaterialKeywords([]);
     setError('');
     savedSnapshotRef.current = fingerprintOf(lesson.title_cn || lessonLabel(lesson), lesson.chinese || '', '', lesson.english || '');
-  };
+  }, [myLibs]);
 
   /* ---------- 自建课文库：新建 / 保存 ---------- */
-  const openLibModal = () => {
+  const openLibModal = useCallback(() => {
     setLibPickId(myLibs[0]?.id || '');
     setNewLibName('');
     setLibTip('');
     setLibModalOpen(true);
-  };
+  }, [myLibs, setLibTip, setLibModalOpen]);
 
   const openNewJobModal = () => {
     setLibPickId(myLibs[0]?.id || '');
@@ -615,11 +617,35 @@ function App() {
    * 注意语义：这是"新开一份作业"，不是"清空当前作业"——
    * 当前作业还有内容时会先弹窗，让用户选择存进课文库再新建，而不是直接销毁。
    */
-  const startNewJob = (closeSidebar = true) => {
-    if (!hasJobContent()) { doStartNewJob(closeSidebar); return; }
+  // 这三个内部函数每次渲染都会重建；直接写进依赖会让 startNewJob 每次都变、
+  // 进而让 React.memo 过的侧栏每次 state 变化都重渲染（memo 就白加了）。
+  // 用 ref 取"当下"的那一份：语义不变，依赖收敛成 []。
+  const hasJobContentRef = useRef(hasJobContent);
+  const doStartNewJobRef = useRef(doStartNewJob);
+  const openNewJobModalRef = useRef(openNewJobModal);
+  hasJobContentRef.current = hasJobContent;
+  doStartNewJobRef.current = doStartNewJob;
+  openNewJobModalRef.current = openNewJobModal;
+  // 传给 React.memo 过的侧栏：必须用 useCallback 固定住，否则每次 state 变化它都会重渲染
+  // 传给 React.memo 过的弹窗/结果页的回调与 ref：必须稳定，否则 memo 形同虚设
+  // 结果页「返回编辑」：只切视图，**保留结果与 #job=**（用户还要回来对照/分享）
+  // 顶栏「编辑器」（backToEditor）才是清空结果的那个 —— 两者语义不同，别接错。
+  const backToEditorView = useCallback(() => setView('editor'), []);
+  const favModalRef = useCallback((el) => { modalRefs.current.fav = el; }, [modalRefs]);
+  const historyModalRef = useCallback((el) => { modalRefs.current.history = el; }, [modalRefs]);
+  const lessonEditModalRef = useCallback((el) => { modalRefs.current.lessonEdit = el; }, [modalRefs]);
+  const closeFavorites = useCallback(() => { setFavOpen(false); setFavReview(null); }, [setFavOpen, setFavReview]);
+  const closeHistory = useCallback(() => setHistoryOpen(false), [setHistoryOpen]);
+  const closeLessonEdit = useCallback(() => setLessonEdit(null), [setLessonEdit]);
+
+  const openSettings = useCallback(() => setSettingsOpen(true), [setSettingsOpen]);
+  const openBackup = useCallback(() => { setBackupTip(''); setBackupOpen(true); }, [setBackupTip, setBackupOpen]);
+
+  const startNewJob = useCallback((closeSidebar = true) => {
+    if (!hasJobContentRef.current()) { doStartNewJobRef.current(closeSidebar); return; }
     pendingNewRef.current = closeSidebar;
-    openNewJobModal();
-  };
+    openNewJobModalRef.current();
+  }, []);
 
   /** 弹窗里选「保存并新建」。 */
   const saveAndStartNew = () => {
@@ -635,11 +661,11 @@ function App() {
   };
 
   /** 顶栏「编辑器」：只切回编辑视图，不动任何内容（只清 #job= 免得刷新跳回结果页）。 */
-  const backToEditor = () => {
+  const backToEditor = useCallback(() => {
     setView('editor');
     setResult(null);
     window.history.replaceState(null, '', window.location.pathname + window.location.search);
-  };
+  }, []);
 
   /* ---------- 备份：课文库 + 收藏夹 + 历史 ---------- */
   const libraryLessonCount = myLibs.reduce((n, lib) => n + lib.lessons.length, 0);
@@ -744,16 +770,16 @@ function App() {
     flash: (msg, ms) => flashTip(setToast, msg, ms),
   });
 
-  const deleteLibrary = (libId, libName) => {
+  const deleteLibrary = useCallback((libId, libName) => {
     if (!window.confirm(`删除课文库「${libName}」？库里的课文会一起删掉，此操作不可撤销。`)) return;
     const next = removeLibrary(myLibs, libId);
     setMyLibs(next);
     saveLibraries(next);
     if (myLibId === libId) setMyLibId('');
     flashTip(setToast, '已删除课文库「' + libName + '」', 3000);
-  };
+  }, [myLibs, myLibId]);
 
-  const deleteMyLesson = (libId, lessonOrNo, label) => {
+  const deleteMyLesson = useCallback((libId, lessonOrNo, label) => {
     if (!window.confirm(`从课文库删除「${label}」？
 
 （其它课的序号不会自动变；想补齐空档点「我的课文库」旁的「重排序号」）`)) return;
@@ -766,15 +792,15 @@ function App() {
     setMyLibs(next);
     saveLibraries(next);
     flashTip(setToast, '已删除课文「' + label + '」', 3000);
-  };
+  }, [myLibs]);
 
   /** 打开「编辑课文」弹窗（改标题 / 改序号） */
-  const openLessonEdit = (libId, lesson) => {
+  const openLessonEdit = useCallback((libId, lesson) => {
     if (!lesson) return;
     // 同时记住序号：万一这条数据还没有稳定 id（导入/同步进来的旧数据），
     // 也能按序号定位到它 —— 不能让"点编辑没反应"这种事再发生
     setLessonEdit({ libId, lid: lesson.lid || '', lesson: lesson.lesson });
-  };
+  }, [setLessonEdit]);
 
   /** 按 { libId, lid, lesson } 找到要编辑的那节课（lid 优先，退回序号） */
   const resolveEditLesson = (target) => {
@@ -812,7 +838,7 @@ function App() {
   };
 
   /** 一键把序号补齐成 1、2、3…（补上删课留下的空档） */
-  const renumberMyLib = (libId) => {
+  const renumberMyLib = useCallback((libId) => {
     const lib = myLibs.find((x) => x.id === libId);
     if (!lib || !lib.lessons.length) return;
     const next = renumberLibrary(myLibs, libId);
@@ -824,7 +850,7 @@ function App() {
       if (fresh) { setMatchedLesson(fresh); setLessonId(fresh.lesson); }
     }
     flashTip(setToast, `已重排序号：${after.lessons.length} 节课现在是 1…${after.lessons.length}`, 3200);
-  };
+  }, [myLibs, myLibId, matchedLesson]);
 
   const handleDocx = async (event) => {
     const file = event.target.files?.[0];
@@ -1175,6 +1201,9 @@ function App() {
     }
   };
 
+  // 供 selectLesson 顺带触发生成用（见那里的注释）
+  runGenerateRef.current = runGenerate;
+
   /**
    * 取消等待（不是取消任务）。
    *
@@ -1272,7 +1301,7 @@ function App() {
         lessonQuery={lessonQuery} onLessonQuery={setLessonQuery} activeLib={activeLib} lessons={lessons} visibleLessons={visibleLessons}
         mode={mode} lessonId={lessonId} onSelectLesson={selectLesson} onSelectMyLesson={selectMyLesson} onDeleteMyLesson={deleteMyLesson}
         onEditMyLesson={openLessonEdit} onRenumberLib={renumberMyLib}
-        onOpenSettings={() => setSettingsOpen(true)} onOpenBackup={() => { setBackupTip(''); setBackupOpen(true); }}
+        onOpenSettings={openSettings} onOpenBackup={openBackup}
       />
 
       <main className="main">
@@ -1522,7 +1551,7 @@ function App() {
           </section>
         ) : (
           <section className="result">
-            {result && <ResultSheet result={result} onBack={() => setView('editor')} onCopy={copyAll} onShare={shareResult} shareTip={shareTip} fav={favHandlers} history={historyList} jobId={currentJobId} />}
+            {result && <ResultSheet result={result} onBack={backToEditorView} onCopy={copyAll} onShare={shareResult} shareTip={shareTip} fav={favHandlers} history={historyList} jobId={currentJobId} />}
           </section>
         )}
       </main>
@@ -1674,16 +1703,16 @@ function App() {
       <LessonEditModal
         open={Boolean(lessonEdit)}
         lesson={resolveEditLesson(lessonEdit)}
-        onClose={() => setLessonEdit(null)}
+        onClose={closeLessonEdit}
         onSave={saveLessonEdit}
         onDelete={(lesson) => { setLessonEdit(null); deleteMyLesson(lessonEdit.libId, lesson, lesson.title_cn); }}
-        modalRef={(el) => { modalRefs.current.lessonEdit = el; }}
+        modalRef={lessonEditModalRef}
       />
 
-      <HistoryModal open={historyOpen} onClose={() => setHistoryOpen(false)} modalRef={(el) => { modalRefs.current.history = el; }} items={historyList} onOpen={loadHistoryJob} />
+      <HistoryModal open={historyOpen} onClose={closeHistory} modalRef={historyModalRef} items={historyList} onOpen={loadHistoryJob} />
 
       <FavoritesModal
-        open={favOpen} onClose={() => { setFavOpen(false); setFavReview(null); }} modalRef={(el) => { modalRefs.current.fav = el; }}
+        open={favOpen} onClose={closeFavorites} modalRef={favModalRef}
         favorites={favorites} visibleFavorites={visibleFavorites} favQuery={favQuery} onQuery={setFavQuery} favKind={favKind} onKind={setFavKind} dueCount={favDueCount}
         review={favReview} onStartReview={startReview} onGrade={gradeFavReview} onSkip={skipFavReview} onExitReview={() => setFavReview(null)}
         onReveal={() => setFavReview((r) => (r ? { ...r, revealed: true } : r))} onRemove={removeFavorite}

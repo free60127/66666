@@ -3,7 +3,7 @@
  */import React from 'react';
 import { ArrowLeft, ClipboardCopy, Download, Star } from 'lucide-react';
 
-export function QuizSheet({ quiz, showAnswers, onToggleAnswers, onBack, onBackToFav, onCopy, tip }) {
+function QuizSheetImpl({ quiz, showAnswers, onToggleAnswers, onBack, onBackToFav, onCopy, tip }) {
   const qs = quiz && Array.isArray(quiz.questions) ? quiz.questions : [];
   return (
     <div className="result-sheet quiz-sheet">
@@ -56,3 +56,4 @@ export function QuizSheet({ quiz, showAnswers, onToggleAnswers, onBack, onBackTo
     </div>
   );
 }
+export const QuizSheet = React.memo(QuizSheetImpl);

@@ -6,7 +6,7 @@ import { formatTime, formatDuration } from '../../format.js';
  * 历史作业弹窗：最近 20 条本机记录，点一条即可恢复那次批改结果。
  * （结果本身存在服务端，所以换设备打开分享链接也能看；这里只是本机的"最近列表"。）
  */
-export default function HistoryModal({ open, onClose, modalRef, items, onOpen }) {
+function HistoryModal({ open, onClose, modalRef, items, onOpen }) {
   if (!open) return null;
   return (
           <div className="modal-mask" onClick={onClose}>
@@ -27,3 +27,5 @@ export default function HistoryModal({ open, onClose, modalRef, items, onOpen })
           </div>
   );
 }
+
+export default React.memo(HistoryModal);

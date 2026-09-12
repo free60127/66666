@@ -8,7 +8,7 @@ import { Download, FolderPlus, Library, ListOrdered, PenLine, Plus, Settings, Tr
  * 留在 App 里既看不出编辑逻辑，也没法单独改样式（改侧栏要在一屏一屏地翻 3000 行）。
  * 所有状态仍由 App 持有，这里只接收值 + 回调 —— 拆出去不改变任何行为。
  */
-export default function Sidebar({
+function Sidebar({
   sidebarOpen, onToggle, onCloseOnMobile,
   onNewJob, myLibId, book, onBookChange, myLibs, onOpenLibModal, onSelectLib, onDeleteLib,
   lessonQuery, onLessonQuery, activeLib, lessons, visibleLessons,
@@ -108,3 +108,5 @@ export default function Sidebar({
     </>
   );
 }
+
+export default React.memo(Sidebar);

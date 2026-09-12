@@ -11,7 +11,7 @@ import { DraftText } from './bits.jsx';
 import { ErrorProfile, Section, SentenceCard, VocabularyNotes, IdiomHighlights, SummaryBlock } from './cards.jsx';
 import { PracticeCompare } from './Compare.jsx';
 
-export function ResultSheet({ result, onBack, onCopy, onShare, shareTip, fav, history, jobId }) {
+function ResultSheetImpl({ result, onBack, onCopy, onShare, shareTip, fav, history, jobId }) {
   const overall = result.overall || {};
   const sentences = result.sentences || [];
   const allFindings = sentences.flatMap((s) => s.findings || []);
@@ -77,4 +77,4 @@ export function ResultSheet({ result, onBack, onCopy, onShare, shareTip, fav, hi
     </div>
   );
 }
-
+export const ResultSheet = React.memo(ResultSheetImpl);

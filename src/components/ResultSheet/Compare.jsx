@@ -22,7 +22,7 @@ export function pcTone(delta, lowerIsBetter) {
  * 数据本来就有（历史 + 结果缓存），这里只负责把它算出来摆在结果页最上面。
  * 没有上一次同课记录时整块不渲染（不占位、不显示空壳）。
  */
-export function PracticeCompare({ result, history, jobId }) {
+function PracticeCompareImpl({ result, history, jobId }) {
   const cmp = useMemo(
     () => compareWithPrevious({ history, result, jobId, readResult: loadResultCache }),
     [history, result, jobId],
@@ -90,4 +90,4 @@ export function PracticeCompare({ result, history, jobId }) {
     </section>
   );
 }
-
+export const PracticeCompare = React.memo(PracticeCompareImpl);
