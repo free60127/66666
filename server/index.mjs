@@ -286,88 +286,72 @@ async function lookupPhonetic(rawWord) {
 }
 
 const DATA_DIR = path.join(ROOT, 'data');
-const JOBS_FILE = path.join(DATA_DIR, 'jobs.json');
 const JOB_TTL = 7 * 24 * 60 * 60 * 1000; // 保留 7 天，避免无限膨胀
 const jobs = new Map();
 
-function loadJobs() {
-  try {
-    const raw = JSON.parse(fs.readFileSync(JOBS_FILE, 'utf8'));
-    const arr = Array.isArray(raw.jobs) ? raw.jobs : [];
-    for (const j of arr) {
-      if (!j || !j.jobId) continue;
-      if (Date.now() - (j.createdAt || 0) < JOB_TTL) jobs.set(j.jobId, j);
-    }
-  } catch { /* 首次运行没有文件 */ }
-}
+/* ---------- 任务持久化：一条一个键，存 KV ----------
+ * 原先是整个 jobs.json 一把写。两个问题：
+ *   1) 每次状态更新都要把**全部**任务序列化一遍；并发几个任务时同步阻塞事件循环；
+ *   2) 更严重 —— 托管平台的磁盘是**临时的**：每次部署/重启，正在生成的任务就全丢，
+ *      用户看到「任务不存在或已过期」，而那次模型调用已经花掉钱了。
+ * 改存 KV 之后任务跨部署存活，TTL 交给存储层管，也不用再整文件重写。 */
+const JOB_PREFIX = 'bts:job:';
+const JOB_TTL_SEC = Math.floor(JOB_TTL / 1000);
 
-/* ---------- 任务落盘：合并 + 异步 + 有上限 ----------
- * 原先每次 saveJob 都同步 writeFileSync 整个 jobs.json。
- * 一个分析任务从 pending → running → done 至少写 3 次，每次都要把**全部**任务序列化一遍；
- * 并发几个任务时（OCR + 分析 + 素材 + 测验），每次都同步阻塞 Node 的唯一线程 ——
- * 期间所有 HTTP 请求都得排队，表现为"整站卡一下"。
- *
- * 改法三条：
- *   1) 合并短时间内的多次写入（200ms 内的连续变更只落盘一次）
- *   2) 异步写 + 临时文件 rename（不阻塞事件循环，也不会留下半截 JSON）
- *   3) 给条数和总体积设上限，别让 jobs.json 无限长大 */
-const MAX_JOBS = 300;                      // 保留最近 300 个任务
-const MAX_JOBS_BYTES = 8 * 1024 * 1024;    // 落盘体积上限 8MB
-const PERSIST_DEBOUNCE_MS = 200;
-
-/** 取最近的任务，并按体积上限从旧到新裁剪。 */
-function jobsSnapshot() {
-  const all = [...jobs.values()].slice(-MAX_JOBS);
-  let payload = JSON.stringify({ jobs: all });
-  while (payload.length > MAX_JOBS_BYTES && all.length > 1) {
-    all.splice(0, Math.max(1, Math.floor(all.length / 10))); // 每次砍掉一成，避免逐条循环
-    payload = JSON.stringify({ jobs: all });
-  }
-  return payload;
-}
-
-let persistTimer = null;
-let persistRunning = false;
-let persistDirtyAgain = false;
-
-function schedulePersist() {
-  if (persistTimer) return;
-  persistTimer = setTimeout(() => { persistTimer = null; void flushJobs(); }, PERSIST_DEBOUNCE_MS);
-}
-
-async function flushJobs() {
-  if (persistRunning) { persistDirtyAgain = true; return; }
-  persistRunning = true;
-  try {
-    const payload = jobsSnapshot();
-    await fs.promises.mkdir(DATA_DIR, { recursive: true });
-    const tmp = JOBS_FILE + '.' + process.pid + '.tmp';
-    await fs.promises.writeFile(tmp, payload);
-    await fs.promises.rename(tmp, JOBS_FILE); // 原子替换，不会留下半截文件
-  } catch (e) {
-    console.error('持久化任务失败:', e.message);
-  } finally {
-    persistRunning = false;
-    if (persistDirtyAgain) { persistDirtyAgain = false; schedulePersist(); }
-  }
-}
-
-/** 进程退出前同步落盘一次（Render 部署时会发 SIGTERM，不给时间等异步写完）。 */
-function flushJobsSync() {
-  if (persistTimer) { clearTimeout(persistTimer); persistTimer = null; }
-  try {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-    const tmp = JOBS_FILE + '.' + process.pid + '.sync.tmp';
-    fs.writeFileSync(tmp, jobsSnapshot());
-    fs.renameSync(tmp, JOBS_FILE);
-  } catch (e) { console.error('退出前持久化失败:', e.message); }
-}
-
+/** 内存是快路径，KV 是持久层。写入不阻塞请求（任务状态更新很频繁）。 */
 function saveJob(job) {
+  if (!job || !job.jobId) return;
   jobs.set(job.jobId, job);
-  schedulePersist();
+  Promise.resolve(kv.set(JOB_PREFIX + job.jobId, JSON.stringify(job), JOB_TTL_SEC))
+    .catch((e) => console.error('任务落盘失败:', e.message));
 }
-loadJobs();
+
+function dropJob(jobId) {
+  jobs.delete(jobId);
+  Promise.resolve(kv.del(JOB_PREFIX + jobId)).catch(() => { /* 过期即等价于删除 */ });
+}
+
+/**
+ * 取任务：内存没有就去 KV 找。
+ * **部署重启后靠这一步把进行中的任务捞回来** —— 这是本次改动的全部意义。
+ */
+async function findJob(jobId) {
+  const mem = jobs.get(jobId);
+  if (mem) return mem;
+  try {
+    const raw = await kv.get(JOB_PREFIX + jobId);
+    if (!raw) return null;
+    const job = JSON.parse(raw);
+    if (job && job.jobId) { jobs.set(jobId, job); return guardStale(job); }
+  } catch (e) {
+    console.error('读取任务失败:', e.message);
+  }
+  return null;
+}
+
+/**
+ * 「僵尸任务」判定。
+ *
+ * 任务现在能跨部署活下来了，但**它的执行不会跟着续跑** —— 后台的 runXxxJob 是进程内的
+ * 异步函数，重启就没了。所以一个正在跑的任务如果服务端重启，它会永远停在 running，
+ * 前端就一直转圈转到 10 分钟超时。
+ *
+ * 这里按时间兜底：超过既定超时还没落定，就明确判为失败，让用户看到原因而不是干等。
+ */
+const JOB_STALE_MS = 12 * 60 * 1000; // 前端轮询上限是 10 分钟，留 2 分钟余量
+function guardStale(job) {
+  if (!job || (job.status !== 'running' && job.status !== 'pending')) return job;
+  const ts = Number(job.updatedAt || job.createdAt || 0);
+  if (ts && Date.now() - ts > JOB_STALE_MS) {
+    job.status = 'error';
+    job.error = '生成过程中服务端重启了，这次任务没能完成。请重新提交一次（不会重复扣费到你的账号，但这次的模型调用已经产生）。';
+    job.updatedAt = Date.now();
+    job.updatedAt = Date.now();
+  saveJob(job);
+  }
+  return job;
+}
+
 
 /* ---------- helpers ---------- */
 /** 预期内的用户错误：按原状态码与文案回给客户端；其余异常统一 500 且不回显内部信息。 */
@@ -539,10 +523,11 @@ async function callLLM({ baseUrl, model, apiKey, messages }) {
 
 /* ---------- 异步分析任务 ---------- */
 async function runAnalyzeJob(jobId, { title, chinese, draft, original, lesson, lessonNo, baseUrl, model, apiKey, level }) {
-  const job = jobs.get(jobId);
+  const job = await findJob(jobId);
   if (!job) return;
   job.status = 'running';
   job.startedAt = Date.now();
+  job.updatedAt = Date.now();
   saveJob(job);
   try {
     const messages = [
@@ -572,24 +557,28 @@ async function runAnalyzeJob(jobId, { title, chinese, draft, original, lesson, l
     };
     job.status = 'done';
     job.meta = { book: lesson?.book || null, lessonId: lesson?.lesson || lessonNo, baseUrl, model };
-    saveJob(job);
+    job.updatedAt = Date.now();
+  saveJob(job);
   } catch (e) {
     job.status = 'error';
     job.error = e.message || '生成失败，请重试';
-    saveJob(job);
+    job.updatedAt = Date.now();
+  saveJob(job);
   } finally {
     job.finishedAt = Date.now();
-    saveJob(job);
-    setTimeout(() => { jobs.delete(jobId); schedulePersist(); }, JOB_TTL);
+    job.updatedAt = Date.now();
+  saveJob(job);
+    setTimeout(() => { dropJob(jobId); }, JOB_TTL);
   }
 }
 
 /* ---------- 异步素材生成任务 ---------- */
 async function runMaterialJob(jobId, { topic, level, style, baseUrl, model, apiKey }) {
-  const job = jobs.get(jobId);
+  const job = await findJob(jobId);
   if (!job) return;
   job.status = 'running';
   job.startedAt = Date.now();
+  job.updatedAt = Date.now();
   saveJob(job);
   try {
     const messages = [
@@ -610,24 +599,28 @@ async function runMaterialJob(jobId, { topic, level, style, baseUrl, model, apiK
       keywords: (Array.isArray(parsed.keywords) ? parsed.keywords : []).filter((k) => typeof k === 'string' || typeof k === 'number').map(String).filter(Boolean),
     };
     job.status = 'done';
-    saveJob(job);
+    job.updatedAt = Date.now();
+  saveJob(job);
   } catch (e) {
     job.status = 'error';
     job.error = e.message || '素材生成失败，请重试';
-    saveJob(job);
+    job.updatedAt = Date.now();
+  saveJob(job);
   } finally {
     job.finishedAt = Date.now();
-    saveJob(job);
-    setTimeout(() => { jobs.delete(jobId); schedulePersist(); }, JOB_TTL);
+    job.updatedAt = Date.now();
+  saveJob(job);
+    setTimeout(() => { dropJob(jobId); }, JOB_TTL);
   }
 }
 
 /* ---------- 图片识别任务（拍照 / 导入图片 → 视觉模型逐字转写） ---------- */
 async function runOcrJob(jobId, { image, side, mode, vision }) {
-  const job = jobs.get(jobId);
+  const job = await findJob(jobId);
   if (!job) return;
   job.status = 'running';
   job.startedAt = Date.now();
+  job.updatedAt = Date.now();
   saveJob(job);
   try {
     const result = await recognizeImage({ image, side, mode, vision });
@@ -640,24 +633,28 @@ async function runOcrJob(jobId, { image, side, mode, vision }) {
       quality: result.quality || null,
     };
     job.status = 'done';
-    saveJob(job);
+    job.updatedAt = Date.now();
+  saveJob(job);
   } catch (e) {
     job.status = 'error';
     job.error = e.message || '图片识别失败，请重试';
-    saveJob(job);
+    job.updatedAt = Date.now();
+  saveJob(job);
   } finally {
     job.finishedAt = Date.now();
-    saveJob(job);
-    setTimeout(() => { jobs.delete(jobId); schedulePersist(); }, JOB_TTL);
+    job.updatedAt = Date.now();
+  saveJob(job);
+    setTimeout(() => { dropJob(jobId); }, JOB_TTL);
   }
 }
 
 /* ---------- 自测题任务（根据收藏知识点出题） ---------- */
 async function runQuizJob(jobId, { points, count, level, baseUrl, model, apiKey }) {
-  const job = jobs.get(jobId);
+  const job = await findJob(jobId);
   if (!job) return;
   job.status = 'running';
   job.startedAt = Date.now();
+  job.updatedAt = Date.now();
   saveJob(job);
   try {
     const messages = [
@@ -689,15 +686,18 @@ async function runQuizJob(jobId, { points, count, level, baseUrl, model, apiKey 
       questions,
     };
     job.status = 'done';
-    saveJob(job);
+    job.updatedAt = Date.now();
+  saveJob(job);
   } catch (e) {
     job.status = 'error';
     job.error = e.message || '生成自测题失败，请重试';
-    saveJob(job);
+    job.updatedAt = Date.now();
+  saveJob(job);
   } finally {
     job.finishedAt = Date.now();
-    saveJob(job);
-    setTimeout(() => { jobs.delete(jobId); schedulePersist(); }, JOB_TTL);
+    job.updatedAt = Date.now();
+  saveJob(job);
+    setTimeout(() => { dropJob(jobId); }, JOB_TTL);
   }
 }
 
@@ -944,7 +944,7 @@ const server = http.createServer(async (req, res) => {
     }
     const materialMatch = p.match(/^\/api\/generate-material\/([A-Za-z0-9-]{8,64})$/);
     if (materialMatch && req.method === 'GET') {
-      const job = jobs.get(materialMatch[1]);
+      const job = await findJob(materialMatch[1]);
       if (!job || job.kind !== 'material') return json(res, 404, { error: '任务不存在或已过期，请重新提交' });
       return json(res, 200, {
         ok: true,
@@ -993,7 +993,7 @@ const server = http.createServer(async (req, res) => {
     }
     const ocrMatch = p.match(/^\/api\/ocr\/([A-Za-z0-9-]{8,64})$/);
     if (ocrMatch && req.method === 'GET') {
-      const job = jobs.get(ocrMatch[1]);
+      const job = await findJob(ocrMatch[1]);
       if (!job || job.kind !== 'ocr') return json(res, 404, { error: '任务不存在或已过期，请重新识别' });
       return json(res, 200, {
         ok: true,
@@ -1022,7 +1022,7 @@ const server = http.createServer(async (req, res) => {
     }
     const quizMatch = p.match(/^\/api\/quiz\/([A-Za-z0-9-]{8,64})$/);
     if (quizMatch && req.method === 'GET') {
-      const job = jobs.get(quizMatch[1]);
+      const job = await findJob(quizMatch[1]);
       if (!job || job.kind !== 'quiz') return json(res, 404, { error: '任务不存在或已过期，请重新生成' });
       return json(res, 200, {
         ok: true,
@@ -1059,7 +1059,7 @@ const server = http.createServer(async (req, res) => {
     }
     const jobMatch = p.match(/^\/api\/analyze\/([A-Za-z0-9-]{8,64})$/);
     if (jobMatch && req.method === 'GET') {
-      const job = jobs.get(jobMatch[1]);
+      const job = await findJob(jobMatch[1]);
       if (!job) return json(res, 404, { error: '任务不存在或已过期，请重新提交' });
       return json(res, 200, {
         ok: true,
@@ -1104,8 +1104,7 @@ for (const sig of ['SIGTERM', 'SIGINT']) {
   process.on(sig, () => {
     if (shuttingDown) return;
     shuttingDown = true;
-    console.log(`收到 ${sig}，正在落盘任务状态…`);
-    flushJobsSync();
+    console.log(`收到 ${sig}，正在关闭…`);
     server.close(() => process.exit(0));
     setTimeout(() => process.exit(0), 3000).unref(); // 兜底：连接没断干净也别卡住
   });
