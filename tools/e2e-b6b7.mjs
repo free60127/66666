@@ -9,6 +9,8 @@
  * 也可以指向已在跑的实例：BASE=https://your-site/ node tools/e2e-b6b7.mjs
  */
 import http from 'node:http';
+import fs from 'node:fs';
+import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { chromium } from 'file:///D:/AI/66666-main/tools/shotter/node_modules/playwright/index.mjs';
 
@@ -246,6 +248,28 @@ try {
   const favA2 = await favStore();
   ok('B7 跨设备：A 端采纳了 B 端更新的复习进度（不再各记各的）', favA2[0] && favA2[0].lastGrade === 'forgot' && favA2[0].interval === 1 && favA2[0].reps === 0, JSON.stringify({ grade: favA2[0]?.lastGrade, interval: favA2[0]?.interval, reps: favA2[0]?.reps }));
   await ctxB.close();
+
+  /* ---------- 分享链接：对方设备上没有你的本机缓存，也要能打开 ---------- */
+  const shareJob = await page.evaluate(() => (location.hash.match(/^#job=([A-Za-z0-9-]+)/) || [])[1] || '');
+  const ctxC = await browser.newContext({ viewport: { width: 1200, height: 900 } });
+  const pageC = await ctxC.newPage();
+  await pageC.goto(BASE + '#job=' + shareJob, { waitUntil: 'domcontentloaded' });
+  await pageC.waitForSelector('.result-sheet', { timeout: 45000 });
+  const cachedC = await pageC.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('bt-result-')));
+  ok('分享链接：接收方设备没有任何本机缓存也能打开', cachedC.length === 0, cachedC.join(','));
+  ok('分享链接：内容与分享者一致（评分 86）', (await pageC.locator('.score-ring strong').first().innerText()).trim() === '86');
+  ok('分享链接：接收方看不到「与上次对比」（他自己没练过这一课）', await pageC.locator('.practice-compare').count() === 0);
+  await ctxC.close();
+
+  // 链接的有效期 = 服务端任务保留期
+  const stat = await (await fetch(BASE + 'api/status')).json();
+  ok('分享链接：服务端保留期 ≥ 1 年', Number(stat.jobs?.ttlDays) >= 365, JSON.stringify(stat.jobs));
+  if (!process.env.BASE && shareJob) {
+    const file = path.join('data', 'kv', 'bts_job_' + shareJob.replace(/[^A-Za-z0-9._-]/g, '_') + '.json');
+    const envelope = JSON.parse(fs.readFileSync(file, 'utf8'));
+    const days = (envelope.e - Date.now()) / 86400000;
+    ok('分享链接：这条结果的过期时间在 1 年以上（不再 7 天）', days > 365, days.toFixed(1) + ' 天');
+  }
 } catch (e) {
   ok('脚本执行未抛错', false, e && e.message);
 } finally {

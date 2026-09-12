@@ -772,7 +772,7 @@ function App() {
       }
     }).catch(() => {
       if (!aliveRef.current) return;
-      // 后端任务已清理（重新部署/超 7 天）时，用本机缓存恢复
+      // 服务端已经查不到这条任务时，用本机缓存恢复（分享者本人 / 同一台设备还留着结果）
       const cached = loadResultCache(jobId);
       if (cached) {
         setResult(normalizeResult(cached));
@@ -780,7 +780,10 @@ function App() {
         setView('result');
         setError('');
       } else {
-        setError('任务不存在或已过期，请重新提交');
+        // 服务端只认它自己留着的记录（默认保留期见 /api/status 的 jobs.ttlDays）。
+        // 链接打不开时要给出可操作的下一步，而不是一句"不存在"。
+        setError('这条分享链接打不开了：服务端已经没有这次批改的记录（链接被改动过，或结果已超出保留期）。'
+          + '请让分享者重新「复制分享链接」发一次；想长期留存，用结果页的「导出 PDF」另存一份最稳妥。');
       }
     });
   }, []);

@@ -286,7 +286,22 @@ async function lookupPhonetic(rawWord) {
 }
 
 const DATA_DIR = path.join(ROOT, 'data');
-const JOB_TTL = 7 * 24 * 60 * 60 * 1000; // 保留 7 天，避免无限膨胀
+/**
+ * 任务保留期 = 分享链接的有效期。
+ *
+ * 「复制分享链接」生成的是 `#job=<id>`，对方打开时**只能从服务端取这条记录** ——
+ * 记录没了链接就废了。原来是 7 天：发给孩子/同事"过阵子再看"根本不够，
+ * 一周后点开只会看到「任务不存在或已过期」。
+ *
+ * 现在默认 3650 天（10 年，等于长期有效）。一条结果几十 KB，Upstash 免费额度 256MB
+ * 够存几千次批改，"长期保留"的成本可以忽略；真要控制体积就用 JOB_TTL_DAYS 调小
+ * （例：JOB_TTL_DAYS=90）。配了 Upstash 时这份数据本来就跨部署持久，链接不会再因为发版失效。
+ */
+const JOB_TTL_DAYS = (() => {
+  const n = Number(String(process.env.JOB_TTL_DAYS ?? '').trim());
+  return Number.isFinite(n) && n > 0 ? n : 3650;
+})();
+const JOB_TTL = JOB_TTL_DAYS * 24 * 60 * 60 * 1000;
 const jobs = new Map();
 
 /* ---------- 任务持久化：一条一个键，存 KV ----------
@@ -306,9 +321,39 @@ function saveJob(job) {
     .catch((e) => console.error('任务落盘失败:', e.message));
 }
 
-function dropJob(jobId) {
-  jobs.delete(jobId);
-  Promise.resolve(kv.del(JOB_PREFIX + jobId)).catch(() => { /* 过期即等价于删除 */ });
+/**
+ * 只清内存里的副本（**不动 KV**）。
+ *
+ * 内存清理和 KV 保留期必须分开，两个原因：
+ *   1) setTimeout 的延迟上限是 2^31-1 毫秒（约 24.8 天）—— 拿"10 年"去 setTimeout 会溢出成
+ *      **立即执行**，等于刚写完就把任务删掉，分享链接当场失效；
+ *   2) 内存里没必要留十年：KV 才是权威，findJob() 找不到内存会回 KV 捞。
+ * 所以内存按 JOB_MEM_TTL 例行清理，KV 的过期交给存储层（Upstash EX / 文件信封）。
+ */
+const JOB_MEM_TTL = 6 * 60 * 60 * 1000;
+function scheduleForget(jobId) {
+  const t = setTimeout(() => { jobs.delete(jobId); }, JOB_MEM_TTL);
+  if (t && typeof t.unref === 'function') t.unref(); // 别拖着进程不退出（自托管 / 命令行场景）
+}
+
+/**
+ * 续期：从 KV 读到一条老任务时，把它按**当前**保留期再写一遍。
+ *
+ * 为什么需要：TTL 是写在键上的，改大 JOB_TTL_DAYS 只影响之后新建的任务 ——
+ * 之前发出去的链接仍按旧的有效期（比如 7 天）倒计时。有了这一步，
+ * **任何在过期前被打开一次的老链接都会自动续到新保留期**，不用等用户重发。
+ * 每个任务每天最多续一次，避免每次打开都写一次 KV。
+ */
+const JOB_RENEW_MS = 24 * 60 * 60 * 1000;
+const jobRenewedAt = new Map();
+function renewJobTtl(job) {
+  if (!job || !job.jobId) return;
+  if (jobRenewedAt.size > 5000) jobRenewedAt.clear(); // 防无限增长：最坏是多写几次 KV，不影响正确性
+  const last = jobRenewedAt.get(job.jobId) || 0;
+  if (Date.now() - last < JOB_RENEW_MS) return;
+  jobRenewedAt.set(job.jobId, Date.now());
+  Promise.resolve(kv.set(JOB_PREFIX + job.jobId, JSON.stringify(job), JOB_TTL_SEC))
+    .catch(() => { /* 续期失败不影响本次读取；下次打开再试 */ });
 }
 
 /**
@@ -322,7 +367,13 @@ async function findJob(jobId) {
     const raw = await kv.get(JOB_PREFIX + jobId);
     if (!raw) return null;
     const job = JSON.parse(raw);
-    if (job && job.jobId) { jobs.set(jobId, job); return guardStale(job); }
+    if (job && job.jobId) {
+      jobs.set(jobId, job);
+      // 从 KV 捞回来的副本同样要有"内存过期"：否则每次读一个老结果都会永久占住内存
+      scheduleForget(jobId);
+      renewJobTtl(job); // 老链接被打开一次就续到当前保留期
+      return guardStale(job);
+    }
   } catch (e) {
     console.error('读取任务失败:', e.message);
   }
@@ -568,7 +619,7 @@ async function runAnalyzeJob(jobId, { title, chinese, draft, original, lesson, l
     job.finishedAt = Date.now();
     job.updatedAt = Date.now();
   saveJob(job);
-    setTimeout(() => { dropJob(jobId); }, JOB_TTL);
+    scheduleForget(jobId); // 只清内存，KV 那份按 JOB_TTL 长期保留（分享链接靠它）
   }
 }
 
@@ -610,7 +661,7 @@ async function runMaterialJob(jobId, { topic, level, style, baseUrl, model, apiK
     job.finishedAt = Date.now();
     job.updatedAt = Date.now();
   saveJob(job);
-    setTimeout(() => { dropJob(jobId); }, JOB_TTL);
+    scheduleForget(jobId); // 只清内存，KV 那份按 JOB_TTL 长期保留（分享链接靠它）
   }
 }
 
@@ -644,7 +695,7 @@ async function runOcrJob(jobId, { image, side, mode, vision }) {
     job.finishedAt = Date.now();
     job.updatedAt = Date.now();
   saveJob(job);
-    setTimeout(() => { dropJob(jobId); }, JOB_TTL);
+    scheduleForget(jobId); // 只清内存，KV 那份按 JOB_TTL 长期保留（分享链接靠它）
   }
 }
 
@@ -697,7 +748,7 @@ async function runQuizJob(jobId, { points, count, level, baseUrl, model, apiKey 
     job.finishedAt = Date.now();
     job.updatedAt = Date.now();
   saveJob(job);
-    setTimeout(() => { dropJob(jobId); }, JOB_TTL);
+    scheduleForget(jobId); // 只清内存，KV 那份按 JOB_TTL 长期保留（分享链接靠它）
   }
 }
 
@@ -885,6 +936,8 @@ const server = http.createServer(async (req, res) => {
         books: [...getCorpora().values()].map((c) => ({ book: c.book, lessons: c.lessons.length, source: c.source })),
         sync: { store: syncStore.kind, durable: syncDurable, hosted: HOSTED },
         accounts: { enabled: accountsOn, durable: kvDurable },
+        // 分享链接（#job=xxx）的有效期：服务端保留多久，链接就能打开多久
+        jobs: { store: kv.kind, durable: kvDurable, ttlDays: JOB_TTL_DAYS },
       });
     }
     if (p === '/api/lessons' && req.method === 'GET') {
@@ -1083,6 +1136,8 @@ server.listen(PORT, () => {
   console.log('云同步存储: ' + syncStore.kind + (syncDurable ? '（持久）' : '（本机文件 · 托管平台上会随休眠/重启清空）'));
   console.log('账号功能: ' + (accountsOn ? '已启用（存储 ' + kv.kind + '）' : '未启用（存储不持久）')
     + '  SMTP: ' + (process.env.SMTP_USER && process.env.SMTP_PASS ? '已配置' : '未配置（找回密码不可用）'));
+  console.log('分享链接: 结果保留 ' + JOB_TTL_DAYS + ' 天（存储 ' + kv.kind + (kvDurable ? ' · 持久' : ' · 本机文件')
+    + '）· 改保留期用 JOB_TTL_DAYS');
   if (!syncDurable) {
     console.warn('⚠️  未配置 UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN：同步数据写在容器本地磁盘，'
       + '托管平台重新部署或重启后会丢失。生产环境请按 .env.example 配置云端存储。');
