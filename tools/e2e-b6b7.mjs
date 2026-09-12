@@ -353,6 +353,73 @@ try {
     await sleep(200);
   }
 
+  /* ---------- 自建课文：改标题 / 改序号 / 重排序号（本次需求） ---------- */
+  {
+    // 存两节课进「我的课文库」（第二篇换个中文，否则会被当成同一篇覆盖）
+    await page.click('.result-toolbar >> text=返回编辑').catch(() => {});
+    await page.waitForSelector('.editor');
+    await page.click('.editor >> text=保存到课文库');
+    await page.waitForSelector('.modal');
+    await page.fill('.modal input[placeholder*="例如：我的第二册"]', 'E2E 测试库');
+    await page.click('.modal .primary-btn');
+    await sleep(600);
+    await page.fill('.big-textarea >> nth=0', '第二篇：春节的由来与习俗。');
+    await page.click('.editor >> text=保存到课文库');
+    await page.waitForSelector('.modal');
+    await page.click('.modal .primary-btn');
+    await sleep(600);
+
+    const lib = () => page.evaluate(() => {
+      const libs = JSON.parse(localStorage.getItem('bt-lesson-libraries') || '[]');
+      const l = libs.find((x) => x.name === 'E2E 测试库');
+      return l ? l.lessons.map((x) => ({ no: x.lesson, lid: x.lid, cn: x.title_cn })) : null;
+    });
+    let L = await lib();
+    ok('自建课文：存进去两节，序号 1、2', L && L.length === 2 && L.map((x) => x.no).join(',') === '1,2', JSON.stringify(L && L.map((x) => x.no)));
+    ok('自建课文：每节都带稳定 id（lid）', L && L.every((x) => /^lsn-/.test(x.lid || '')), JSON.stringify(L && L.map((x) => x.lid)));
+
+    // 切进这个库，侧栏才显示编辑/删除按钮
+    await page.click('.lib-row .lib-tab');
+    await sleep(400);
+    const rows = page.locator('.lesson-row');
+    const count = await rows.count();
+    let first = -1;
+    for (let i = 0; i < count; i += 1) {
+      const t = await rows.nth(i).innerText();
+      if (t.includes('第二篇') || t.includes('测试')) { first = i; break; }
+    }
+    ok('侧栏：自建课文出现在列表里', count >= 2, String(count) + ' 行');
+
+    // ① 改标题 + ② 改序号（挪到第 1 位）
+    await rows.nth(first).hover();
+    await rows.nth(first).locator('.lesson-edit').click();
+    await page.waitForSelector('[aria-label="编辑课文"]');
+    await page.fill('[aria-label="编辑课文"] input >> nth=0', '春节习俗（改过标题）');
+    await page.fill('[aria-label="编辑课文"] input[type="number"]', '1');
+    await page.click('[aria-label="编辑课文"] >> text=保存');
+    await sleep(500);
+    L = await lib();
+    ok('★ 改标题：新标题已落盘', L && L.some((x) => x.cn === '春节习俗（改过标题）'), JSON.stringify(L && L.map((x) => x.cn)));
+    ok('★ 改序号：挪到第 1 位、另一节顺移到 2（不重号不空档）',
+      L && L.map((x) => x.no).join(',') === '1,2' && L[0].cn === '春节习俗（改过标题）',
+      JSON.stringify(L && L.map((x) => x.no + ':' + x.cn)));
+    ok('改标题/改序号都不动 lid（练习记录不断链）', L && L.every((x) => /^lsn-/.test(x.lid || '')));
+
+    // ③ 删掉第 1 节 → 留下 1 的空档（剩下的是第 2 节）
+    page.once('dialog', (d) => d.accept());
+    await rows.nth(0).hover();
+    await rows.nth(0).locator('.lesson-del').click();
+    await sleep(500);
+    L = await lib();
+    ok('删课：剩下的那节序号保持 2（不偷偷重排）', L && L.length === 1 && L[0].no === 2, JSON.stringify(L && L.map((x) => x.no)));
+
+    // ④ 一键重排序号 → 空档补齐
+    await page.click('.my-libs-head >> [aria-label="重排序号"]');
+    await sleep(500);
+    L = await lib();
+    ok('★ 重排序号：2 → 1（补齐删课留下的空档）', L && L[0].no === 1, JSON.stringify(L && L.map((x) => x.no)));
+  }
+
   /* ---------- 分享链接：对方设备上没有你的本机缓存，也要能打开 ---------- */
   const shareJob = await page.evaluate(() => (location.hash.match(/^#job=([A-Za-z0-9-]+)/) || [])[1] || '');
   const ctxC = await browser.newContext({ viewport: { width: 1200, height: 900 } });

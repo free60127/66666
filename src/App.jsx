@@ -6,7 +6,10 @@ import {
   FileText, Flame, FolderPlus, History, ImagePlus, Library, Link2, LoaderCircle, PanelLeftClose, PanelLeftOpen,
   PenLine, Plus, Settings, Sparkles, Star, Timer, Trash2, Upload, UserRound, Volume2, WandSparkles, X,
 } from 'lucide-react';
-import { createLibrary, loadLibraries, mergeLibraries, removeLesson, removeLibrary, saveLibraries, upsertLesson } from './lessonLibrary.js';
+import {
+  createLibrary, ensureLessonIds, findLesson, loadLibraries, mergeLibraries, moveLesson,
+  removeLesson, removeLibrary, renameLesson, renumberLibrary, saveLibraries, upsertLesson,
+} from './lessonLibrary.js';
 import { analyze, generateMaterial, getAnalyzeJob, getLessons, getLesson, getMaterialJob, getOcrJob, getQuizJob, getStatus, loadSettings, matchLesson, ocr, quiz, saveSettings, wakeUp } from './api.js';
 import { DEMO_LESSON_18, DEMO_LESSONS } from './demo.js';
 import { FAV_GRADES, FAV_KIND_LABEL, dueFavorites, dueLabel, dueOf, favoritesToText, favFromExpression, favFromFinding, favFromIdiom, favFromVocab, filterFavorites, hasMorphology, loadFavorites, mergeFavorites, morphologyText, nextDueAt, saveFavorites, sm2Review, withSchedule } from './favorites.js';
@@ -26,6 +29,7 @@ import { LEVEL_LABEL } from './constants.js';
 import Sidebar from './components/Sidebar.jsx';
 import FavoritesModal from './components/modals/FavoritesModal.jsx';
 import HistoryModal from './components/modals/HistoryModal.jsx';
+import LessonEditModal from './components/modals/LessonEditModal.jsx';
 
 
 const AI_LEVELS = ['小初', '高考英语', '四六级', '考研/专四', '专八'];
@@ -210,6 +214,8 @@ function App() {
   const [currentJobId, setCurrentJobId] = useState('');
   const [historyList, setHistoryList] = useState(loadHistory);
   const [historyOpen, setHistoryOpen] = useState(false);
+  // 「编辑课文」弹窗：{ libId, lid }
+  const [lessonEdit, setLessonEdit] = useState(null);
   // 收藏夹（本机 localStorage）
   const [favorites, setFavorites] = useState(loadFavorites);
   const [favOpen, setFavOpen] = useState(false);
@@ -252,11 +258,16 @@ function App() {
   const favFileRef = useRef(null);
   // 计时器（记录一篇课文做了多久）
   // 计时器（hooks/useTimer.js）：切课文自动归零、刷新恢复，细节见该文件里的说明
-  const lessonKey = mode === 'lesson' ? `lesson:${book}-${lessonId}` : 'free';
-  const { timer, toggle: toggleTimer, reset: resetTimer, elapsedMsNow, hasElapsed } = useTimer(lessonKey);
   // 自建课文库（本机保存）：用户可以把自己的作业存成课文，像内置语料一样反复练
   const [myLibs, setMyLibs] = useState(loadLibraries);
   const [myLibId, setMyLibId] = useState('');            // 当前选中的自建库（空 = 用内置册）
+  // 自建课文的 key 用**稳定 id**（lid）而不是序号：序号用户随时会改，
+  // 而 key 决定了「同一课的两次练习对比」和计时归属 —— 用序号的话一改就断链。
+  const lessonKey = mode !== 'lesson' ? 'free'
+    : (myLibId && matchedLesson && matchedLesson.book === 'my' && matchedLesson.lid
+      ? `lesson:my-${myLibId}-${matchedLesson.lid}`
+      : `lesson:${book}-${lessonId}`);
+  const { timer, toggle: toggleTimer, reset: resetTimer, elapsedMsNow, hasElapsed } = useTimer(lessonKey);
   const [libModalOpen, setLibModalOpen] = useState(false);
   const [libPickId, setLibPickId] = useState('');
   const [newLibName, setNewLibName] = useState('');
@@ -686,6 +697,16 @@ function App() {
     }
   };
 
+  // 老数据迁移：给还没有稳定 id（lid）的自建课文补上并落盘。
+  // 必须落盘，而不是"每次读的时候临时生成" —— 临时 id 每次都会变，练习记录就对不上了。
+  useEffect(() => {
+    const { list, changed } = ensureLessonIds(myLibs);
+    if (!changed) return;
+    setMyLibs(list);
+    saveLibraries(list);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   /** 把同步合并回来的快照写回本机；只有真的变了才 setState（避免触发自动推送形成回环）。 */
   const applyMergedSnapshot = (merged) => {
     let changed = false;
@@ -728,12 +749,60 @@ function App() {
     flashTip(setToast, '已删除课文库「' + libName + '」', 3000);
   };
 
-  const deleteMyLesson = (libId, lessonNo, label) => {
-    if (!window.confirm(`从课文库删除「${label}」？`)) return;
-    const next = removeLesson(myLibs, libId, lessonNo);
+  const deleteMyLesson = (libId, lessonOrNo, label) => {
+    if (!window.confirm(`从课文库删除「${label}」？
+
+（其它课的序号不会自动变；想补齐空档点「我的课文库」旁的「重排序号」）`)) return;
+    const next = removeLesson(myLibs, libId, lessonOrNo && lessonOrNo.lid ? lessonOrNo.lid : lessonOrNo);
     setMyLibs(next);
     saveLibraries(next);
     flashTip(setToast, '已删除课文「' + label + '」', 3000);
+  };
+
+  /** 打开「编辑课文」弹窗（改标题 / 改序号） */
+  const openLessonEdit = (libId, lesson) => {
+    if (!lesson) return;
+    setLessonEdit({ libId, lid: lesson.lid });
+  };
+
+  /** 保存编辑：先改标题，再按需挪序号；两件事落在同一份新列表上。 */
+  const saveLessonEdit = ({ title_cn, title_en, lesson: targetNo }) => {
+    const cur = lessonEdit;
+    if (!cur) return;
+    const lib = myLibs.find((x) => x.id === cur.libId);
+    const before = findLesson(lib, cur.lid);
+    if (!before) { setLessonEdit(null); return; }
+    let next = renameLesson(myLibs, cur.libId, cur.lid, { title_cn, title_en });
+    const wantNo = Math.round(Number(targetNo) || before.lesson);
+    if (wantNo !== before.lesson) next = moveLesson(next, cur.libId, cur.lid, wantNo);
+    const after = findLesson(next.find((x) => x.id === cur.libId), cur.lid);
+    setMyLibs(next);
+    if (!saveLibraries(next)) { flashTip(setToast, '写入本机存储失败（空间可能已满）', 4000); return; }
+    // 正在练这一课：标题/序号同步刷新，免得编辑器里还显示旧标题
+    if (myLibId === cur.libId && matchedLesson && matchedLesson.lid === cur.lid) {
+      setMatchedLesson(after);
+      setLessonId(after.lesson);
+      if (title_cn && title_cn !== before.title_cn) setTitle(title_cn);
+    }
+    setLessonEdit(null);
+    const moved = after && after.lesson !== before.lesson;
+    flashTip(setToast, '已保存：' + ((after && after.title_cn) || title_cn)
+      + (moved ? `（挪到第 ${after.lesson} 课，其余顺移）` : ''), 3600);
+  };
+
+  /** 一键把序号补齐成 1、2、3…（补上删课留下的空档） */
+  const renumberMyLib = (libId) => {
+    const lib = myLibs.find((x) => x.id === libId);
+    if (!lib || !lib.lessons.length) return;
+    const next = renumberLibrary(myLibs, libId);
+    setMyLibs(next);
+    saveLibraries(next);
+    const after = next.find((x) => x.id === libId);
+    if (myLibId === libId && matchedLesson && matchedLesson.lid) {
+      const fresh = findLesson(after, matchedLesson.lid);
+      if (fresh) { setMatchedLesson(fresh); setLessonId(fresh.lesson); }
+    }
+    flashTip(setToast, `已重排序号：${after.lessons.length} 节课现在是 1…${after.lessons.length}`, 3200);
   };
 
   const handleDocx = async (event) => {
@@ -1306,13 +1375,14 @@ function App() {
    * 5 个弹窗原来都没有 dialog 语义、不能用键盘关闭、Tab 会跑到弹窗外的内容上。 */
   const modalRefs = useRef({});
   useEffect(() => {
-    const open = camOpen ? 'cam' : materialOpen ? 'material' : newJobOpen ? 'newjob' : libModalOpen ? 'lib' : backupOpen ? 'backup' : historyOpen ? 'history' : favOpen ? 'fav' : settingsOpen ? 'settings' : null;
+    const open = camOpen ? 'cam' : materialOpen ? 'material' : newJobOpen ? 'newjob' : libModalOpen ? 'lib' : lessonEdit ? 'lessonEdit' : backupOpen ? 'backup' : historyOpen ? 'history' : favOpen ? 'fav' : settingsOpen ? 'settings' : null;
     if (!open) return undefined;
     const closers = {
       cam: closeCamera,
       material: () => { if (!materialBusy) setMaterialOpen(false); },
       newjob: () => setNewJobOpen(false),
       lib: () => setLibModalOpen(false),
+      lessonEdit: () => setLessonEdit(null),
       backup: () => setBackupOpen(false),
       history: () => setHistoryOpen(false),
       fav: () => setFavOpen(false),
@@ -1334,7 +1404,7 @@ function App() {
     document.addEventListener('keydown', onKeyDown);
     const timer = setTimeout(() => modalRefs.current[open]?.querySelector('button, input, select, textarea')?.focus(), 40);
     return () => { document.removeEventListener('keydown', onKeyDown); clearTimeout(timer); };
-  }, [camOpen, materialOpen, newJobOpen, libModalOpen, backupOpen, historyOpen, favOpen, settingsOpen, materialBusy]);
+  }, [camOpen, materialOpen, newJobOpen, libModalOpen, lessonEdit, backupOpen, historyOpen, favOpen, settingsOpen, materialBusy]);
 
   // 课文库选择区（「保存到课文库」和「新建作业」两个弹窗共用）
   const libPickerFields = (
@@ -1367,6 +1437,7 @@ function App() {
         myLibs={myLibs} onOpenLibModal={openLibModal} onSelectLib={selectMyLib} onDeleteLib={deleteLibrary}
         lessonQuery={lessonQuery} onLessonQuery={setLessonQuery} activeLib={activeLib} lessons={lessons} visibleLessons={visibleLessons}
         mode={mode} lessonId={lessonId} onSelectLesson={selectLesson} onSelectMyLesson={selectMyLesson} onDeleteMyLesson={deleteMyLesson}
+        onEditMyLesson={openLessonEdit} onRenumberLib={renumberMyLib}
         onOpenSettings={() => setSettingsOpen(true)} onOpenBackup={() => { setBackupTip(''); setBackupOpen(true); }}
       />
 
@@ -1765,6 +1836,15 @@ function App() {
           </div>
         </div>
       )}
+
+      <LessonEditModal
+        open={Boolean(lessonEdit)}
+        lesson={findLesson(myLibs.find((x) => x.id === (lessonEdit && lessonEdit.libId)), lessonEdit && lessonEdit.lid)}
+        onClose={() => setLessonEdit(null)}
+        onSave={saveLessonEdit}
+        onDelete={(lesson) => { setLessonEdit(null); deleteMyLesson(lessonEdit.libId, lesson, lesson.title_cn); }}
+        modalRef={(el) => { modalRefs.current.lessonEdit = el; }}
+      />
 
       <HistoryModal open={historyOpen} onClose={() => setHistoryOpen(false)} modalRef={(el) => { modalRefs.current.history = el; }} items={historyList} onOpen={loadHistoryJob} />
 

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Download, FolderPlus, Library, PenLine, Plus, Settings, Trash2, X, BookOpen } from 'lucide-react';
+import { BookOpen, Download, FolderPlus, Library, ListOrdered, PenLine, Plus, Settings, Trash2, X } from 'lucide-react';
 
 /**
  * 左侧栏：课文库（内置 4 册 + 我的课文库）+ 搜课 + 课文列表 + 底部设置/备份入口。
@@ -12,7 +12,7 @@ export default function Sidebar({
   sidebarOpen, onToggle, onCloseOnMobile,
   onNewJob, myLibId, book, onBookChange, myLibs, onOpenLibModal, onSelectLib, onDeleteLib,
   lessonQuery, onLessonQuery, activeLib, lessons, visibleLessons,
-  mode, lessonId, onSelectLesson, onSelectMyLesson, onDeleteMyLesson,
+  mode, lessonId, onSelectLesson, onSelectMyLesson, onDeleteMyLesson, onEditMyLesson, onRenumberLib,
   onOpenSettings, onOpenBackup,
 }) {
   return (
@@ -31,6 +31,11 @@ export default function Sidebar({
           <div className="my-libs">
             <div className="my-libs-head">
               <span className="side-title">我的课文库</span>
+              {activeLib && activeLib.lessons.length > 0 && (
+                <button className="lib-add" onClick={() => onRenumberLib(activeLib.id)} title="重排序号：把每节课的序号补齐成 1、2、3…（删课留下的空档会补上）" aria-label="重排序号">
+                  <ListOrdered size={14} />
+                </button>
+              )}
               <button className="lib-add" onClick={onOpenLibModal} title="新建课文库 / 把当前作业存进课文库" aria-label="新建课文库">
                 <FolderPlus size={14} />
               </button>
@@ -81,7 +86,12 @@ export default function Sidebar({
                     <span className="lesson-title">{l.title_cn || l.title_en || 'Lesson ' + l.lesson}</span>
                   </button>
                   {activeLib && (
-                    <button className="lesson-del" onClick={() => onDeleteMyLesson(activeLib.id, l.lesson, l.title_cn || ('Lesson ' + l.lesson))} title="从库中删除" aria-label="从库中删除">
+                    <button className="lesson-edit" onClick={() => onEditMyLesson(activeLib.id, l)} title="改标题 / 改序号" aria-label="编辑这节课">
+                      <PenLine size={12} />
+                    </button>
+                  )}
+                  {activeLib && (
+                    <button className="lesson-del" onClick={() => onDeleteMyLesson(activeLib.id, l, l.title_cn || ('Lesson ' + l.lesson))} title="从库中删除" aria-label="从库中删除">
                       <Trash2 size={12} />
                     </button>
                   )}

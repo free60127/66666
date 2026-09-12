@@ -535,9 +535,15 @@ mark.hl { background: #ffe3e3; color: inherit; padding: 0 2px; border-radius: 2p
 .lesson-row.active { background: rgba(66,150,255,.18); }
 .lesson-row .lesson-item { flex: 1; min-width: 0; }
 .lesson-row.active .lesson-item { color: #fff; }
-.lesson-del { display: none; padding: 4px; border-radius: 6px; color: #8fa6b5; margin-right: 4px; }
-.lesson-row:hover .lesson-del { display: inline-flex; }
+.lesson-del, .lesson-edit { display: none; padding: 4px; border-radius: 6px; color: #8fa6b5; margin-right: 4px; }
+.lesson-row:hover .lesson-del, .lesson-row:hover .lesson-edit, .lesson-row.active .lesson-del, .lesson-row.active .lesson-edit { display: inline-flex; }
 .lesson-del:hover { color: #ff9a9a; background: rgba(255,255,255,.08); }
+.lesson-edit:hover { color: #9fd0ff; background: rgba(255,255,255,.08); }
+/* 触屏没有 hover：自建课文（可编辑）的按钮直接常显 */
+@media (hover: none) {
+  .lesson-edit { display: inline-flex; }
+  .lesson-row.active .lesson-del { display: inline-flex; }
+}
 
 /* ---------- 英文原文（标准答案）折叠栏 ---------- */
 .original-fold { margin-top: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); overflow: hidden; }

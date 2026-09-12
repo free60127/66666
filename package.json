@@ -11,7 +11,7 @@
     "server": "node server/index.mjs",
     "build": "vite build",
     "start": "node server/index.mjs",
-    "test": "node server/accounts.test.mjs && node server/sync.test.mjs && node server/jobs.test.mjs && node server/ratelimit.test.mjs && node test/favorites.test.mjs && node test/progress.test.mjs",
+    "test": "node server/accounts.test.mjs && node server/sync.test.mjs && node server/jobs.test.mjs && node server/ratelimit.test.mjs && node test/favorites.test.mjs && node test/progress.test.mjs && node test/lessonLibrary.test.mjs",
     "test:auth": "node auth-worker/tests/auth.test.mjs"
   },
   "dependencies": {

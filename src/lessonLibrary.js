@@ -21,6 +21,9 @@ export function sanitizeLibrary(raw) {
       .filter((l) => l && typeof l === 'object')
       .map((l) => ({
         book: 'my',
+        // lid：一节课的**稳定标识**（序号可以改、可以重排，但 lid 不变）。
+        // 练习记录（同课对比 / 计时器）用它做 lessonKey，所以改序号不会把历史对比弄丢。
+        lid: String(l.lid || ''),
         lesson: Number(l.lesson) || 1,
         title_cn: String(l.title_cn || ''),
         title_en: String(l.title_en || ''),
@@ -58,6 +61,85 @@ export function newLibraryId() {
   return 'lib-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 }
 
+export function newLessonId() {
+  return 'lsn-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+}
+
+/** 按稳定 id 找一节课；传入数字时退回按序号找（兼容老调用） */
+export function findLesson(lib, lidOrNo) {
+  if (!lib || !Array.isArray(lib.lessons)) return null;
+  if (typeof lidOrNo === 'string' && lidOrNo) return lib.lessons.find((l) => l.lid === lidOrNo) || null;
+  return lib.lessons.find((l) => l.lesson === Number(lidOrNo)) || null;
+}
+
+/**
+ * 给缺 lid 的历史数据补上稳定 id（一次性迁移，App 启动时跑）。
+ * 之所以要落盘而不是"读的时候临时生成"：临时 id 每次加载都会变，
+ * 练习记录就对不上了 —— 迁移只做一次，之后 id 永久固定。
+ * @returns {{list: Array, changed: boolean}}
+ */
+export function ensureLessonIds(list) {
+  let changed = false;
+  const next = (Array.isArray(list) ? list : []).map((lib) => {
+    const lessons = (lib.lessons || []).map((l) => {
+      if (l.lid) return l;
+      changed = true;
+      return { ...l, lid: newLessonId() };
+    });
+    return changed ? { ...lib, lessons } : lib;
+  });
+  return { list: changed ? next : list, changed };
+}
+
+/** 只动某一节课，其余原样返回（内部工具） */
+function mapLib(list, libId, fn) {
+  return (Array.isArray(list) ? list : []).map((lib) => (lib.id === libId ? fn(lib) : lib));
+}
+
+/** 序号补齐成 1、2、3…（按当前顺序），返回新的列表 */
+export function renumberLibrary(list, libId) {
+  return mapLib(list, libId, (lib) => ({
+    ...lib,
+    lessons: [...lib.lessons]
+      .sort((a, b) => (Number(a.lesson) || 0) - (Number(b.lesson) || 0))
+      .map((l, i) => (l.lesson === i + 1 ? l : { ...l, lesson: i + 1 })),
+  }));
+}
+
+/**
+ * 改标题（中文 / 英文）。空标题不覆盖原值（由界面负责校验）。
+ */
+export function renameLesson(list, libId, lid, patch = {}) {
+  const titleCn = String(patch.title_cn ?? '').trim();
+  const titleEn = String(patch.title_en ?? '').trim();
+  return mapLib(list, libId, (lib) => ({
+    ...lib,
+    lessons: lib.lessons.map((l) => (l.lid === lid
+      ? { ...l, title_cn: titleCn || l.title_cn, title_en: titleEn }
+      : l)),
+  }));
+}
+
+/**
+ * 手动改序号：把它挪到第 targetNo 位，中间的课整体顺移，最后统一补齐成 1…N。
+ *
+ * 为什么不是"直接改数字"：序号是列表顺序的体现，直接改成重复/跳跃的数字会让
+ * 列表乱序、还会出现两节课同号（按序号选的逻辑就废了）。
+ * 挪位 + 重排是唯一没有歧义的语义。
+ */
+export function moveLesson(list, libId, lid, targetNo) {
+  const lib = (Array.isArray(list) ? list : []).find((x) => x.id === libId);
+  if (!lib) return list;
+  const ordered = [...lib.lessons].sort((a, b) => (Number(a.lesson) || 0) - (Number(b.lesson) || 0));
+  const from = ordered.findIndex((l) => l.lid === lid);
+  if (from < 0) return list;
+  const to = Math.min(ordered.length, Math.max(1, Math.round(Number(targetNo) || from + 1))) - 1;
+  if (to === from) return list;
+  const moving = ordered.splice(from, 1)[0];
+  ordered.splice(to, 0, moving);
+  return mapLib(list, libId, (x) => ({ ...x, lessons: ordered.map((l, i) => (l.lesson === i + 1 ? l : { ...l, lesson: i + 1 })) }));
+}
+
 /** 新建一个空库，返回新列表。 */
 export function createLibrary(list, name) {
   const clean = String(name || '').trim() || '我的课文库';
@@ -86,12 +168,23 @@ export function upsertLesson(list, libId, entry) {
       return {
         ...lib,
         lessons: lib.lessons.map((l) =>
+          // lid 保持不变：同一条课文换个标题重存，练习历史仍然认得它
           l === dup ? { ...l, title_cn: titleCn, chinese, english: english || l.english, createdAt: Date.now() } : l,
         ),
       };
     }
     const nextNo = lib.lessons.reduce((max, l) => Math.max(max, Number(l.lesson) || 0), 0) + 1;
-    const lesson = { book: 'my', lesson: nextNo, title_cn: titleCn, title_en: '', chinese, english, source: '自建', createdAt: Date.now() };
+    const lesson = {
+      book: 'my',
+      lid: String(entry.lid || '') || newLessonId(),
+      lesson: nextNo,
+      title_cn: titleCn,
+      title_en: String(entry.title_en || ''),
+      chinese,
+      english,
+      source: '自建',
+      createdAt: Date.now(),
+    };
     return { ...lib, lessons: [...lib.lessons, lesson].sort((a, b) => a.lesson - b.lesson) };
   });
   const lib = next.find((l) => l.id === libId);
@@ -99,11 +192,17 @@ export function upsertLesson(list, libId, entry) {
   return { list: next, lesson, replaced };
 }
 
-/** 从库里删掉一节课。 */
-export function removeLesson(list, libId, lessonNo) {
-  return list.map((lib) =>
-    lib.id === libId ? { ...lib, lessons: lib.lessons.filter((l) => l.lesson !== Number(lessonNo)) } : lib,
-  );
+/**
+ * 从库里删掉一节课（按稳定 id 或序号都行）。
+ * **不会自动重排序号** —— 重排会改变其它课的序号，而序号在界面上是"第几课"，
+ * 用户可能正指着它；想补齐空缺请显式调用 renumberLibrary（侧栏有「重排序号」按钮）。
+ */
+export function removeLesson(list, libId, lidOrNo) {
+  const isLid = typeof lidOrNo === 'string' && lidOrNo;
+  return mapLib(list, libId, (lib) => ({
+    ...lib,
+    lessons: lib.lessons.filter((l) => (isLid ? l.lid !== lidOrNo : l.lesson !== Number(lidOrNo))),
+  }));
 }
 
 /**
