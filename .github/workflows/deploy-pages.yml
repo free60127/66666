@@ -42,7 +42,9 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # Node 24：auth-worker 的 D1 本地垫片用 node:sqlite（需要 22.5+），
+          # 用 20 会让 npm run test:auth 直接失败（CI 曾经因此红了一串提交）
+          node-version: 24
           cache: npm
 
       - name: 安装依赖
