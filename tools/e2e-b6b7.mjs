@@ -116,6 +116,30 @@ try {
   await page.fill('.big-textarea >> nth=0', '我在一家乡村小酒店吃过午饭后，就找我的提包。');
   await page.fill('.big-textarea >> nth=1', 'I was searching my bag after having lunch at a little village bar.');
 
+  /* ---------- 计时器（hooks/useTimer.js 的回归守卫） ---------- */
+  {
+    const before = await page.locator('.timer-display').innerText();
+    await page.click('.timer-box >> text=开始计时');
+    await sleep(2200);
+    const running = await page.locator('.timer-display').innerText();
+    ok('计时器：开始后时间在走', /00:0[12]/.test(running.trim()) && running.trim() !== before.trim(), `${before} → ${running}`);
+    await page.click('.timer-box >> text=暂停');
+    await sleep(300);
+    const paused = await page.locator('.timer-display').innerText();
+    await sleep(1200);
+    const stillPaused = await page.locator('.timer-display').innerText();
+    ok('计时器：暂停后不再增长', paused.trim() === stillPaused.trim(), `${paused} / ${stillPaused}`);
+    const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('bt-timer') || 'null'));
+    ok('计时器：暂停状态与累计值已落盘', stored && stored.running === false && stored.accumulated > 1000 && /^lesson:/.test(stored.lessonKey || ''), JSON.stringify(stored));
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.waitForSelector('.timer-display');
+    const afterReload = await page.locator('.timer-display').innerText();
+    ok('计时器：刷新后继续显示同一课的累计用时', afterReload.trim() === paused.trim(), `${paused} → ${afterReload}`);
+    // 刷新会清空编辑区，重新填一遍再进入后面的生成流程
+    await page.fill('.big-textarea >> nth=0', '我在一家乡村小酒店吃过午饭后，就找我的提包。');
+    await page.fill('.big-textarea >> nth=1', 'I was searching my bag after having lunch at a little village bar.');
+  }
+
   /* ---------- 第一次练习：不该出现对比块 ---------- */
   await gen();
   ok('B6：首次练习不显示「与上次对比」（没有可比的上一次）', await page.locator('.practice-compare').count() === 0);
@@ -123,11 +147,46 @@ try {
   ok('B6：第一次得分 70（mock 第一次返回低分）', score1.trim() === '70', score1);
   ok('B6：结果页有可收藏的 ☆', await page.locator('.fav-star').count() > 0, String(await page.locator('.fav-star').count()));
 
+  // 结果页各板块是否真的渲染出来（App.jsx 拆分后，这条是防"组件搬丢了"的哨兵）
+  {
+    const parts = await page.evaluate(() => ({
+      sections: [...document.querySelectorAll('.sheet-section h2')].map((h) => h.textContent.trim()),
+      sentences: document.querySelectorAll('.sentence-card').length,
+      vocab: document.querySelectorAll('.vocab-word').length,
+      idiom: document.querySelectorAll('.idiom-badge').length,
+      stars: document.querySelectorAll('.fav-star').length,
+    }));
+    const want = ['中文', '原稿', 'AI 修正版', '原文'];
+    const hasAll = want.every((w) => parts.sections.some((x) => x.includes(w)));
+    ok('结果页：中文/原稿/AI 修正/原文 四段都在', hasAll, parts.sections.join(' | '));
+    ok('结果页：逐句解析 / 词汇 / 习语 / 收藏星标都渲染', parts.sentences >= 1 && parts.vocab >= 1 && parts.idiom >= 1 && parts.stars >= 3, JSON.stringify(parts));
+  }
+
+  /* ---------- 另外两条任务链路：AI 素材 + 收藏自测题 ---------- */
+  {
+    await page.click('.result-toolbar >> text=返回编辑');
+    await page.waitForSelector('.editor');
+    await page.click('text=AI 生成训练素材');
+    await page.waitForSelector('.material-modal');
+    await page.fill('.material-modal textarea', '城市通勤的一天');
+    await page.click('.material-modal >> text=生成素材');
+    await page.waitForFunction(() => {
+      const el = document.querySelector('.big-textarea');
+      return el && el.value && el.value.length > 5;
+    }, null, { timeout: 60000 });
+    const cn = await page.locator('.big-textarea').first().inputValue();
+    ok('AI 素材：生成后回填中文与原文（mock 链路）', cn.includes('中') || cn.length > 0, cn.slice(0, 20));
+    // 素材生成会把模式切到「自由模式」；后面的同课对比要课文模式才有 lessonKey
+    await page.click('.mode-tabs >> text=课文模式');
+
+  }
+
   const h1 = await historyStore();
   ok('B6：历史条目带上 lessonKey 与练习时间', h1.length === 1 && /^lesson:\d+-\d+$/.test(h1[0].lessonKey || '') && h1[0].time > 0, JSON.stringify({ key: h1[0]?.lessonKey, time: h1[0]?.time }));
 
   /* ---------- 第二次练习：出现对比块 ---------- */
-  await page.click('.result-toolbar >> text=返回编辑');
+  // 上一段刚做完素材生成，此时可能已经在编辑页；在结果页就先返回
+  await page.click('.result-toolbar >> text=返回编辑').catch(() => {});
   await page.waitForSelector('.big-textarea');
   await page.fill('.big-textarea >> nth=0', '我在一家乡村小酒店吃过午饭后，就找我的提包。');
   await page.fill('.big-textarea >> nth=1', 'I was searching my bag after having lunch at a little village bar.');
@@ -192,6 +251,18 @@ try {
   await page.click('.fav-modal .icon-btn >> nth=0');
   await sleep(200);
   ok('B7：复习完「今日待复习」计数清零', !/\(\d+\)/.test(await page.locator('.due-btn').innerText()), await page.locator('.due-btn').innerText());
+
+  /* ---------- 第三条任务链路：收藏自测题（AI 返回不合格 → 本地题库兜底） ---------- */
+  {
+    await page.click('.topbar >> text=收藏夹');
+    await page.waitForSelector('.fav-modal');
+    await page.click('.fav-modal >> text=生成自测题');
+    await page.waitForSelector('.quiz-sheet', { timeout: 60000 });
+    const quizText = await page.locator('.quiz-sheet').innerText();
+    ok('自测题：能从收藏出题（AI 不合格时本地兜底）', /题/.test(quizText) && quizText.length > 20, quizText.slice(0, 40).split(String.fromCharCode(10)).join(' '));
+    await page.click('.quiz-sheet >> text=返回编辑');
+    await page.waitForSelector('.editor', { timeout: 30000 });
+  }
 
   /* ---------- 刷新后仍是同一份数据（持久化） ---------- */
   await page.reload({ waitUntil: 'domcontentloaded' });
