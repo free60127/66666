@@ -70,10 +70,10 @@ function normalizeLesson(raw, book, source) {
   };
 }
 const BOOK_META = {
-  1: { source: '新概念英语 第1册.pdf', file: 'new-concept-1-full.json' },
-  2: { source: '新概念英语 第2册.pdf', file: 'new-concept-2-full.json' },
-  3: { source: '新概念英语 第3册.pdf', file: 'new-concept-3.json' },
-  4: { source: '新概念英语 第4册.pdf', file: 'new-concept-4.json' },
+  1: { source: '第 1 册语料', file: 'new-concept-1-full.json' },
+  2: { source: '第 2 册语料', file: 'new-concept-2-full.json' },
+  3: { source: '第 3 册语料', file: 'new-concept-3.json' },
+  4: { source: '第 4 册语料', file: 'new-concept-4.json' },
 };
 const isValidBook = (n) => [1, 2, 3, 4].includes(Number(n));
 function loadBook(book) {
@@ -115,8 +115,8 @@ function lessonNumber(text) {
 }
 function titleBook(text) {
   const t = String(text || '');
-  // 只识别明确的“册/book/新概念 N”标记，避免把 Lesson 18 的“1”误判成第 1 册
-  const m = t.match(/(?:新概念\s*第?\s*([1-4])\s*册|(?:book|volume)\s*([1-4])|第\s*([1-4])\s*册|(?:新概念)\s*([1-4]))/i);
+  // 只识别明确的“第 N 册 / book N”标记，避免把 Lesson 18 的“1”误判成第 1 册
+  const m = t.match(/(?:book|volume)\s*([1-4])|第\s*([1-4])\s*册/i);
   if (!m) return null;
   return Number(m[1] || m[2] || m[3] || m[4]);
 }

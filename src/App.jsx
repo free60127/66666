@@ -4,7 +4,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft, BookOpen, Camera, CheckCircle2, ChevronDown, ChevronRight, ClipboardCopy, Cloud, Copy, Download,
   FileText, Flame, FolderPlus, History, ImagePlus, Library, Link2, LoaderCircle, PanelLeftClose, PanelLeftOpen,
-  PenLine, Plus, Settings, Sparkles, Star, Timer, Trash2, Upload, UserRound, WandSparkles, X,
+  PenLine, Plus, Settings, Sparkles, Star, Timer, Trash2, Upload, UserRound, Volume2, WandSparkles, X,
 } from 'lucide-react';
 import { createLibrary, loadLibraries, mergeLibraries, removeLesson, removeLibrary, saveLibraries, upsertLesson } from './lessonLibrary.js';
 import { createNewSyncCode, loadSyncCode, loadSyncMeta, mergeHistory, saveSyncCode, saveSyncMeta, syncOnce } from './sync.js';
@@ -361,6 +361,7 @@ function SynRow({ s }) {
       <div className="syn-head">
         <strong className="syn-word">{s.word}</strong>
         <Phonetic word={s.word} phonetic={s.phonetic} />
+        <SpeakButton text={s.word} label={s.word} />
         {s.register ? <span className="syn-meta">{s.register}</span> : null}
         {s.tone ? <span className="syn-meta">{s.tone}</span> : null}
         {s.strength ? <span className="syn-meta">{s.strength}</span> : null}
@@ -408,6 +409,71 @@ function Phonetic({ word, phonetic }) {
   }, [key, given]);
   if (!value) return null;
   return <span className="phonetic">{value.startsWith('/') ? value : '/' + value + '/'}</span>;
+}
+
+/**
+ * 朗读按钮。
+ *
+ * 用浏览器内置的 Web Speech API —— **零依赖、零后端、零成本**，不需要任何 TTS 服务。
+ * 学习工具没有发音是硬伤：词汇表已经有 IPA 了，配上读音才算完整。
+ *
+ * 几个坑：
+ * · getVoices() 首次调用常常返回空数组（语音列表是异步加载的），所以监听 voiceschanged
+ *   再缓存一次；拿不到就交给浏览器默认语音，不阻塞。
+ * · 连续点多个词时旧语音会和新的叠在一起，所以每次先 cancel()。
+ * · 浏览器不支持时直接不渲染按钮（而不是渲染一个点了没反应的）。
+ */
+let voiceCache = null;
+function pickEnglishVoice() {
+  if (voiceCache) return voiceCache;
+  try {
+    if (!('speechSynthesis' in window)) return null;
+    const all = window.speechSynthesis.getVoices() || [];
+    if (!all.length) return null; // 还没加载好，下次再取
+    voiceCache = all.find((v) => /^en[-_]US/i.test(v.lang)) || all.find((v) => /^en/i.test(v.lang)) || null;
+    return voiceCache;
+  } catch { return null; }
+}
+if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+  try { window.speechSynthesis.addEventListener('voiceschanged', () => { voiceCache = null; pickEnglishVoice(); }); } catch { /* 老浏览器 */ }
+}
+
+function SpeakButton({ text, label, slow = false }) {
+  const supported = typeof window !== 'undefined' && 'speechSynthesis' in window && typeof window.SpeechSynthesisUtterance === 'function';
+  const [speaking, setSpeaking] = useState(false);
+  const clean = String(text || '').trim();
+  if (!supported || !clean) return null;
+  const say = (e) => {
+    e.stopPropagation();
+    try {
+      window.speechSynthesis.cancel(); // 连续点词时旧语音会叠上来
+      const u = new SpeechSynthesisUtterance(clean);
+      u.lang = 'en-US';
+      u.rate = slow ? 0.72 : 0.95;
+      const v = pickEnglishVoice();
+      if (v) u.voice = v;
+      u.onstart = () => setSpeaking(true);
+      u.onend = () => setSpeaking(false);
+      u.onerror = () => setSpeaking(false);
+      window.speechSynthesis.speak(u);
+    } catch { setSpeaking(false); }
+  };
+  return (
+    <button
+      type="button"
+      className={'speak-btn' + (speaking ? ' speaking' : '')}
+      onClick={say}
+      title={label ? `朗读：${label}` : '朗读'}
+      aria-label={label ? `朗读 ${label}` : '朗读'}
+    >
+      <Volume2 size={13} />
+    </button>
+  );
+}
+
+/** 从「英文例句 · 中文点拨：…」里取出英文部分 —— 朗读只需要英文。 */
+function englishPart(text) {
+  return String(text || '').split(/\s*[·•]\s*中文/)[0].trim();
 }
 
 /* ---------- 收藏夹（本机 localStorage，无需数据库） ---------- */
@@ -2316,7 +2382,7 @@ function App() {
           </section>
         ) : (
           <section className="result">
-            {result && <ResultSheet result={result} onBack={() => setView('editor')} onCopy={copyAll} onShare={shareResult} shareTip={shareTip} fav={favHandlers} />}
+            {result && <ResultSheet result={result} onBack={() => setView('editor')} onCopy={copyAll} onShare={shareResult} shareTip={shareTip} fav={favHandlers} history={historyList} />}
           </section>
         )}
       </main>
@@ -2743,7 +2809,104 @@ function App() {
   );
 }
 
-function ResultSheet({ result, onBack, onCopy, onShare, shareTip, fav }) {
+/**
+ * 错误类型聚合。
+ *
+ * 每次分析都会给每条 finding 打 category（语法 / 时态 / 搭配 / 冠词 / 语域 …），
+ * 但从来不汇总 —— 学生看得到"这一句错在哪"，看不到"我一直在错什么"。
+ * 而后者才是回译训练真正能改变行为的地方。
+ *
+ * level 分三档：error(必须改错) / improve(润色升级) / study(对照学习)。
+ * 只把 error 计入"常犯错误"，improve 单独算"可提升点" —— 混在一起会让学生误以为
+ * 自己满篇是错，实际很多只是"还能更好"。
+ */
+function tallyCategories(results) {
+  const byCat = new Map();
+  let errors = 0, improves = 0, sentences = 0, used = 0;
+  for (const r of results) {
+    if (!r || typeof r !== 'object') continue;
+    const sents = Array.isArray(r.sentences) ? r.sentences : [];
+    if (!sents.length) continue;
+    used += 1;
+    for (const sn of sents) {
+      if (!sn || typeof sn !== 'object') continue;
+      sentences += 1;
+      const fs = Array.isArray(sn.findings) ? sn.findings : [];
+      for (const f of fs) {
+        if (!f || typeof f !== 'object') continue;
+        const cat = String(f.category || '').trim();
+        if (!cat) continue;
+        const lv = String(f.level || 'error');
+        if (lv === 'study') continue; // 对照学习不是"错"，不进榜
+        const cur = byCat.get(cat) || { cat, total: 0, error: 0, improve: 0 };
+        cur.total += 1;
+        if (lv === 'improve') { cur.improve += 1; improves += 1; } else { cur.error += 1; errors += 1; }
+        byCat.set(cat, cur);
+      }
+    }
+  }
+  return { list: [...byCat.values()].sort((a, b) => b.total - a.total || b.error - a.error), errors, improves, sentences, used };
+}
+
+function ErrorProfile({ result, history }) {
+  const [scope, setScope] = useState('recent'); // recent = 跨历史 | this = 只算本次
+  const recent = useMemo(() => {
+    if (scope === 'this') return [result];
+    const out = [];
+    for (const h of (Array.isArray(history) ? history : []).slice(0, 12)) {
+      const r = h && h.jobId ? loadResultCache(h.jobId) : null;
+      if (r && Array.isArray(r.sentences) && r.sentences.length) out.push(r);
+    }
+    // 本次结果可能还没进历史（或历史被清了），确保一定算进去
+    if (result && !out.some((r) => r === result)) out.unshift(result);
+    return out;
+  }, [result, history, scope]);
+  const t = useMemo(() => tallyCategories(recent), [recent]);
+
+  if (!t.list.length) return null;
+  const top = t.list.slice(0, 6);
+  const max = top[0].total || 1;
+  const multi = t.used > 1;
+
+  return (
+    <section className="sheet-section errprofile">
+      <div className="section-heading">
+        <span className="label-dot" />
+        <h2>错误类型分布</h2>
+        <span className="muted small">
+          {scope === 'this' ? '本次作业' : `最近 ${t.used} 次作业`} · {t.sentences} 句 · {t.errors} 处必改
+          {t.improves ? ` · ${t.improves} 处可提升` : ''}
+        </span>
+      </div>
+      {multi && (
+        <div className="errscope">
+          <button className={'chip-btn' + (scope === 'this' ? ' active' : '')} onClick={() => setScope('this')}>只算本次</button>
+          <button className={'chip-btn' + (scope === 'recent' ? ' active' : '')} onClick={() => setScope('recent')}>看最近几次</button>
+        </div>
+      )}
+      <div className="errbars">
+        {top.map((x) => (
+          <div className="errbar-row" key={'ec' + x.cat}>
+            <span className="errbar-label">{x.cat}</span>
+            <span className="errbar-track">
+              <span className="errbar-fill error" style={{ width: (x.error / max) * 100 + '%' }} />
+              <span className="errbar-fill improve" style={{ width: (x.improve / max) * 100 + '%' }} />
+            </span>
+            <span className="errbar-num">
+              {x.error ? <b>{x.error}</b> : null}{x.error && x.improve ? ' + ' : ''}{x.improve ? <i>{x.improve}</i> : null}
+            </span>
+          </div>
+        ))}
+      </div>
+      <p className="errprofile-tip">
+        <b>{top[0].cat}</b> 是你{scope === 'this' ? '本次' : '最近'}最集中的问题类型
+        （{top[0].total} 处）。<span className="errlegend"><i className="dot error" />必改 <i className="dot improve" />可提升</span>
+      </p>
+    </section>
+  );
+}
+
+function ResultSheet({ result, onBack, onCopy, onShare, shareTip, fav, history }) {
   const overall = result.overall || {};
   const sentences = result.sentences || [];
   const allFindings = sentences.flatMap((s) => s.findings || []);
@@ -2794,6 +2957,7 @@ function ResultSheet({ result, onBack, onCopy, onShare, shareTip, fav }) {
               ) : null}
             </div>
           </div>
+          <ErrorProfile result={result} history={history} />
           {sentences.map((sentence, i) => <SentenceCard key={'s' + (sentence.cn || sentence.draft || '') + '#' + i} index={i} sentence={sentence} result={result} fav={fav} />)}
         </section>
         <VocabularyNotes items={result.vocabularyNotes} result={result} fav={fav} />
@@ -2862,7 +3026,7 @@ function VocabularyNotes({ items, result, fav }) {
         return (
           <div className="vocab-card" key={'vn' + (v.word || '') + '#' + i}>
             <div className="vocab-head">
-              <strong className="vocab-word">{v.word}</strong><Phonetic word={v.word} phonetic={v.phonetic} />{v.type ? <span className="vocab-type">{v.type}</span> : null}
+              <strong className="vocab-word">{v.word}</strong><Phonetic word={v.word} phonetic={v.phonetic} /><SpeakButton text={v.word} label={v.word} />{v.type ? <span className="vocab-type">{v.type}</span> : null}
               {fav ? <FavStar active={fav.has(favItem.id)} onToggle={() => fav.toggle(favItem)} /> : null}
             </div>
             {v.meaning ? <p className="vocab-meaning">{v.meaning}</p> : null}
@@ -2901,7 +3065,7 @@ function IdiomHighlights({ items, result, fav }) {
         return (
           <div className="idiom-card" key={'ih' + (id.idiom || '') + '#' + i}>
             <div className="idiom-head">
-              <span className="idiom-badge">习语</span><strong>{id.idiom}</strong>{id.situation ? <span className="idiom-situation">{id.situation}</span> : null}
+              <span className="idiom-badge">习语</span><strong>{id.idiom}</strong><SpeakButton text={id.idiom} label={id.idiom} />{id.situation ? <span className="idiom-situation">{id.situation}</span> : null}
               {fav ? <FavStar active={fav.has(favItem.id)} onToggle={() => fav.toggle(favItem)} /> : null}
             </div>
             {id.common ? <div className="idiom-common">普通说法：{id.common}</div> : null}
@@ -2928,6 +3092,7 @@ function SummaryBlock({ title, tone, items, result, fav }) {
           <div className={'summary-card ' + tone} key={'sm' + tone + '#' + (typeof item === 'string' ? item : i)}>
             <div className="summary-head">
               <p className="summary-quote">{parts[0].trim()}</p>
+              <SpeakButton text={parts[0].trim()} label={parts[0].trim().slice(0, 30)} />
               {fav ? <FavStar active={fav.has(favItem.id)} onToggle={() => fav.toggle(favItem)} /> : null}
             </div>
             {parts[1] ? <p className="summary-tip">中文点拨：{parts[1].trim()}</p> : null}
