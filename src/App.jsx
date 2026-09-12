@@ -21,6 +21,8 @@ import { submitAndPoll } from './hooks/pollJob.js';
 import { useCloudSync } from './hooks/useCloudSync.js';
 import { useAccount } from './hooks/useAccount.js';
 import { useJobRunner } from './hooks/useJobRunner.js';
+import { useModals } from './hooks/useModals.js';
+import { useFavorites } from './hooks/useFavorites.js';
 import ElapsedDisplay from './components/ElapsedDisplay.jsx';
 import { ResultSheet } from './components/ResultSheet/index.jsx';
 import { FavReviewPanel } from './components/ResultSheet/Review.jsx';
@@ -168,6 +170,9 @@ function lessonLabel(lesson) {
 
 function App() {
   const [settings, setSettings] = useState(loadSettings());
+  // closeCamera / materialBusy 声明在后面，用 ref 透传「当前」的那一份（避免 TDZ）
+  const closeCameraRef = useRef(null);
+  const materialBusyRef = useRef(false);
   const [status, setStatus] = useState(null);
   const [lessons, setLessons] = useState([]);
   const [book, setBook] = useState(() => {
@@ -198,8 +203,6 @@ function App() {
   const [error, setError] = useState('');
   const [result, setResult] = useState(null);
   const [view, setView] = useState('editor');
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [materialOpen, setMaterialOpen] = useState(false);
   const [materialTopic, setMaterialTopic] = useState('');
   const [materialLevel, setMaterialLevel] = useState('中级');
   const [materialStyle, setMaterialStyle] = useState('生活故事');
@@ -207,44 +210,37 @@ function App() {
     busy: materialBusy, elapsed: materialElapsed,
     run: runMaterialJob,
   } = useJobRunner();
+  materialBusyRef.current = materialBusy;
   const [materialKeywords, setMaterialKeywords] = useState([]);
   const [generatedOriginal, setGeneratedOriginal] = useState('');
   const [matchConfidence, setMatchConfidence] = useState('');
   const [matchScore, setMatchScore] = useState(null);
   const [currentJobId, setCurrentJobId] = useState('');
   const [historyList, setHistoryList] = useState(loadHistory);
-  const [historyOpen, setHistoryOpen] = useState(false);
-  // 「编辑课文」弹窗：{ libId, lid }
-  const [lessonEdit, setLessonEdit] = useState(null);
   // 收藏夹（本机 localStorage）
-  const [favorites, setFavorites] = useState(loadFavorites);
-  const [favOpen, setFavOpen] = useState(false);
-  const [favQuery, setFavQuery] = useState('');
-  const [favKind, setFavKind] = useState('all');
-  const [favTip, setFavTip] = useState('');
-  // 间隔重复复习会话：{ ids, index, revealed, reviewed, tally }
-  const [favReview, setFavReview] = useState(null);
   // 全局提示条：编辑器页也能看到（shareTip 只在结果页渲染，
   // 之前把"已保存课文/已新建作业"这类反馈发给了它，等于用户什么都看不到）
   const [toast, setToast] = useState('');
-  // 自测题
-  const [quizData, setQuizData] = useState(null);
-  const { busy: quizBusy, run: runQuizJob } = useJobRunner();
-  const [quizCount, setQuizCount] = useState(10);
-  const [quizShowAnswers, setQuizShowAnswers] = useState(false); // 默认隐藏答案，先自己做
-  const [quizTip, setQuizTip] = useState('');
   const [shareTip, setShareTip] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(() => {
     if (typeof window !== 'undefined' && window.innerWidth <= 900) return false;
     return safeGet('bt-sidebar', '') !== 'collapsed';
   });
   const fileRef = useRef(null);
+  // 弹窗开关 + 键盘可达性（hooks/useModals.js）；变量名沿用原来的，调用点不用改
+  const {
+    settingsOpen, setSettingsOpen, materialOpen, setMaterialOpen,
+    historyOpen, setHistoryOpen, favOpen, setFavOpen,
+    libModalOpen, setLibModalOpen, newJobOpen, setNewJobOpen,
+    backupOpen, setBackupOpen, camOpen, setCamOpen,
+    lessonEdit, setLessonEdit, backupTip, setBackupTip, libTip, setLibTip,
+    modalRefs,
+  } = useModals({ getCloseCamera: closeCameraRef, getMaterialBusy: materialBusyRef });
   // 拍照 / 图片识别
   const [ocrBusy, setOcrBusy] = useState(null); // null | 'chinese' | 'english'
   const [ocrMode, setOcrMode] = useState('auto'); // auto | handwriting | printed
   const [ocrNotes, setOcrNotes] = useState({});
   const [dragOver, setDragOver] = useState(null); // null | 'chinese' | 'english'
-  const [camOpen, setCamOpen] = useState(false);
   const [camSide, setCamSide] = useState('english');
   const [camError, setCamError] = useState('');
   const camVideoRef = useRef(null);
@@ -255,7 +251,6 @@ function App() {
   const englishFileRef = useRef(null);
   const originalCamRef = useRef(null);   // 英文原文（标准答案）框的拍照 / 选图
   const originalFileRef = useRef(null);
-  const favFileRef = useRef(null);
   // 计时器（记录一篇课文做了多久）
   // 计时器（hooks/useTimer.js）：切课文自动归零、刷新恢复，细节见该文件里的说明
   // 自建课文库（本机保存）：用户可以把自己的作业存成课文，像内置语料一样反复练
@@ -268,16 +263,11 @@ function App() {
       ? `lesson:my-${myLibId}-${matchedLesson.lid}`
       : `lesson:${book}-${lessonId}`);
   const { timer, toggle: toggleTimer, reset: resetTimer, elapsedMsNow, hasElapsed } = useTimer(lessonKey);
-  const [libModalOpen, setLibModalOpen] = useState(false);
   const [libPickId, setLibPickId] = useState('');
   const [newLibName, setNewLibName] = useState('');
-  const [libTip, setLibTip] = useState('');
   // 「新建回译作业」弹窗：当前作业有内容时先让用户决定要不要存进课文库
-  const [newJobOpen, setNewJobOpen] = useState(false);
   const pendingNewRef = useRef(true);
   // 备份（课文库 + 收藏夹 + 历史）
-  const [backupOpen, setBackupOpen] = useState(false);
-  const [backupTip, setBackupTip] = useState('');
   const backupFileRef = useRef(null);
   // 云同步（同步码）
   const [backendWaking, setBackendWaking] = useState(false); // 免费托管休眠后正在唤醒（首屏要等约 1 分钟）
@@ -322,6 +312,22 @@ function App() {
   // 生成任务令牌：用户在生成过程中切课 / 点「新建」时作废，
   // 任务完成后就不再强行把视图抢回结果页（结果本身仍然保留并写入历史）。
   const genTokenRef = useRef(0);
+
+  /* ---------- 收藏夹 / 复习 / 自测题 ----------
+   * 状态与动作都在 hooks/useFavorites.js；变量名沿用原来的，调用点不用改。 */
+  const {
+    favorites, setFavorites, favQuery, setFavQuery, favKind, setFavKind, favTip, setFavTip,
+    favReview, setFavReview, favDue, favDueCount, visibleFavorites, favHandlers, favFileRef,
+    quizData, quizCount, setQuizCount, quizShowAnswers, setQuizShowAnswers, quizTip, setQuizTip, quizBusy,
+    toggleFavorite, removeFavorite, clearFavorites, exportFavorites, importFavorites, copyFavorites,
+    startReview, gradeFavReview, skipFavReview, generateQuiz, copyQuiz,
+  } = useFavorites({
+    flash: (setter, msg, ms) => flashTip(setter, msg, ms),
+    setView, settings, polishLevel,
+    isOpen: favOpen, // 收藏夹是否打开（决定要不要算筛选结果）
+    openFavs: () => setFavOpen(true), closeFavs: () => setFavOpen(false),
+  });
+
 
   // 手机端侧栏是覆盖层，选中课文后自动收起
   const closeSidebarOnMobile = () => {
@@ -945,159 +951,6 @@ function App() {
     setHistoryOpen(true);
   };
 
-  /* ---------- 收藏夹（本机保存，无需数据库） ---------- */
-  const toggleFavorite = (item) => {
-    if (!item || !item.id) return;
-    const exists = favorites.some((x) => x.id === item.id);
-    const next = exists
-      ? favorites.filter((x) => x.id !== item.id)
-      : [{ ...withSchedule(item), createdAt: Date.now() }, ...favorites];
-    const ok = saveFavorites(next);
-    setFavorites(next);
-    flashTip(setFavTip, exists ? '已取消收藏' : (ok ? '已收藏，可在右上角「收藏夹」随时复习' : '收藏失败：本机存储空间可能已满，请先导出备份'));
-  };
-  const removeFavorite = (id) => {
-    const next = favorites.filter((x) => x.id !== id);
-    saveFavorites(next);
-    setFavorites(next);
-  };
-  const clearFavorites = () => {
-    if (!favorites.length) return;
-    if (!window.confirm('确定清空全部收藏？建议先「导出备份」。')) return;
-    saveFavorites([]);
-    setFavorites([]);
-    flashTip(setFavTip, '已清空收藏', 2500);
-  };
-  /* ---------- 间隔重复复习（SM-2） ---------- */
-  // 今天到期的收藏（due <= now）。排期字段在收藏里，所以同步码一同步，两台设备的进度就是一份。
-  const favDue = useMemo(() => dueFavorites(favorites), [favorites]);
-  const favDueCount = favDue.length;
-
-  /** 开始一轮复习：把今天到期的收藏排成队列（拖得最久的先来） */
-  const startReview = () => {
-    setFavTip('');
-    setFavOpen(true);
-    const ids = dueFavorites(favorites).map((x) => x.id);
-    if (!ids.length) {
-      setFavReview(null);
-      flashTip(setFavTip, '今天没有到期的收藏，休息一下～', 3000);
-      return;
-    }
-    setFavReview({ ids, index: 0, revealed: false, reviewed: 0, tally: { forgot: 0, normal: 0, easy: 0 } });
-  };
-
-  /** 三档评分 → SM-2 更新排期 → 立即落盘（刷新/换设备都不丢） */
-  const gradeFavReview = (grade) => {
-    const r = favReview;
-    if (!r) return;
-    const id = r.ids[r.index];
-    const item = favorites.find((x) => x && x.id === id);
-    if (item) {
-      const updated = sm2Review(item, grade, Date.now());
-      const next = favorites.map((x) => (x.id === id ? updated : x));
-      saveFavorites(next);
-      setFavorites(next);
-    }
-    setFavReview({
-      ...r,
-      index: r.index + 1,
-      revealed: false,
-      reviewed: r.reviewed + (item ? 1 : 0),
-      tally: item ? { ...r.tally, [grade]: (r.tally[grade] || 0) + 1 } : r.tally,
-    });
-  };
-  const skipFavReview = () => setFavReview((r) => (r ? { ...r, index: r.index + 1, revealed: false } : r));
-
-  const exportFavorites = () => {
-    if (!favorites.length) { flashTip(setFavTip, '还没有收藏内容', 2000); return; }
-    const blob = new Blob([JSON.stringify({ app: 'back-translate-studio', exportedAt: new Date().toISOString(), favorites }, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'retranslate-favorites-' + new Date().toISOString().slice(0, 10) + '.json';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 1500);
-    flashTip(setFavTip, '已导出备份文件，请妥善保存', 3000);
-  };
-  const importFavorites = async (file) => {
-    if (!file) return;
-    try {
-      const data = JSON.parse(await file.text());
-      const arr = Array.isArray(data) ? data : (Array.isArray(data && data.favorites) ? data.favorites : []);
-      if (!arr.filter((x) => x && x.id && x.title).length) throw new Error('文件里没有可用的收藏数据');
-      const { merged, added } = mergeFavorites(arr, favorites);
-      const ok = saveFavorites(merged);
-      setFavorites(merged);
-      flashTip(setFavTip, '导入完成：新增 ' + added + ' 条' + (ok ? '' : '（本机存储可能已满）'), 4000);
-    } catch (e) {
-      flashTip(setFavTip, '导入失败：' + (e.message || '文件格式不正确'), 4000);
-    }
-  };
-  const copyFavorites = async () => {
-    if (!favorites.length) return;
-    try { await navigator.clipboard.writeText(favoritesToText(favorites)); flashTip(setFavTip, '已复制全部收藏到剪贴板', 3000); }
-    catch { flashTip(setFavTip, '复制失败，请手动选择文本', 3000); }
-  };
-  // 只在收藏夹打开时才计算：原来是每帧无条件跑一遍（最多 2000 条 join + toLowerCase）
-  const visibleFavorites = useMemo(
-    () => (favOpen ? filterFavorites(favorites, { kind: favKind, query: favQuery }) : []),
-    [favOpen, favorites, favKind, favQuery],
-  );
-
-  /* ---------- 根据收藏生成自测题 ---------- */
-  const generateQuiz = async () => {
-    const pool = favKind === 'all' ? favorites : filterFavorites(favorites, { kind: favKind });
-    if (!pool.length) { flashTip(setFavTip, '还没有可用于出题的收藏', 2500); return; }
-    setQuizTip('');
-    setFavTip('');
-    try {
-      await runQuizJob({
-        submit: () => quiz({
-          points: favoritesToQuizPoints(pool),
-          count: quizCount,
-          level: polishLevel,
-          baseUrl: settings.baseUrl, model: settings.model, apiKey: settings.apiKey,
-        }),
-        fetchJob: getQuizJob,
-        intervalMs: 2000,
-        timeoutMs: 5 * 60 * 1000,
-        maxFailures: 8,
-        netError: '网络不稳定，暂时无法获取题目',
-        timeoutError: '生成超时或题目为空，请重试',
-        onData: (data) => {
-          if (!data || !Array.isArray(data.questions) || !data.questions.length) throw new Error('生成超时或题目为空，请重试');
-          setQuizData(data);
-          setQuizShowAnswers(false);
-          setFavOpen(false);
-          setView('quiz');
-        },
-      });
-    } catch (e) {
-      // AI 出题失败时用本地题库兜底，保证功能始终可用
-      const local = buildLocalQuiz(pool, quizCount);
-      if (local.questions.length) {
-        setQuizData(local);
-        setQuizShowAnswers(false);
-        setQuizTip('AI 出题失败（' + (e.message || '未知错误') + '），已用本地题库兜底生成');
-        setFavOpen(false);
-        setView('quiz');
-      } else {
-        flashTip(setFavTip, '生成失败：' + (e.message || '未知错误'), 4000);
-      }
-    }
-  };
-  const copyQuiz = async () => {
-    if (!quizData) return;
-    try {
-      await navigator.clipboard.writeText(quizToText(quizData, { withAnswers: quizShowAnswers }));
-      flashTip(setQuizTip, '已复制题目' + (quizShowAnswers ? '（含答案）' : '（不含答案）'), 2500);
-    } catch { flashTip(setQuizTip, '复制失败，请手动选择文本', 2500); }
-  };
-  const favoritedIds = useMemo(() => new Set(favorites.map((x) => x.id)), [favorites]);
-  const favHandlers = useMemo(() => ({ has: (id) => favoritedIds.has(id), toggle: toggleFavorite }), [favoritedIds, favorites]);
-
   // 连点两条历史时，先发的慢请求后返回会把后点的那条覆盖掉 —— 用请求令牌丢弃过期结果
   const historyReqRef = useRef(0);
   const loadHistoryJob = async (jobId) => {
@@ -1237,6 +1090,7 @@ function App() {
     setCamOpen(false);
     setCamError('');
   };
+  closeCameraRef.current = closeCamera; // 供 useModals 在 Esc 关闭时调用
 
   const snapPhoto = async () => {
     const video = camVideoRef.current;
@@ -1392,41 +1246,6 @@ function App() {
     // 配额写满时 setItem 会失败，原来完全静默（表现为"保存并重连点了没反应"）
     if (!ok) flashTip(setToast, '设置没能写入本机存储（空间可能已满）：本次仍然生效，但刷新后需要重填', 5000);
   };
-
-  /* ---------- 弹窗可访问性：role=dialog + Esc 关闭 + 焦点陷阱 ----------
-   * 5 个弹窗原来都没有 dialog 语义、不能用键盘关闭、Tab 会跑到弹窗外的内容上。 */
-  const modalRefs = useRef({});
-  useEffect(() => {
-    const open = camOpen ? 'cam' : materialOpen ? 'material' : newJobOpen ? 'newjob' : libModalOpen ? 'lib' : lessonEdit ? 'lessonEdit' : backupOpen ? 'backup' : historyOpen ? 'history' : favOpen ? 'fav' : settingsOpen ? 'settings' : null;
-    if (!open) return undefined;
-    const closers = {
-      cam: closeCamera,
-      material: () => { if (!materialBusy) setMaterialOpen(false); },
-      newjob: () => setNewJobOpen(false),
-      lib: () => setLibModalOpen(false),
-      lessonEdit: () => setLessonEdit(null),
-      backup: () => setBackupOpen(false),
-      history: () => setHistoryOpen(false),
-      fav: () => setFavOpen(false),
-      settings: () => setSettingsOpen(false),
-    };
-    const onKeyDown = (e) => {
-      const node = modalRefs.current[open];
-      if (e.key === 'Escape') { e.preventDefault(); closers[open](); return; }
-      if (e.key !== 'Tab' || !node) return;
-      const focusables = Array.from(node.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'))
-        .filter((el) => !el.disabled && el.offsetParent !== null);
-      if (!focusables.length) return;
-      const first = focusables[0];
-      const last = focusables[focusables.length - 1];
-      if (!node.contains(document.activeElement)) { e.preventDefault(); first.focus(); return; }
-      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
-      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
-    };
-    document.addEventListener('keydown', onKeyDown);
-    const timer = setTimeout(() => modalRefs.current[open]?.querySelector('button, input, select, textarea')?.focus(), 40);
-    return () => { document.removeEventListener('keydown', onKeyDown); clearTimeout(timer); };
-  }, [camOpen, materialOpen, newJobOpen, libModalOpen, lessonEdit, backupOpen, historyOpen, favOpen, settingsOpen, materialBusy]);
 
   // 课文库选择区（「保存到课文库」和「新建作业」两个弹窗共用）
   const libPickerFields = (
