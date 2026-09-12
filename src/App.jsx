@@ -7,17 +7,17 @@ import {
   PenLine, Plus, Settings, Sparkles, Star, Timer, Trash2, Upload, UserRound, Volume2, WandSparkles, X,
 } from 'lucide-react';
 import { createLibrary, loadLibraries, mergeLibraries, removeLesson, removeLibrary, saveLibraries, upsertLesson } from './lessonLibrary.js';
-import { createNewSyncCode, loadSyncCode, loadSyncMeta, mergeHistory, saveSyncCode, saveSyncMeta, syncOnce } from './sync.js';
-// 账号：命名空间式导入，避免和同步那一堆同名函数（changePassword / deleteAccount 之类）打架
-import * as acct from './account.js';
-import { analyze, generateMaterial, getAnalyzeJob, getLessons, getLesson, getMaterialJob, getOcrJob, getPhonetic, getQuizJob, getStatus, loadSettings, matchLesson, ocr, pullCloudSync, quiz, saveSettings, wakeUp } from './api.js';
+import { analyze, generateMaterial, getAnalyzeJob, getLessons, getLesson, getMaterialJob, getOcrJob, getQuizJob, getStatus, loadSettings, matchLesson, ocr, quiz, saveSettings, wakeUp } from './api.js';
 import { DEMO_LESSON_18, DEMO_LESSONS } from './demo.js';
 import { FAV_GRADES, FAV_KIND_LABEL, dueFavorites, dueLabel, dueOf, favoritesToText, favFromExpression, favFromFinding, favFromIdiom, favFromVocab, filterFavorites, hasMorphology, loadFavorites, mergeFavorites, morphologyText, nextDueAt, saveFavorites, sm2Review, withSchedule } from './favorites.js';
 import { buildLocalQuiz, favoritesToQuizPoints, quizToText } from './quiz.js';
 import { formatTime, formatDuration } from './format.js';
 import { loadHistory, loadResultCache, pruneResultCache, safeGet, safeSet, saveHistory, saveResultCache } from './storage.js';
 import { useTimer } from './hooks/useTimer.js';
-import { pollJob } from './hooks/pollJob.js';
+import { submitAndPoll } from './hooks/pollJob.js';
+import { useCloudSync } from './hooks/useCloudSync.js';
+import { useAccount } from './hooks/useAccount.js';
+import { useJobRunner } from './hooks/useJobRunner.js';
 import ElapsedDisplay from './components/ElapsedDisplay.jsx';
 import { ResultSheet } from './components/ResultSheet/index.jsx';
 import { FavReviewPanel } from './components/ResultSheet/Review.jsx';
@@ -179,15 +179,16 @@ function App() {
   const [title, setTitle] = useState('');
   const [chinese, setChinese] = useState('');
   const [draft, setDraft] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [progressStep, setProgressStep] = useState(0);
-  const [elapsed, setElapsed] = useState(0);
-  const [progressMsg, setProgressMsg] = useState('');
+  // 生成链路的繁忙/进度/计时（hooks/useJobRunner.js）；变量名沿用原来的，调用点不用改
+  const {
+    busy, step: progressStep, message: progressMsg, elapsed,
+    setBusy, setStep: setProgressStep, setMessage: setProgressMsg,
+    run: runJob, cancelWait: cancelProgress, startTimer: startProgressTimer, stopTimer: stopProgressTimer,
+  } = useJobRunner();
   // 「取消等待」：只让界面立刻解锁，**不停后台轮询** ——
   // 生成请求已经发出去了（钱已经花了），停掉轮询等于白花；继续跑完还能进「历史结果」。
   const cancelGenRef = useRef(false);
   const [lessonQuery, setLessonQuery] = useState(''); // 课文搜索（348 课靠翻列表太慢）
-  const progressTimerRef = useRef(null);
   const [parsing, setParsing] = useState(false);
   const [fileName, setFileName] = useState('');
   const [error, setError] = useState('');
@@ -198,8 +199,10 @@ function App() {
   const [materialTopic, setMaterialTopic] = useState('');
   const [materialLevel, setMaterialLevel] = useState('中级');
   const [materialStyle, setMaterialStyle] = useState('生活故事');
-  const [materialBusy, setMaterialBusy] = useState(false);
-  const [materialElapsed, setMaterialElapsed] = useState(0);
+  const {
+    busy: materialBusy, elapsed: materialElapsed,
+    run: runMaterialJob,
+  } = useJobRunner();
   const [materialKeywords, setMaterialKeywords] = useState([]);
   const [generatedOriginal, setGeneratedOriginal] = useState('');
   const [matchConfidence, setMatchConfidence] = useState('');
@@ -220,7 +223,7 @@ function App() {
   const [toast, setToast] = useState('');
   // 自测题
   const [quizData, setQuizData] = useState(null);
-  const [quizBusy, setQuizBusy] = useState(false);
+  const { busy: quizBusy, run: runQuizJob } = useJobRunner();
   const [quizCount, setQuizCount] = useState(10);
   const [quizShowAnswers, setQuizShowAnswers] = useState(false); // 默认隐藏答案，先自己做
   const [quizTip, setQuizTip] = useState('');
@@ -266,31 +269,9 @@ function App() {
   const [backupTip, setBackupTip] = useState('');
   const backupFileRef = useRef(null);
   // 云同步（同步码）
-  const [syncCode, setSyncCode] = useState(loadSyncCode);
-  const [syncMeta, setSyncMeta] = useState(loadSyncMeta);
-  const [syncBusy, setSyncBusy] = useState(false);
-  const [syncTip, setSyncTip] = useState('');
-  const [codeInput, setCodeInput] = useState('');
-  const [syncLost, setSyncLost] = useState(false); // 云端没有这串码的数据（通常是平台重新部署）
   const [backendWaking, setBackendWaking] = useState(false); // 免费托管休眠后正在唤醒（首屏要等约 1 分钟）
   // 账号（可选：服务端配了持久存储才有）。账号只是"帮你记住同步码"的一层，
   // 同步码仍然是数据主键 —— 没有账号时一切照旧，有了账号换设备就不用抄码。
-  const [account, setAccount] = useState(acct.loadAccount);
-  const [accountsOn, setAccountsOn] = useState(false); // 服务端是否启用了账号功能
-  const [accountHasSync, setAccountHasSync] = useState(false); // 账号里是否已存有同步码（没存就得绑，否则多设备各用各的）
-  const [authOpen, setAuthOpen] = useState(false);
-  const [authMode, setAuthMode] = useState('login'); // login | register | forgot
-  const [authBusy, setAuthBusy] = useState(false);
-  const [authTip, setAuthTip] = useState('');
-  const [authForm, setAuthForm] = useState({ email: '', password: '', nickname: '', code: '', syncCode: '' });
-  const [bindPw, setBindPw] = useState(''); // 「把本机同步码存进账号」时要现输一次密码（密码不落盘）
-  const accountRef = useRef(account);
-  accountRef.current = account;
-  const syncBusyRef = useRef(false);
-  const lastSyncAtRef = useRef(0);
-  // 最近一次"手动操作"（生成码/换码/填码/停用/立即同步）的时间：
-  // 自动同步在这之后 5 秒内不跑，否则它会把手动操作刚给出的提示覆盖掉（用户就看不到失败原因了）
-  const manualActionAtRef = useRef(0);
   // 最近一次「载入 / 保存」时的内容指纹：用来判断当前作业有没有改动过，
   // 避免在"打开库里的课文后直接点新建"时让用户重复保存一份完全相同的内容。
   const savedSnapshotRef = useRef('');
@@ -324,7 +305,6 @@ function App() {
   const aliveRef = useRef(true);
   useEffect(() => () => {
     aliveRef.current = false;
-    clearInterval(progressTimerRef.current);
     for (const t of tipTimersRef.current.values()) clearTimeout(t);
     tipTimersRef.current.clear();
   }, []);
@@ -332,16 +312,6 @@ function App() {
   // 任务完成后就不再强行把视图抢回结果页（结果本身仍然保留并写入历史）。
   const genTokenRef = useRef(0);
 
-  const startProgressTimer = () => {
-    const start = Date.now();
-    setElapsed(0);
-    clearInterval(progressTimerRef.current);
-    progressTimerRef.current = setInterval(() => setElapsed(Math.floor((Date.now() - start) / 1000)), 1000);
-  };
-  const stopProgressTimer = () => {
-    clearInterval(progressTimerRef.current);
-    progressTimerRef.current = null;
-  };
   // 手机端侧栏是覆盖层，选中课文后自动收起
   const closeSidebarOnMobile = () => {
     if (window.innerWidth <= 900) setSidebarOpen(false);
@@ -716,8 +686,7 @@ function App() {
     }
   };
 
-  /* ---------- 云同步（同步码） ---------- */
-  /** 把合并结果写回本机；只有真的变了才 setState（避免触发自动推送形成回环）。 */
+  /** 把同步合并回来的快照写回本机；只有真的变了才 setState（避免触发自动推送形成回环）。 */
   const applyMergedSnapshot = (merged) => {
     let changed = false;
     if (JSON.stringify(myLibs) !== JSON.stringify(merged.libraries)) { setMyLibs(merged.libraries); saveLibraries(merged.libraries); changed = true; }
@@ -726,317 +695,29 @@ function App() {
     return changed;
   };
 
-  const runSync = async (manual = true, codeOverride) => {
-    const code = codeOverride || syncCode;
-    if (!code) { if (manual) setSyncTip('还没有同步码：先生成一个，或在另一台设备上把码填进来'); return; }
-    if (syncBusyRef.current) { if (manual) setSyncTip('正在同步中，请稍候再试'); return; }
-    // 自动同步让位给刚发生的手动操作，避免覆盖提示 / 抢在同一时刻发请求
-    if (!manual && Date.now() - manualActionAtRef.current < 5000) return;
-    if (manual) manualActionAtRef.current = Date.now();
-    syncBusyRef.current = true;
-    setSyncBusy(true);
-    if (manual) setSyncTip('正在同步…');
-    try {
-      const res = await syncOnce({ code, local: { libraries: myLibs, favorites, history: historyList } });
-      if (!res.ok) {
-        if (res.code === 'NOT_FOUND') { setSyncLost(true); setSyncTip(res.error); }
-        else setSyncTip(res.error || '同步失败');
-        return;
-      }
-      setSyncLost(false);
-      // 云端原本没有这串码（换过存储后端 / 临时磁盘被清），刚用本机数据把它重建起来了。
-      // 必须明确告诉用户 —— 否则他以为还是坏的，会去点「换码」把好端端的码换掉。
-      if (res.recovered) flashTip(setToast, '云端原本没有这串同步码，已用本机数据重建；其它设备下次同步会自动恢复', 6000);
-      lastSyncAtRef.current = Date.now();
-      const changed = applyMergedSnapshot(res.merged);
-      const meta = { ...loadSyncMeta(), lastSyncAt: lastSyncAtRef.current, version: res.version };
-      saveSyncMeta(meta); setSyncMeta(meta);
-      const a = res.added || {};
-      const gained = (a.libsAdded || 0) + (a.lessonsAdded || 0) + (a.favAdded || 0) + (a.histAdded || 0);
-      if (manual) {
-        setSyncTip(gained
-          ? `同步完成：新增 ${a.libsAdded || 0} 个课文库、${a.lessonsAdded || 0} 篇课文、${a.favAdded || 0} 条收藏、${a.histAdded || 0} 条历史`
-          : '同步完成：已是最新，没有新增内容');
-      } else if (changed) {
-        flashTip(setToast, '已从云端同步到新内容', 3200);
-      }
-    } catch (e) {
-      setSyncTip('同步失败：' + (e.message || '网络错误'));
-    } finally {
-      syncBusyRef.current = false;
-      setSyncBusy(false);
-    }
-  };
-
-  const startNewSync = async () => {
-    // 正在同步时不要静默 return —— 用户会以为按钮坏了
-    if (syncBusyRef.current) { setSyncTip('正在同步中，请稍候再试'); return; }
-    manualActionAtRef.current = Date.now(); // 先占位，防止自动同步覆盖下面可能出现的失败提示
-    syncBusyRef.current = true;
-    setSyncBusy(true);
-    setSyncTip('');
-    try {
-      const code = await createNewSyncCode();
-      saveSyncCode(code); setSyncCode(code);
-      syncBusyRef.current = false;
-      await runSync(true, code);
-    } catch (e) {
-      setSyncTip('生成同步码失败：' + (e.message || '网络错误'));
-    } finally {
-      syncBusyRef.current = false;
-      setSyncBusy(false);
-    }
-  };
-
-  const useExistingCode = async () => {
-    const code = codeInput.trim().toLowerCase();
-    if (!/^[a-f0-9]{32}$/.test(code)) { setSyncTip('同步码应为 32 位十六进制字符，请检查是否复制完整'); return; }
-    manualActionAtRef.current = Date.now();
-    // 先探一次：云端不存在的码在**输入这一刻**就拦下来。
-    // 这一步是"云端没有就自动重建"能成立的前提 —— 否则打错一个字符
-    // 会被静默接受，新开一个空槽位，用户还以为同步成功了。
-    setSyncBusy(true);
-    try {
-      await pullCloudSync(code);
-    } catch (e) {
-      setSyncBusy(false);
-      if (e && e.status === 404) { setSyncTip('云端没有这串码 —— 请确认是否复制完整（32 位），以及它是不是在当前服务端生成的'); return; }
-      setSyncTip('读取云端失败：' + (e.message || '网络错误'));
-      return;
-    }
-    setSyncBusy(false);
-    saveSyncCode(code); setSyncCode(code); setCodeInput('');
-    await runSync(true, code);
-  };
-
-  const copySyncCode = async () => {
-    try { await navigator.clipboard.writeText(syncCode); setSyncTip('同步码已复制 —— 在另一台设备的「备份 → 云同步」里粘贴即可'); }
-    catch { setSyncTip('复制失败，请手动选中复制'); }
-  };
-
-  const stopSync = () => {
-    if (!window.confirm('停用云同步？\n\n本机数据不受影响。云端那份数据仍在这串码下（除非服务端重新部署过），以后把这串码填回来就能继续用。')) return;
-    saveSyncCode(''); setSyncCode(''); setSyncLost(false); setSyncTip('已停用云同步（本机数据保留）');
-  };
-
-  // runSync 的闭包里带着 myLibs / favorites / historyList 的快照。
-  // 下面「回到前台同步」的监听只在 syncCode 变化时重建，若直接捕获 runSync，
-  // 切回前台时会拿着**过期数据**去合并。所以统一走 ref 取最新那一次渲染的函数。
-  const runSyncRef = useRef(runSync);
-  useEffect(() => { runSyncRef.current = runSync; });
-
-  // 打开页面时自动同步一次（把云端新增内容合并进来）
-  useEffect(() => {
-    if (syncCode) runSync(false, syncCode);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // 回到前台就同步一次。
-  // 手机/平板切回页面时浏览器**不会重新加载**（只是恢复原来的标签页），
-  // 所以上面那个"挂载时同步"根本不会触发 —— 这是"同步好像坏了"最常见的原因：
-  // 用户以为页面还开着就应该是新的。
-  // 桌面端在多个标签页之间来回切，走的是同一条路径（focus）。
-  useEffect(() => {
-    if (!syncCode) return undefined;
-    const syncIfStale = () => {
-      if (document.visibilityState !== 'visible') return;   // 切到后台不请求
-      if (syncBusyRef.current) return;                       // 正在同步就跳过
-      if (Date.now() - lastSyncAtRef.current < 5000) return; // 刚同步过就别重复
-      runSyncRef.current(false);
-    };
-    document.addEventListener('visibilitychange', syncIfStale);
-    window.addEventListener('focus', syncIfStale);
-    return () => {
-      document.removeEventListener('visibilitychange', syncIfStale);
-      window.removeEventListener('focus', syncIfStale);
-    };
-  }, [syncCode]);
-
-  // 本机数据变化后防抖推送（刚同步完的 3 秒内不触发，避免自己触发自己）
-  useEffect(() => {
-    if (!syncCode) return undefined;
-    if (Date.now() - lastSyncAtRef.current < 3000) return undefined;
-    const t = setTimeout(() => { runSync(false); }, 8000);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [myLibs, favorites, historyList, syncCode]);
+  /* ---------- 云同步（同步码）----------
+   * 状态机在 hooks/useCloudSync.js；这里只提供"本机数据 + 合并写回 + 提示"三件事，
+   * 变量名沿用原来的，所以下面所有调用点都不用改。 */
+  const {
+    syncCode, setSyncCode, syncMeta, syncBusy, syncTip, setSyncTip,
+    codeInput, setCodeInput, syncLost, setSyncLost,
+    runSync, startNewSync, useExistingCode, copySyncCode, stopSync,
+  } = useCloudSync({
+    local: { libraries: myLibs, favorites, history: historyList },
+    applyMerged: applyMergedSnapshot,
+    flash: (msg, ms) => flashTip(setToast, msg, ms),
+  });
 
   /* ---------- 账号 ----------
-   * 账号的作用只有一个：**换设备时不用抄同步码**。
-   * 登录后用密码解开账号里存的同步码 → 存到本机 → 之后完全走原有的同步流程。
-   * 没有账号时一切照旧，所以这块出问题也不影响主流程。 */
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      const on = await acct.accountAvailable();
-      if (!alive) return;
-      setAccountsOn(on);
-      if (!on) return;
-      const saved = acct.loadAccount();
-      if (!saved) return;
-      // 本地令牌可能已过期/被踢：校验一次，失效就清掉，别显示一个假的"已登录"
-      const r = await acct.verifySession(saved.token);
-      if (!alive) return;
-      if (!r.ok) { setAccount(null); return; }
-      setAccount({ token: saved.token, user: r.user || saved.user });
-      setAccountHasSync(Boolean(r.hasSync));
-    })();
-    return () => { alive = false; };
-  }, []);
-
-  const authField = (k) => (e) => setAuthForm((f) => ({ ...f, [k]: e.target.value }));
-  const openAuth = (mode = 'login') => {
-    setAuthMode(mode);
-    setAuthTip('');
-    setAuthForm({ email: '', password: '', nickname: '', code: '' });
-    setAuthOpen(true);
-  };
-
-  /** 登录/注册成功后：账号里带回同步码就切过去并同步一次。 */
-  const applyAccountSync = async (code) => {
-    if (!code) return;
-    if (code === syncCode) {
-      // 码相同也要跑一次同步 —— 用户点"登录"的意图就是"把数据对上"。
-      // 原先这里直接 return，导致本机攒着没推上去的数据在登录后依然不动。
-      flashTip(setToast, '已登录；正在同步…', 2600);
-      await runSync(true);
-      return;
-    }
-    if (syncCode && !window.confirm(
-      '账号里存着另一串同步码。\n\n'
-      + '用账号里的那串吗？\n\n'
-      + '本机数据不会丢 —— 两边的课文库 / 收藏 / 历史会自动合并，'
-      + '然后一起传到账号的那串码上。\n'
-      + '（如果两台设备本来就该同步，选「确定」）'
-    )) return;
-    saveSyncCode(code);
-    setSyncCode(code);
-    setSyncLost(false);
-    flashTip(setToast, '已从账号取回同步码，正在同步…', 3000);
-    await runSync(true, code); // runSync 闭包里的 syncCode 还是旧的，显式传新码
-  };
-
-  const doSignIn = async () => {
-    if (authBusy) return;
-    setAuthBusy(true); setAuthTip('');
-    try {
-      const r = await acct.signIn({ email: authForm.email.trim(), password: authForm.password });
-      if (!r.ok) { setAuthTip(r.error || '登录失败'); return; }
-      const acc = acct.loadAccount();
-      setAccount(acc);
-      setAccountHasSync(r.hasSync);
-      setAuthOpen(false);
-      flashTip(setToast, '已登录：' + r.user.email, 3200);
-
-      // 账号里从没存过同步码，而本机有 —— 立刻绑上去。
-      // 不绑的后果很隐蔽：两台设备各自保留自己的码，各同步各的，永远碰不上面（实测复现过）。
-      // 此刻手上正好有密码，不用再让用户输一次。
-      if (!r.hasSync && syncCode && acc) {
-        const b = await acct.bindSyncCode(acc.token, syncCode, authForm.password);
-        setAccountHasSync(b.ok);
-        flashTip(setToast, b.ok
-          ? '已把本机同步码存进账号 —— 别的设备登录后会用它'
-          : '同步码存入账号失败：' + (b.error || '未知原因'), 5000);
-      }
-
-      if (r.syncError) flashTip(setToast, r.syncError, 6000);
-      await applyAccountSync(r.syncCode);
-    } catch (e) {
-      setAuthTip(e.message || '网络错误');
-    } finally { setAuthBusy(false); }
-  };
-
-  const doSignUp = async () => {
-    if (authBusy) return;
-    setAuthBusy(true); setAuthTip('');
-    try {
-      // 本机已有同步码就顺手加密存进账号 —— 这样别的设备一登录就能取回
-      const r = await acct.signUp({
-        email: authForm.email.trim(),
-        password: authForm.password,
-        nickname: authForm.nickname.trim(),
-        syncCode,
-      });
-      if (!r.ok) { setAuthTip(r.error || '注册失败'); return; }
-      setAccount(acct.loadAccount());
-      setAccountHasSync(Boolean(syncCode));
-      setAuthOpen(false);
-      flashTip(setToast, syncCode ? '注册成功；本机同步码已存进账号' : '注册成功', 3600);
-    } catch (e) {
-      setAuthTip(e.message || '网络错误');
-    } finally { setAuthBusy(false); }
-  };
-
-  const doForgot = async () => {
-    if (authBusy) return;
-    setAuthBusy(true); setAuthTip('');
-    try {
-      const r = await acct.requestResetCode(authForm.email.trim());
-      if (!r.ok) { setAuthTip(r.error || '发送失败'); return; }
-      setAuthMode('reset');
-      setAuthTip('验证码已发到邮箱（15 分钟内有效）。没收到就看看垃圾邮件。');
-    } catch (e) {
-      setAuthTip(e.message || '网络错误');
-    } finally { setAuthBusy(false); }
-  };
-
-  const doReset = async () => {
-    if (authBusy) return;
-    setAuthBusy(true); setAuthTip('');
-    try {
-      const r = await acct.resetPassword({
-        email: authForm.email.trim(),
-        code: authForm.code.trim(),
-        newPassword: authForm.password,
-        syncCode: (authForm.syncCode || '').trim() || syncCode || '',
-      });
-      if (!r.ok) { setAuthTip(r.error || '重置失败'); return; }
-      setAccount(null);
-      setAccountHasSync(false);
-      setAuthMode('login');
-      // 必须把「同步码会失效」这件事说清楚 ——
-      // 用户最容易把"同步码解不开"误解成"我的课文库和收藏被删了"，其实数据一直在本机。
-      setAuthTip('密码已重置。\n\n⚠️ 旧密码加密的同步码无法自动解锁 —— 如果这台设备上有同步码，'
-        + '登录后点「存入账号」重新绑一次即可，本机的课文库和收藏一直都在。');
-      flashTip(setToast, '密码已重置，请用新密码登录', 4000);
-    } catch (e) {
-      setAuthTip(e.message || '网络错误');
-    } finally { setAuthBusy(false); }
-  };
-
-  const doSignOut = async () => {
-    if (!account) return;
-    if (!window.confirm('退出登录？\n\n本机的课文库、收藏和同步码都不受影响，只是换设备时要重新登录。')) return;
-    await acct.signOut(account.token);
-    setAccount(null);
-    setAccountHasSync(false);
-    flashTip(setToast, '已退出登录（本机数据保留）', 3000);
-  };
-
-  /**
-   * 退出所有设备。
-   * 会话令牌是存在浏览器里的（防得住 XSS 之外的东西有限），所以给一个"一键止血"：
-   * 服务端把会话世代号 +1，所有已签发的令牌立刻作废，连当前这台也一起下线。
-   */
-  const doSignOutEverywhere = async () => {
-    if (!account) return;
-    if (!window.confirm('退出所有设备？\n\n其它设备上已登录的账号会立刻下线，需要重新输入密码。\n本机的课文库、收藏和同步码不受影响。')) return;
-    const r = await acct.signOutEverywhere(account.token);
-    setAccount(null);
-    setAccountHasSync(false);
-    flashTip(setToast, r.ok ? '已退出所有设备，请重新登录' : ('操作失败：' + (r.error || '未知原因')), 4000);
-  };
-
-  /** 把本机当前同步码加密存进账号。密码不落盘，所以每次都要现输。 */
-  const doBindSync = async () => {
-    if (!account || !syncCode || !bindPw) return;
-    setAuthBusy(true);
-    try {
-      const r = await acct.bindSyncCode(account.token, syncCode, bindPw);
-      setBindPw('');
-      flashTip(setToast, r.ok ? '同步码已存进账号，别的设备登录即可取回' : (r.error || '存入失败'), 4000);
-    } finally { setAuthBusy(false); }
-  };
+   * 状态与动作都在 hooks/useAccount.js；变量名沿用原来的，调用点不用改。 */
+  const {
+    account, setAccount, accountsOn, accountHasSync, setAccountHasSync,
+    authOpen, setAuthOpen, authMode, setAuthMode, authBusy, authTip, setAuthTip, authForm, bindPw, setBindPw,
+    authField, openAuth, doSignIn, doSignUp, doForgot, doReset, doSignOut, doSignOutEverywhere, doBindSync,
+  } = useAccount({
+    syncCode, setSyncCode, setSyncLost, runSync,
+    flash: (msg, ms) => flashTip(setToast, msg, ms),
+  });
 
   const deleteLibrary = (libId, libName) => {
     if (!window.confirm(`删除课文库「${libName}」？库里的课文会一起删掉，此操作不可撤销。`)) return;
@@ -1122,49 +803,39 @@ function App() {
   const handleGenerateMaterial = async () => {
     const topic = materialTopic.trim();
     if (!topic) { setError('请填写素材主题'); return; }
-    setError(''); setMaterialBusy(true);
-    const materialStart = Date.now();
-    setMaterialElapsed(0);
-    const materialTimer = setInterval(() => setMaterialElapsed(Math.floor((Date.now() - materialStart) / 1000)), 1000);
+    setError('');
     try {
-      const resp = await generateMaterial({
-        topic, level: materialLevel, style: materialStyle,
-        baseUrl: settings.baseUrl, model: settings.model, apiKey: settings.apiKey,
-      });
-      const jobId = resp.jobId;
-      if (!jobId) throw new Error('服务器未返回任务编号，请重试');
-      const outcome = await pollJob({
-        jobId,
+      await runMaterialJob({
+        submit: () => generateMaterial({
+          topic, level: materialLevel, style: materialStyle,
+          baseUrl: settings.baseUrl, model: settings.model, apiKey: settings.apiKey,
+        }),
         fetchJob: getMaterialJob,
         intervalMs: 2500,
         timeoutMs: 10 * 60 * 1000,
         maxFailures: 10,
         netError: '网络不稳定，暂时无法获取素材，请重试',
         timeoutError: '生成素材超时（超过10分钟），请重新提交',
-        isAlive: () => aliveRef.current,
+        onData: (data) => {
+          const d = data || {};
+          if (!d.original || !d.chinese) throw new Error('AI 返回内容不完整，请重试');
+          setTitle(d.title || topic);
+          setChinese(d.chinese);
+          setDraft('');
+          setGeneratedOriginal(d.original);
+          // AI 素材的原文也要填进「英文原文」输入框，否则用户只看到空框
+          // （之前只写进 generatedOriginal，折叠栏显示"已自动带入 N 词"但框里是空的）
+          setManualOriginal(d.original || '');
+          setMaterialKeywords(d.keywords || []);
+          setMatchedLesson(null);
+          setMode('free');
+          setMatchConfidence('none');
+          setMatchScore(null);
+          setMaterialOpen(false);
+        },
       });
-      if (outcome.aborted) return;
-      const data = outcome.data || {};
-      if (!data.original || !data.chinese) throw new Error('AI 返回内容不完整，请重试');
-      setTitle(data.title || topic);
-      setChinese(data.chinese);
-      setDraft('');
-      setGeneratedOriginal(data.original);
-      // AI 素材的原文也要填进「英文原文」输入框，否则用户只看到空框
-      // （之前只写进 generatedOriginal，折叠栏显示"已自动带入 N 词"但框里是空的）
-      setManualOriginal(data.original || '');
-      setMaterialKeywords(data.keywords || []);
-      setMatchedLesson(null);
-      setMode('free');
-      setMatchConfidence('none');
-      setMatchScore(null);
-      setMaterialOpen(false);
-      return;
     } catch (e) {
       setError(e.message || '素材生成失败');
-    } finally {
-      clearInterval(materialTimer);
-      setMaterialBusy(false);
     }
   };
 
@@ -1288,35 +959,30 @@ function App() {
   const generateQuiz = async () => {
     const pool = favKind === 'all' ? favorites : filterFavorites(favorites, { kind: favKind });
     if (!pool.length) { flashTip(setFavTip, '还没有可用于出题的收藏', 2500); return; }
-    setQuizBusy(true);
     setQuizTip('');
     setFavTip('');
     try {
-      const resp = await quiz({
-        points: favoritesToQuizPoints(pool),
-        count: quizCount,
-        level: polishLevel,
-        baseUrl: settings.baseUrl, model: settings.model, apiKey: settings.apiKey,
-      });
-      const jobId = resp.jobId;
-      if (!jobId) throw new Error('服务器未返回任务编号，请重试');
-      const outcome = await pollJob({
-        jobId,
+      await runQuizJob({
+        submit: () => quiz({
+          points: favoritesToQuizPoints(pool),
+          count: quizCount,
+          level: polishLevel,
+          baseUrl: settings.baseUrl, model: settings.model, apiKey: settings.apiKey,
+        }),
         fetchJob: getQuizJob,
         intervalMs: 2000,
         timeoutMs: 5 * 60 * 1000,
         maxFailures: 8,
         netError: '网络不稳定，暂时无法获取题目',
         timeoutError: '生成超时或题目为空，请重试',
-        isAlive: () => aliveRef.current,
+        onData: (data) => {
+          if (!data || !Array.isArray(data.questions) || !data.questions.length) throw new Error('生成超时或题目为空，请重试');
+          setQuizData(data);
+          setQuizShowAnswers(false);
+          setFavOpen(false);
+          setView('quiz');
+        },
       });
-      if (outcome.aborted) return;
-      const data = outcome.data;
-      if (!data || !Array.isArray(data.questions) || !data.questions.length) throw new Error('生成超时或题目为空，请重试');
-      setQuizData(data);
-      setQuizShowAnswers(false);
-      setFavOpen(false);
-      setView('quiz');
     } catch (e) {
       // AI 出题失败时用本地题库兜底，保证功能始终可用
       const local = buildLocalQuiz(pool, quizCount);
@@ -1329,8 +995,6 @@ function App() {
       } else {
         flashTip(setFavTip, '生成失败：' + (e.message || '未知错误'), 4000);
       }
-    } finally {
-      setQuizBusy(false);
     }
   };
   const copyQuiz = async () => {
@@ -1424,15 +1088,12 @@ function App() {
       for (let i = 0; i < list.length; i += 1) {
         setOcrNotes((n) => ({ ...n, [side]: `正在识别第 ${i + 1}/${list.length} 张…（约 5-30 秒）` }));
         const image = await prepareImage(list[i], ocrMode);
-        const resp = await ocr({
-          image, side: target.lang, mode: ocrMode,
-          baseUrl: settings.baseUrl, model: settings.model, apiKey: settings.apiKey,
-          visionModel: settings.visionModel,
-        });
-        const jobId = resp.jobId;
-        if (!jobId) throw new Error('服务器未返回任务编号，请重试');
-        const outcome = await pollJob({
-          jobId,
+        const outcome = await submitAndPoll({
+          submit: () => ocr({
+            image, side: target.lang, mode: ocrMode,
+            baseUrl: settings.baseUrl, model: settings.model, apiKey: settings.apiKey,
+            visionModel: settings.visionModel,
+          }),
           fetchJob: getOcrJob,
           intervalMs: 1500,
           timeoutMs: 3 * 60 * 1000,
@@ -1529,61 +1190,50 @@ function App() {
     const df = draft.trim();
     if (!cn) { setError('请先上传包含中文提示的 DOCX，或填入中文提示'); return; }
     if (!df) { setError('请先上传包含英文初稿的 DOCX，或填入英文初稿'); return; }
-    setError(''); setBusy(true);
+    setError('');
     cancelGenRef.current = false; // 新的生成开始，清掉上一次的取消标记
     const myToken = (genTokenRef.current += 1);
     // 点击生成时定格用时（本次练习从开始计时到提交用掉的时长）
     const durationMs = elapsedMsNow(); // 定格「从开始计时到提交」的用时（不算等 AI 的时间）
-    setProgressStep(1); setProgressMsg('正在提交后台任务…'); startProgressTimer();
-    let finishedOk = false;
+    let jobId = '';
     try {
-      const resp = await analyze({
-        title: title.trim(), chinese: cn, draft: df,
-        book: mode === 'lesson' && !myLibId ? book : undefined,
-        lessonId: mode === 'lesson' && !myLibId ? id : undefined,
-        original: currentOriginal || undefined,
-        level: polishLevel,
-        baseUrl: settings.baseUrl, model: settings.model, apiKey: settings.apiKey,
-      });
-      const jobId = resp.jobId;
-      if (!jobId) {
-        if (resp.data) { setResult(normalizeResult(resp.data)); setView('result'); return; }
-        throw new Error('服务器未返回任务编号，请重试');
-      }
-      setProgressStep(2); setProgressMsg('AI 正在后台生成（约1-2分钟）…');
-      const outcome = await pollJob({
-        jobId,
+      await runJob({
+        submit: () => analyze({
+          title: title.trim(), chinese: cn, draft: df,
+          book: mode === 'lesson' && !myLibId ? book : undefined,
+          lessonId: mode === 'lesson' && !myLibId ? id : undefined,
+          original: currentOriginal || undefined,
+          level: polishLevel,
+          baseUrl: settings.baseUrl, model: settings.model, apiKey: settings.apiKey,
+        }),
         fetchJob: getAnalyzeJob,
         intervalMs: 2500,
         timeoutMs: 10 * 60 * 1000,
         maxFailures: 10,
         netError: '网络不稳定，暂时无法获取生成结果，请重试',
         timeoutError: '生成超时（超过10分钟），请重新提交',
-        isAlive: () => aliveRef.current,
-        onProgress: () => { setProgressStep(2); setProgressMsg('AI 正在后台生成（约1-2分钟）…'); },
+        texts: { submit: '正在提交后台任务…', running: 'AI 正在后台生成（约1-2分钟）…', done: '生成完成' },
+        onJobId: (id2) => { jobId = id2; },
+        onData: (data) => {
+          // attemptTime：这次练习的时间戳。结果页要靠它判断"哪次才算上一次"
+          // （从历史里点开旧作业时，比它更晚的练习不能算"上次"）。
+          const enriched = { ...(data || {}), durationMs, lessonKey, attemptTime: Date.now() };
+          setResult(normalizeResult(enriched));
+          if (jobId) setCurrentJobId(jobId);
+          // 三种情况都不抢视图：生成期间用户切过课 / 点过「新建」/ 点过「取消等待」。
+          // 但结果照常入历史 —— 用户随时能从「历史结果」里打开。
+          const cancelled = cancelGenRef.current;
+          if (!cancelled && myToken === genTokenRef.current) setView('result');
+          if (jobId) {
+            addToHistory(jobId, (data && data.title) || title, enriched, durationMs);
+            window.history.replaceState(null, '', '#job=' + jobId);
+          }
+          if (cancelled) flashTip(setToast, '刚才那篇已经生成好，存进「历史结果」了', 6000);
+        },
       });
-      if (outcome.aborted) return;
-      setProgressStep(3); setProgressMsg('生成完成'); finishedOk = true;
-      // attemptTime：这次练习的时间戳。结果页要靠它判断"哪次才算上一次"
-      // （从历史里点开旧作业时，比它更晚的练习不能算"上次"）。
-      const enriched = { ...(outcome.data || {}), durationMs, lessonKey, attemptTime: Date.now() };
-      setResult(normalizeResult(enriched));
-      setCurrentJobId(jobId);
-      // 三种情况都不抢视图：生成期间用户切过课 / 点过「新建」/ 点过「取消等待」。
-      // 但结果照常入历史 —— 用户随时能从「历史结果」里打开。
-      const cancelled = cancelGenRef.current;
-      if (!cancelled && myToken === genTokenRef.current) setView('result');
-      addToHistory(jobId, outcome.data?.title || title, enriched, durationMs);
-      window.history.replaceState(null, '', '#job=' + jobId);
-      if (cancelled) flashTip(setToast, '刚才那篇已经生成好，存进「历史结果」了', 6000);
-      return;
     } catch (e) {
       setError(e.message);
       setView('editor');
-    } finally {
-      stopProgressTimer();
-      setBusy(false);
-      if (!finishedOk) { setProgressStep(0); setProgressMsg(''); }
     }
   };
 
@@ -1597,9 +1247,7 @@ function App() {
   const cancelGenerate = () => {
     if (!busy) return;
     cancelGenRef.current = true;
-    setBusy(false);
-    setProgressStep(0); setProgressMsg('');
-    stopProgressTimer();
+    cancelProgress(); // 界面立刻解锁；后台轮询继续（见 hooks/useJobRunner.js 的说明）
     flashTip(setToast, '已取消等待，可以继续编辑。后台仍在生成，完成后会存进「历史结果」。', 7000);
   };
 

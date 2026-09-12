@@ -328,6 +328,31 @@ try {
   ok('B7 跨设备：A 端采纳了 B 端更新的复习进度（不再各记各的）', favA2[0] && favA2[0].lastGrade === 'forgot' && favA2[0].interval === 1 && favA2[0].reps === 0, JSON.stringify({ grade: favA2[0]?.lastGrade, interval: favA2[0]?.interval, reps: favA2[0]?.reps }));
   await ctxB.close();
 
+  /* ---------- 账号：注册 → 已登录态（hooks/useAccount.js 的回归守卫） ---------- */
+  {
+    // 上一步（跨设备同步）可能留着备份弹窗，先关掉再打开
+    if (await page.locator('.modal').count()) { await page.click('.modal-head .icon-btn'); await sleep(300); }
+    await page.click('.side-footer >> text=备份');
+    await page.waitForSelector('.modal');
+    await page.click('.modal >> text=注册');
+    await page.waitForSelector('.auth-modal');
+    const email = `e2e-${Date.now()}@example.com`;
+    await page.fill('.auth-modal input[type="email"]', email);
+    await page.fill('.auth-modal input[placeholder="怎么称呼你"]', 'E2E');
+    await page.fill('.auth-modal input[type="password"]', 'e2e-password-123');
+    await page.click('.auth-modal .primary-btn');
+    await page.waitForFunction(() => document.querySelector('.auth-modal') === null, null, { timeout: 45000 });
+    const acc = await page.evaluate(() => ({
+      token: localStorage.getItem('bt-acct-token') || '',
+      user: JSON.parse(localStorage.getItem('bt-acct-user') || 'null'),
+    }));
+    ok('账号：注册成功后本机记住登录态（令牌 + 用户）', acc.token.length > 10 && acc.user && acc.user.email, JSON.stringify({ email: acc.user && acc.user.email, tokenLen: acc.token.length }));
+    const backupText = await page.locator('.modal').innerText();
+    ok('账号：备份弹窗显示已登录', backupText.includes(email), backupText.split(String.fromCharCode(10)).slice(0, 6).join(' | '));
+    await page.click('.modal-head .icon-btn');
+    await sleep(200);
+  }
+
   /* ---------- 分享链接：对方设备上没有你的本机缓存，也要能打开 ---------- */
   const shareJob = await page.evaluate(() => (location.hash.match(/^#job=([A-Za-z0-9-]+)/) || [])[1] || '');
   const ctxC = await browser.newContext({ viewport: { width: 1200, height: 900 } });

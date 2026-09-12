@@ -29,3 +29,22 @@ export async function pollJob({ jobId, fetchJob, intervalMs, timeoutMs, maxFailu
   }
   throw new Error(timeoutError);
 }
+
+/**
+ * 提交任务 + 轮询到结束 —— 四条链路（分析 / 素材 / 自测题 / OCR）共用的前半段。
+ *
+ * 之前每处都要自己写六行完全相同的 pollJob 参数（间隔/超时/失败阈值/两句错误文案），
+ * 参数写错（比如忘了 maxFailures）不会报错，只会表现成"偶尔卡住"。收到这里之后，
+ * 调用方只管 submit 什么、拿到 data 做什么。
+ *
+ * @returns {Promise<{data?: any, aborted?: true}>}
+ */
+export async function submitAndPoll({ submit, fetchJob, intervalMs, timeoutMs, maxFailures, netError, timeoutError, isAlive, onProgress, onJobId }) {
+  const resp = await submit();
+  const jobId = resp && resp.jobId;
+  // 少数情况服务端会直接同步返回结果（没有任务号）：当作已完成，不再轮询
+  if (!jobId && resp && resp.data) return { data: resp.data };
+  if (!jobId) throw new Error('服务器未返回任务编号，请重试');
+  if (onJobId) onJobId(jobId);
+  return pollJob({ jobId, fetchJob, intervalMs, timeoutMs, maxFailures, netError, timeoutError, isAlive, onProgress });
+}
