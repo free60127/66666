@@ -18,6 +18,8 @@ import { useJobRunner } from './hooks/useJobRunner.js'
 import { useModals } from './hooks/useModals.js'
 import { useLibraries } from './hooks/useLibraries.js'
 import { useEditor } from './hooks/useEditor.js'
+import { lessonLabel } from './lessonLabel.js';
+import { useLessons } from './hooks/useLessons.js';
 import { useFavorites } from './hooks/useFavorites.js'
 import ElapsedDisplay from './components/ElapsedDisplay.jsx'
 import { ResultSheet } from './components/ResultSheet/index.jsx'
@@ -155,29 +157,25 @@ function parseAssignmentText(raw) {
 const SITE_NAME = '回译本';
 const SITE_TAGLINE = '你的私人英语工坊';
 
-function lessonLabel(lesson) {
-  return lesson ? `Lesson ${lesson.lesson} · ${lesson.title_en || lesson.title_cn}` : '';
-}
-
 function App() {
   const [settings, setSettings] = useState(loadSettings());
   // closeCamera / materialBusy 声明在后面，用 ref 透传「当前」的那一份（避免 TDZ）
   const closeCameraRef = useRef(null);
   const matchedLessonRef = useRef(null);
+  // useLibraries ↔ useLessons 互相需要对方的 setter：用 ref 打断循环
+  const onLessonEditedRef = useRef(null);
+  const onSelectedLessonChangedRef = useRef(null);
+  const setMatchedLessonRef = useRef(null);
+  // useEditor 要在「生成素材后清掉当前匹配课文」，而 setMatchedLesson 由后面的 useLessons 提供：
+  // 用稳定回调 + ref 透传，既打断 TDZ，又不让 useEditor 的依赖数组每次渲染都变
+  const clearMatchedLesson = useCallback((v) => {
+    const f = setMatchedLessonRef.current;
+    if (f) f(v);
+  }, []);
   const materialBusyRef = useRef(false);
   const authOpenRef = useRef(false);
   const [status, setStatus] = useState(null);
-  const [lessons, setLessons] = useState([]);
-  const [book, setBook] = useState(() => {
-    const b = Number(safeGet('bt-book', ''));
-    return [1, 2, 3, 4].includes(b) ? b : 2;
-  });
   const [mode, setMode] = useState('lesson');
-  const [lessonId, setLessonId] = useState(() => {
-    const n = Number(safeGet('bt-lesson', ''));
-    return Number.isFinite(n) && n > 0 ? n : 18;
-  });
-  const [matchedLesson, setMatchedLesson] = useState(null);
   // 生成链路的繁忙/进度/计时（hooks/useJobRunner.js）；变量名沿用原来的，调用点不用改
   const {
     busy, step: progressStep, message: progressMsg, elapsed,
@@ -186,7 +184,6 @@ function App() {
   // 「取消等待」：只让界面立刻解锁，**不停后台轮询** ——
   // 生成请求已经发出去了（钱已经花了），停掉轮询等于白花；继续跑完还能进「历史结果」。
   const cancelGenRef = useRef(false);
-  const [lessonQuery, setLessonQuery] = useState(''); // 课文搜索（348 课靠翻列表太慢）
   const [parsing, setParsing] = useState(false);
   const [fileName, setFileName] = useState('');
   const [error, setError] = useState('');
@@ -210,7 +207,7 @@ function App() {
     settings,
     runMaterialJob,
     setError,
-    setMatchedLesson,
+    setMatchedLesson: clearMatchedLesson,
     setMode,
   });
   const [currentJobId, setCurrentJobId] = useState('');
@@ -303,7 +300,7 @@ function App() {
   const genTokenRef = useRef(0);
   const runGenerateRef = useRef(null);
 
-  matchedLessonRef.current = matchedLesson; // 供 useLibraries 读「当前正在练的课」
+  // matchedLessonRef 的同步挪到 useLessons 之后（matchedLesson 由它提供）
 
   // 自建课文库（hooks/useLibraries.js）：状态与增删改都在那里，这里只做适配
   const {
@@ -314,25 +311,14 @@ function App() {
   } = useLibraries({
     toast: (msg, ms) => flashTip(setToast, msg, ms),
     setLibTip,
-    // 编辑的是「当前正在练的那节课」时，同步刷新标题 / 序号
-    onLessonEdited: (after, before, titleCn) => {
-      if (matchedLesson && (matchedLesson.lid === (after && after.lid) || matchedLesson.lesson === before.lesson)) {
-        setMatchedLesson(after);
-        setLessonId(after.lesson);
-        if (titleCn && titleCn !== before.title_cn) setTitle(titleCn);
-      }
-    },
+    // 编辑的是「当前正在练的那节课」时同步刷新（具体逻辑在 useLessons 之后挂上，见 onLessonEditedRef）
+    onLessonEdited: (after, before, titleCn) => onLessonEditedRef.current && onLessonEditedRef.current(after, before, titleCn),
     getSelectedLesson: () => matchedLessonRef.current,
-    onSelectedLessonChanged: (fresh) => { setMatchedLesson(fresh); setLessonId(fresh.lesson); },
+    onSelectedLessonChanged: (fresh) => onSelectedLessonChangedRef.current && onSelectedLessonChangedRef.current(fresh),
   });
 
-  // 自建课文的 key 用**稳定 id**（lid）而不是序号：序号用户随时会改，
-  // 而 key 决定了「同一课的两次练习对比」和计时归属 —— 用序号的话一改就断链。
-  const lessonKey = mode !== 'lesson' ? 'free'
-    : (myLibId && matchedLesson && matchedLesson.book === 'my' && matchedLesson.lid
-      ? `lesson:my-${myLibId}-${matchedLesson.lid}`
-      : `lesson:${book}-${lessonId}`);
-  const { timer, toggle: toggleTimer, reset: resetTimer, elapsedMsNow, hasElapsed } = useTimer(lessonKey);
+  // lessonKey（依赖 matchedLesson/book/lessonId）与 useTimer 挪到 useLessons 之后
+  // —— 那几个值由 useLessons 提供，写在前面会踩 TDZ。
 
   /* ---------- 收藏夹 / 复习 / 自测题 ----------
    * 状态与动作都在 hooks/useFavorites.js；变量名沿用原来的，调用点不用改。 */
@@ -359,48 +345,46 @@ function App() {
     try { setStatus(await getStatus()); } catch { setStatus(null); }
   };
 
-  // 恢复上次打开的书册/课次；没有记录则默认第一课
-  const pickInitialLesson = (list) => {
-    const savedBook = Number(safeGet('bt-book', ''));
-    const savedLesson = Number(safeGet('bt-lesson', ''));
-    const targetBook = [1, 2, 3, 4].includes(savedBook) ? savedBook : 2;
-    const match = list.find((l) => l.book === targetBook && l.lesson === savedLesson);
-    if (match) return match;
-    return list.find((l) => l.book === targetBook) || list[0] || null;
-  };
-
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      // 免费托管（Render）休眠后唤醒要约 1 分钟。必须**先探活再做首屏请求**：
-      // 否则 /api/status 与 /api/lessons 会在 15 秒时超时，用户看到的是
-      // "服务器出错 + 退回示例课文"，而其实再等 40 秒数据就来了。
-      await wakeUp({ onSlow: () => { if (alive) setBackendWaking(true); } });
-      if (!alive) return;
-      setBackendWaking(false);
-      refreshStatus();
-      try {
-        const data = await getLessons();
-        if (!alive) return;
-        const loaded = data.lessons || [];
-        setLessons(loaded);
-        if (loaded.length) {
-          const target = pickInitialLesson(loaded);
-          selectLesson(target.book, target.lesson);
-        }
-      } catch {
-        // 后端彻底不可用才退回示例课文（保留原有的降级行为）
-        if (!alive) return;
-        const fallback = DEMO_LESSONS.map((l) => ({ ...l, book: 2 }));
-        setLessons(fallback);
-        const target = pickInitialLesson(fallback) || { book: 2, lesson: 18 };
-        selectLesson(target.book, target.lesson);
-      }
-    })();
-    return () => { alive = false; };
-    // 刻意只在挂载时跑一次：selectLesson 每次渲染都是新函数，放进来会变成每次渲染都重新拉课表
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  /** 给 useLessons 用：把"当前作业已保存的快照"记下来（判断作业有没有改动过） */
+  const markSavedSnapshot = useCallback((lesson) => {
+    savedSnapshotRef.current = fingerprintOf(lesson.title_cn || lessonLabel(lesson), lesson.chinese || '', '', lesson.english || '');
   }, []);
+
+  // 选课（hooks/useLessons.js）：内置课表 + 自建库选课；变量名沿用原来的
+  const {
+    lessons, setLessons, book, setBook, lessonId, setLessonId, matchedLesson, setMatchedLesson,
+    lessonQuery, setLessonQuery, visibleLessons,
+    selectLesson, handleBookChange, selectMyLesson, applyMatchedLesson,
+  } = useLessons({
+    activeLib, myLibs, myLibId, setMyLibId,
+    setTitle, setChinese, setDraft, setGeneratedOriginal, setManualOriginal, setMaterialKeywords,
+    setMatchConfidence, setMatchScore, setMode,
+    runGenerateRef, refreshStatus, setError, markSavedSnapshot,
+    toast: (msg, ms) => flashTip(setToast, msg, ms),
+    setBackendWaking, genTokenRef, aliveRef,
+  });
+
+  // useLessons 就位后，把「课文被改名/挪位」「重排后当前课变了」的处理接上
+  onLessonEditedRef.current = (after, before, titleCn) => {
+    if (matchedLesson && (matchedLesson.lid === (after && after.lid) || matchedLesson.lesson === before.lesson)) {
+      setMatchedLesson(after);
+      setLessonId(after.lesson);
+      if (titleCn && titleCn !== before.title_cn) setTitle(titleCn);
+    }
+  };
+  onSelectedLessonChangedRef.current = (fresh) => { setMatchedLesson(fresh); setLessonId(fresh.lesson); };
+  setMatchedLessonRef.current = setMatchedLesson;
+  matchedLessonRef.current = matchedLesson; // 供 useLibraries 读「当前正在练的课」
+
+  // 自建课文的 key 用**稳定 id**（lid）而不是序号：序号用户随时会改，
+  // 而 key 决定了「同一课的两次练习对比」和计时归属 —— 用序号的话一改就断链。
+  const lessonKey = mode !== 'lesson' ? 'free'
+    : (myLibId && matchedLesson && matchedLesson.book === 'my' && matchedLesson.lid
+      ? `lesson:my-${myLibId}-${matchedLesson.lid}`
+      : `lesson:${book}-${lessonId}`);
+  const { timer, toggle: toggleTimer, reset: resetTimer, elapsedMsNow, hasElapsed } = useTimer(lessonKey);
+
+
 
   // 通过分享链接 #job=xxx 打开时，直接恢复该次生成结果（即使后端重启过，任务已持久化）
   useEffect(() => {
@@ -458,17 +442,6 @@ function App() {
    * 一册就 96 课（全书 348 课），靠翻列表找「Lesson 47」或「那篇讲春节的」都很痛苦。
    * 纯数字按课号优先 —— 输入 47 应该直接命中 Lesson 47，而不是标题里恰好含 47 的那几篇。
    */
-  const visibleLessons = useMemo(() => {
-    const base = activeLib ? activeLib.lessons : lessons.filter((l) => l.book === book);
-    const q = lessonQuery.trim().toLowerCase();
-    if (!q) return base;
-    const text = (l) => `${l.lesson} ${l.title_cn || ''} ${l.title_en || ''}`.toLowerCase();
-    if (/^\d{1,3}$/.test(q)) {
-      const n = Number(q);
-      return base.filter((l) => l.lesson === n || text(l).includes(q));
-    }
-    return base.filter((l) => text(l).includes(q));
-  }, [activeLib, lessons, book, lessonQuery]);
 
   // 本次作业的「英文原文（标准答案）」优先级：
   // 用户手填 > AI 素材生成的原文 > 自建库课文自带的原文。
@@ -477,52 +450,7 @@ function App() {
     || generatedOriginal
     || (myLibId ? (matchedLesson?.english || '') : '');
 
-  // 请求令牌：连点两课时，先发的慢请求若后返回，会把标题/中文覆盖成上一课的内容
-  // （表现为侧栏高亮第 5 课、编辑区却是第 3 课）。挂载时的自动选课也会"迟到覆盖"用户的手动选择。
-  const lessonReqRef = useRef(0);
-  const selectLesson = useCallback(async (nextBook, nextLesson, autoGenerate = false) => {
-    const reqId = (lessonReqRef.current += 1);
-    genTokenRef.current += 1; // 切课即作废正在跑的生成任务，避免它完成时抢回结果页
-    setBook(nextBook);
-    setLessonId(nextLesson);
-    setMatchedLesson(null);
-    setMode('lesson');
-    setMatchConfidence('manual');
-    setMatchScore(null);
-    safeSet('bt-book', String(nextBook));
-    safeSet('bt-lesson', String(nextLesson));
-    try {
-      const lesson = await getLesson(nextBook, nextLesson);
-      if (reqId !== lessonReqRef.current) return; // 已被更晚的选择取代，丢弃这次结果
-      setTitle(lessonLabel(lesson));
-      setChinese(lesson.chinese || '');
-      setDraft('');
-      setGeneratedOriginal('');
-      // 语料里每一课都带英文原文（348 课全有），直接把标准答案填进「英文原文」栏，
-      // 用户可以看到/对照，不再是一个空框。
-      setManualOriginal(lesson.english || '');
-      setMaterialKeywords([]);
-      setMatchedLesson(lesson);
-      // 注意：内置课文不写 savedSnapshot —— 它还没进过课文库，用户随时可能想存进去
-    } catch {
-      if (reqId !== lessonReqRef.current) return;
-      setTitle(`Lesson ${nextLesson}`);
-      setChinese('');
-      setDraft('');
-      setGeneratedOriginal('');
-      setManualOriginal('');
-      setMaterialKeywords([]);
-    }
-    // 走 ref 取当下的生成函数：否则 selectLesson 的依赖会一路拖到整个生成流程
-    if (autoGenerate) setTimeout(() => runGenerateRef.current && runGenerateRef.current(nextLesson), 60);
-  }, []);
 
-  const handleBookChange = useCallback((nextBook) => {
-    setMyLibId(''); // 切回内置册
-    const first = lessons.find((l) => l.book === nextBook);
-    if (first) selectLesson(nextBook, first.lesson);
-    else setBook(nextBook);
-  }, [lessons, selectLesson, setMyLibId]);
 
   /** 选中自建库（只切换侧栏列表，不改变当前作业）。 */
   const selectMyLib = useCallback((libId) => {
@@ -532,28 +460,6 @@ function App() {
     if (lib && !lib.lessons.length) flashTip(setToast, `「${lib.name}」还是空的：把当前作业存进去就能在这里选出来练习`, 4500);
   }, [myLibs, setMyLibId, setError]);
 
-  /** 从自建库载入一节课（本地数据，不发请求）。 */
-  const selectMyLesson = useCallback((libId, lessonNo) => {
-    const lib = myLibs.find((x) => x.id === libId);
-    const lesson = lib?.lessons.find((l) => l.lesson === Number(lessonNo));
-    if (!lesson) return;
-    lessonReqRef.current += 1; // 作废仍在飞的内置课文请求，避免它回来覆盖
-    genTokenRef.current += 1;
-    setMyLibId(libId);
-    setLessonId(lesson.lesson);
-    setMatchedLesson(lesson);
-    setMode('lesson');
-    setMatchConfidence('manual');
-    setMatchScore(null);
-    setTitle(lesson.title_cn || lessonLabel(lesson)); // 自建课文直接用标题，不带 Lesson 编号
-    setChinese(lesson.chinese || '');
-    setDraft('');
-    setGeneratedOriginal('');
-    setManualOriginal(lesson.english || '');
-    setMaterialKeywords([]);
-    setError('');
-    savedSnapshotRef.current = fingerprintOf(lesson.title_cn || lessonLabel(lesson), lesson.chinese || '', '', lesson.english || '');
-  }, [myLibs, setMyLibId]);
 
   /* ---------- 自建课文库：新建 / 保存 ---------- */
 
@@ -835,16 +741,6 @@ function App() {
     }
   };
 
-  const applyMatchedLesson = () => {
-    if (!matchedLesson) return;
-    setMode('lesson');
-    setTitle(lessonLabel(matchedLesson));
-    setManualOriginal(matchedLesson.english || ''); // 把这一课的英文原文带进「英文原文」栏
-    setMatchConfidence('manual');
-    setMatchScore(null);
-    safeSet('bt-book', String(matchedLesson.book));
-    safeSet('bt-lesson', String(matchedLesson.lesson));
-  };
 
   /** 素材生成：弹窗里的按钮（成功后由 hook 关弹窗） */
   const handleGenerateMaterial = useCallback(
