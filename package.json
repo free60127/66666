@@ -13,7 +13,7 @@
     "start": "node server/index.mjs",
     "test": "node server/accounts.test.mjs && node server/sync.test.mjs && node server/jobs.test.mjs && node server/ratelimit.test.mjs && node server/jobfault.test.mjs && node test/favorites.test.mjs && node test/progress.test.mjs && node test/lessonLibrary.test.mjs",
     "test:auth": "node auth-worker/tests/auth.test.mjs",
-    "lint": "eslint . && node tools/check-hook-scope.mjs"
+    "lint": "eslint ."
   },
   "dependencies": {
     "lucide-react": "0.468.0",

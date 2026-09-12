@@ -40,6 +40,8 @@ export default [
       'no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^(React|_)$', caughtErrors: 'none' }],
       // 下面的规则对现有代码噪音太大，先关掉；真要开就配套改代码
       'no-empty': ['error', { allowEmptyCatch: true }],
+      // ★ TDZ 白屏：const/let 声明之前就被读（App 里 hook 一多就踩，vite build 查不出来）
+      'no-use-before-define': ['error', { functions: false, classes: false, variables: true, allowNamedExports: false }],
     },
   },
   {

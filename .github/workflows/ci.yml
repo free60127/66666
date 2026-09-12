@@ -36,7 +36,7 @@ jobs:
       # 静态检查放在测试前面：ESLint 的 no-undef / jsx-no-undef 能抓住「漏了 import」
       # 这类只在浏览器里才炸的白屏问题（曾经带着这种提交上线过），
       # check-hook-scope 再抓一层「hook 声明前引用」的 TDZ。
-      - name: 静态检查（ESLint + hook 作用域）
+      - name: 静态检查（ESLint：未定义 / 未使用 / TDZ 前向引用）
         run: npm run lint
 
       - name: 测试（账号 / 同步 / 任务清理 / 限流 / 收藏 / 同课对比）

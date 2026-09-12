@@ -29,6 +29,8 @@ export function useLessons({
   setMatchConfidence, setMatchScore, setMode,
   runGenerateRef, refreshStatus, setError, markSavedSnapshot, setBackendWaking, genTokenRef,
 }) {
+  // selectLesson 的 ref 版：首屏拉课表的 effect 里要用它（声明必须在那个 effect 之前，否则 TDZ）
+  const selectLessonRef = useRef(null);
   const [lessons, setLessons] = useState([]);
   const [book, setBook] = useState(() => {
     const b = Number(safeGet('bt-book', ''));
@@ -131,8 +133,6 @@ export function useLessons({
   }, [genTokenRef, runGenerateRef, setChinese, setDraft, setGeneratedOriginal, setManualOriginal, setMatchConfidence, setMatchScore, setMaterialKeywords, setMode, setTitle]);
 
   // 探活 effect 里要调 selectLesson，但它自己会随依赖变化 → 用 ref 取最新那份
-  const selectLessonRef = useRef(selectLesson);
-  selectLessonRef.current = selectLesson;
 
   const handleBookChange = useCallback((nextBook) => {
     setMyLibId(''); // 切回内置册
@@ -175,6 +175,8 @@ export function useLessons({
     safeSet('bt-book', String(matchedLesson.book));
     safeSet('bt-lesson', String(matchedLesson.lesson));
   }, [matchedLesson, setManualOriginal, setMatchConfidence, setMatchScore, setMode, setTitle]);
+
+  selectLessonRef.current = selectLesson;
 
   return {
     lessons, setLessons, book, setBook, lessonId, setLessonId, matchedLesson, setMatchedLesson,

@@ -3,13 +3,11 @@ import { BookOpen, Camera, CheckCircle2, ChevronDown, ChevronRight, Cloud, Copy,
 // mammoth（894 KB 源码）只在"上传 DOCX"这一个功能里用到，
 // 改为 handleDocx 内动态 import，避免它被打进首屏主包。
 import { ensureLessonIds, mergeLibraries, saveLibraries } from './lessonLibrary.js'
-import { getOcrJob, getStatus, loadSettings, matchLesson, ocr, saveSettings } from './api.js'
+import { getStatus, loadSettings, matchLesson, saveSettings } from './api.js'
 import { mergeHistory } from './sync.js'
 import { mergeFavorites, saveFavorites } from './favorites.js'
-import { POLL_OCR_MS, TIMEOUT_OCR_MS } from './constants.js'
 import { safeGet, safeSet, saveHistory } from './storage.js'
 import { useTimer } from './hooks/useTimer.js'
-import { submitAndPoll } from './hooks/pollJob.js'
 import { useCloudSync } from './hooks/useCloudSync.js'
 import { useAccount } from './hooks/useAccount.js'
 import { useJobRunner } from './hooks/useJobRunner.js'
@@ -20,6 +18,7 @@ import { lessonLabel } from './lessonLabel.js';
 import { useLessons } from './hooks/useLessons.js';
 import { useFavorites } from './hooks/useFavorites.js'
 import { useGeneration } from './hooks/useGeneration.js'
+import { useOcr } from './hooks/useOcr.js'
 import ElapsedDisplay from './components/ElapsedDisplay.jsx'
 import { ResultSheet } from './components/ResultSheet/index.jsx'
 import { QuizSheet } from './components/ResultSheet/Quiz.jsx'
@@ -36,58 +35,14 @@ const CONFIDENCE_LABEL = { high: '高置信度', medium: '中置信度', low: '�
 
 // 结果数据归一化（normalizeResult）挪到 src/resultData.js —— 生成链路与它之外的调用点共用一份
 
-/* ---------- 拍照 / 图片识别（OCR）前端预处理 ---------- */
+// OCR 图片预处理（fileToDataUrl / loadImageEl / prepareImage）挪到 src/ocrImage.js
 // OCR 的三个目标框（中文提示 / 英文初稿 / 英文原文）
 const OCR_LABEL = { chinese: '中文提示', english: '英文初稿', original: '英文原文' };
 
-function fileToDataUrl(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result || ''));
-    reader.onerror = () => reject(new Error('读取图片失败，请重试'));
-    reader.readAsDataURL(file);
-  });
-}
-
-function loadImageEl(src) {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error('图片解码失败（iPhone 的 HEIC 格式请先转成 JPG）'));
-    img.src = src;
-  });
-}
-
-/**
- * 客户端预处理：控制长边分辨率（手写体给更高分辨率）、必要时灰度+提对比，再压成 JPEG。
- * 目标：手写体识别质量更高，同时上传体积可控。
- */
-async function prepareImage(file, mode) {
-  const raw = await fileToDataUrl(file);
-  const img = await loadImageEl(raw);
-  const longEdge = Math.max(img.width, img.height) || 1;
-  const target = mode === 'handwriting' ? 2400 : 1800;
-  const minEdge = 1200; // 小图放大，避免模型看不清笔画
-  let scale = 1;
-  if (longEdge > target) scale = target / longEdge;
-  else if (longEdge < minEdge) scale = Math.min(2.5, minEdge / longEdge);
-  const w = Math.max(1, Math.round(img.width * scale));
-  const h = Math.max(1, Math.round(img.height * scale));
-  const canvas = document.createElement('canvas');
-  canvas.width = w;
-  canvas.height = h;
-  const ctx = canvas.getContext('2d');
-  if (mode === 'handwriting') {
-    try { ctx.filter = 'grayscale(1) contrast(1.25)'; } catch { /* 部分浏览器不支持 filter，忽略 */ }
-  }
-  ctx.drawImage(img, 0, 0, w, h);
-  let quality = 0.92;
-  let out = canvas.toDataURL('image/jpeg', quality);
-  while (out.length > 4.2 * 1024 * 1024 && quality > 0.55) {
-    quality -= 0.12;
-    out = canvas.toDataURL('image/jpeg', quality);
-  }
-  return out;
+/** 作业指纹：判断"当前内容有没有被改过"（存进课文库 / 新建作业时用）。模块级 —— 它在 App 的
+ *  多个回调里被提前引用，写成组件内的 const 会踩 TDZ（eslint no-use-before-define 会拦）。 */
+function fingerprintOf(t, c, d, o) {
+  return [t, c, d, o].map((s) => String(s || '').trim()).join('');
 }
 
 /* ---------- 计时器：记录一篇课文/一次练习花了多久 ---------- */
@@ -148,8 +103,13 @@ function App() {
     const f = setMatchedLessonRef.current;
     if (f) f(v);
   }, []);
+  // 组件是否还活着：轮询循环靠它自行退出（否则后台会一直打接口到超时）。
+  // 必须在 useOcr 之前声明 —— 那边调用时就要把它传进去（顺序踩过 TDZ）。
+  const aliveRef = useRef(true);
+
   const materialBusyRef = useRef(false);
   const authOpenRef = useRef(false);
+  const closeAuthRef = useRef(null);
   const [status, setStatus] = useState(null);
   const [mode, setMode] = useState('lesson');
   // 生成链路的繁忙/进度/计时（hooks/useJobRunner.js）；变量名沿用原来的，调用点不用改
@@ -203,23 +163,21 @@ function App() {
     // 账号弹窗是后加的，之前漏在键盘可达性之外（Esc 关不掉）—— 接进来
   } = useModals({
     getCloseCamera: closeCameraRef, getMaterialBusy: materialBusyRef,
-    getAuthOpen: () => authOpenRef.current, closeAuth: () => setAuthOpen(false),
+    // closeAuth 由后面的 useAccount 提供，用 ref 透传（声明前引用会踩 TDZ）
+    closeAuth: () => closeAuthRef.current && closeAuthRef.current(),
   });
-  // 拍照 / 图片识别
-  const [ocrBusy, setOcrBusy] = useState(null); // null | 'chinese' | 'english'
-  const [ocrMode, setOcrMode] = useState('auto'); // auto | handwriting | printed
-  const [ocrNotes, setOcrNotes] = useState({});
-  const [dragOver, setDragOver] = useState(null); // null | 'chinese' | 'english'
-  const [camSide, setCamSide] = useState('english');
-  const [camError, setCamError] = useState('');
-  const camVideoRef = useRef(null);
-  const camStreamRef = useRef(null);
-  const chineseCamRef = useRef(null);
-  const chineseFileRef = useRef(null);
-  const englishCamRef = useRef(null);
-  const englishFileRef = useRef(null);
-  const originalCamRef = useRef(null);   // 英文原文（标准答案）框的拍照 / 选图
-  const originalFileRef = useRef(null);
+  /* ---------- 拍照 / 图片识别（hooks/useOcr.js）----------
+   * 状态、refs、摄像头生命周期、识别轮询都在那里；变量名沿用原来的，JSX 不用改。 */
+  const {
+    ocrBusy, ocrMode, setOcrMode, ocrNotes, setOcrNotes,
+    dragOver, setDragOver, camSide, camError,
+    camVideoRef, chineseCamRef, chineseFileRef,
+    englishCamRef, englishFileRef, originalCamRef, originalFileRef,
+    handleOcrFiles, openCamera, closeCamera, snapPhoto,
+  } = useOcr({
+    settings, aliveRef, camOpen, setCamOpen, setError,
+    setChinese, setDraft, setManualOriginal, closeCameraRef,
+  });
   // 计时器（记录一篇课文做了多久）
   // 计时器（hooks/useTimer.js）：切课文自动归零、刷新恢复，细节见该文件里的说明
   // 自建课文库（本机保存）：用户可以把自己的作业存成课文，像内置语料一样反复练
@@ -258,8 +216,7 @@ function App() {
     if (prev) clearTimeout(prev);
     tipTimersRef.current.set(setter, setTimeout(() => setter(''), ms));
   };
-  // 卸载时清掉所有计时器，并让仍在跑的轮询循环自行退出（否则会在后台一直打接口到超时）
-  const aliveRef = useRef(true);
+  // 卸载时清掉所有提示计时器，并让仍在跑的轮询循环自行退出（aliveRef 见文件上方）
   useEffect(() => () => {
     aliveRef.current = false;
     for (const t of tipTimersRef.current.values()) clearTimeout(t);
@@ -439,7 +396,6 @@ function App() {
   };
 
   const hasJobContent = () => Boolean(title.trim() || chinese.trim() || draft.trim() || manualOriginal.trim());
-  const fingerprintOf = (t, c, d, o) => [t, c, d, o].map((s) => String(s || '').trim()).join('\u0001');
   const jobFingerprint = fingerprintOf(title, chinese, draft, manualOriginal);
   const jobDirty = jobFingerprint !== savedSnapshotRef.current;
 
@@ -617,6 +573,7 @@ function App() {
     flash: (msg, ms) => flashTip(setToast, msg, ms),
   });
   authOpenRef.current = authOpen; // 供 useModals 的 Esc/焦点陷阱识别账号弹窗
+  closeAuthRef.current = () => setAuthOpen(false);
 
 
 
@@ -693,122 +650,7 @@ function App() {
 
   // 历史 / 分享动作（addToHistory / openHistoryModal / loadHistoryJob / shareResult）在 hooks/useGeneration.js
 
-  /* ---------- 拍照 / 图片识别 ---------- */
-  const handleOcrFiles = async (side, files) => {
-    const list = Array.from(files || []).filter((f) => f && /^image\//i.test(f.type || ''));
-    if (!list.length) { setError('请选择图片文件（JPG / PNG / WEBP 等）'); return; }
-    if (ocrBusy) return;
-    // 三个目标框共用一条识别链路：服务端只认 chinese / english 两种语言，
-    // 「英文原文」框用 english 识别、但结果落到 manualOriginal。
-    const target = side === 'chinese'
-      ? { lang: 'chinese', apply: setChinese, done: '已填入中文提示' }
-      : side === 'original'
-        ? { lang: 'english', apply: setManualOriginal, done: '已追加到英文原文' }
-        : { lang: 'english', apply: setDraft, done: '已追加到英文初稿' };
-    setError('');
-    setOcrBusy(side);
-    setOcrNotes((n) => ({ ...n, [side]: '正在准备图片…' }));
-    try {
-      const texts = [];
-      for (let i = 0; i < list.length; i += 1) {
-        setOcrNotes((n) => ({ ...n, [side]: `正在识别第 ${i + 1}/${list.length} 张…（约 5-30 秒）` }));
-        const image = await prepareImage(list[i], ocrMode);
-        const outcome = await submitAndPoll({
-          submit: () => ocr({
-            image, side: target.lang, mode: ocrMode,
-            baseUrl: settings.baseUrl, model: settings.model, apiKey: settings.apiKey,
-            visionModel: settings.visionModel,
-          }),
-          fetchJob: getOcrJob,
-          intervalMs: POLL_OCR_MS,
-          timeoutMs: TIMEOUT_OCR_MS,
-          maxFailures: 8,
-          netError: '网络不稳定，暂时无法获取识别结果，请重试',
-          timeoutError: '识别超时（超过 3 分钟），请换更清晰的照片或重新拍一张',
-          isAlive: () => aliveRef.current,
-        });
-        if (outcome.aborted) return;
-        const text = (outcome.data && outcome.data.text) || '';
-        if (!text) throw new Error('识别超时（超过 3 分钟），请换更清晰的照片或重新拍一张');
-        texts.push(text);
-      }
-      const merged = texts.join('\n\n');
-      target.apply((prev) => (prev && prev.trim() ? prev.replace(/\s+$/, '') + '\n\n' + merged : merged));
-      setOcrNotes((n) => ({ ...n, [side]: `识别完成：${merged.length} 字，${target.done}，请核对后再生成` }));
-    } catch (e) {
-      setOcrNotes((n) => ({ ...n, [side]: '识别失败：' + (e.message || '未知错误') }));
-    } finally {
-      setOcrBusy(null);
-    }
-  };
-
-  const openCamera = async (side) => {
-    setCamError('');
-    const fallbackInput = side === 'chinese' ? chineseCamRef.current : side === 'original' ? originalCamRef.current : englishCamRef.current;
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      fallbackInput?.click();
-      return;
-    }
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } },
-        audio: false,
-      });
-      // 先停掉上一次的流：否则第二次 getUserMedia 之后旧轨道泄漏，摄像头指示灯一直不灭
-      try { camStreamRef.current?.getTracks().forEach((t) => t.stop()); } catch { /* ignore */ }
-      camStreamRef.current = stream;
-      setCamSide(side);
-      setCamOpen(true);
-    } catch (e) {
-      setError('无法打开摄像头（' + (e.message || '权限被拒绝') + '），已打开系统选择器：可拍照或从相册选择');
-      fallbackInput?.click();
-    }
-  };
-
-  const closeCamera = () => {
-    try { camStreamRef.current?.getTracks().forEach((t) => t.stop()); } catch { /* ignore */ }
-    camStreamRef.current = null;
-    setCamOpen(false);
-    setCamError('');
-  };
-  closeCameraRef.current = closeCamera; // 供 useModals 在 Esc 关闭时调用
-
-  const snapPhoto = async () => {
-    const video = camVideoRef.current;
-    if (!video || !video.videoWidth) { setCamError('相机画面尚未就绪，请稍候再点拍照'); return; }
-    const canvas = document.createElement('canvas');
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    canvas.getContext('2d').drawImage(video, 0, 0);
-    const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.95));
-    if (!blob) { setCamError('拍照失败，请重试'); return; }
-    const file = new File([blob], 'camera-' + Date.now() + '.jpg', { type: 'image/jpeg' });
-    const side = camSide;
-    closeCamera();
-    await handleOcrFiles(side, [file]);
-  };
-
-  // 桌面端：防止图片被拖到页面空白处时浏览器直接打开图片；同时负责组件卸载时关掉摄像头
-  useEffect(() => {
-    const prevent = (e) => { e.preventDefault(); };
-    window.addEventListener('dragover', prevent);
-    window.addEventListener('drop', prevent);
-    return () => {
-      window.removeEventListener('dragover', prevent);
-      window.removeEventListener('drop', prevent);
-      try { camStreamRef.current?.getTracks().forEach((t) => t.stop()); } catch { /* ignore */ }
-    };
-  }, []);
-
-  // 摄像头弹窗打开后再绑定视频流（保证 <video> 已挂载）
-  useEffect(() => {
-    if (!camOpen) return;
-    const v = camVideoRef.current;
-    if (v && camStreamRef.current) {
-      v.srcObject = camStreamRef.current;
-      v.play().catch(() => {});
-    }
-  }, [camOpen]);
+  // 拍照 / 识别动作（handleOcrFiles / openCamera / closeCamera / snapPhoto）都在 hooks/useOcr.js
 
   // 生成动作（runGenerate / cancelGenerate / loadDemo / copyAll）都在 hooks/useGeneration.js
 
