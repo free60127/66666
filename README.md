@@ -53,7 +53,7 @@
 ## 测试
 
     npm test          # 账号 52 + 同步 18 + 任务保留/清理 12 + 限流/客户端 IP 27 + 收藏/SM-2 49 + 同课对比 50 项（纯 node）
-    npm run test:auth # 账号服务 Worker 44 项（auth-worker，走本地 D1 垫片）
+    npm run test:auth # 账号服务 Worker 44 项（auth-worker，走本地 D1 垫片；该目录未纳入仓库时跳过）
     node tools/e2e-b6b7.mjs   # 真实浏览器链路 35 项：两次练习对比、收藏复习、跨设备进度合并（自带 mock 模型与后端）
 
 全部是断言脚本（`PASS/FAIL` 逐条打印），失败时退出码非 0，可直接挂 CI。e2e 需要 `tools/shotter/node_modules` 里的 playwright（没装就跳过，不影响 npm test）。
