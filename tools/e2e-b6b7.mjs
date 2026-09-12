@@ -353,126 +353,125 @@ try {
     await sleep(200);
   }
 
-  /* ---------- 自建课文：改标题 / 改序号 / 重排序号（本次需求） ---------- */
+  /* ---------- 自建课文：保存 / 改标题 / 改序号 / 重排序号（独立上下文，避免长会话的脏状态） ---------- */
   {
-    // 存两节课进「我的课文库」（第二篇换个中文，否则会被当成同一篇覆盖）
-    await page.click('.result-toolbar >> text=返回编辑').catch(() => {});
-    await page.waitForSelector('.editor');
-    await page.click('.editor >> text=保存到课文库');
-    await page.waitForSelector('.modal');
-    await page.fill('.modal input[placeholder*="例如：我的第二册"]', 'E2E 测试库');
-    await page.click('.modal .primary-btn');
-    await sleep(600);
-    await page.fill('.big-textarea >> nth=0', '第二篇：春节的由来与习俗。');
-    await page.click('.editor >> text=保存到课文库');
-    await page.waitForSelector('.modal');
-    await page.click('.modal .primary-btn');
-    await sleep(600);
+    const ctxL = await browser.newContext({ viewport: { width: 1360, height: 900 } });
+    const L = await ctxL.newPage();
+    await L.goto(BASE, { waitUntil: 'domcontentloaded' });
+    await L.waitForSelector('.editor', { timeout: 60000 });
 
-    const lib = () => page.evaluate(() => {
+    const lib = () => L.evaluate(() => {
       const libs = JSON.parse(localStorage.getItem('bt-lesson-libraries') || '[]');
       const l = libs.find((x) => x.name === 'E2E 测试库');
       return l ? l.lessons.map((x) => ({ no: x.lesson, lid: x.lid, cn: x.title_cn })) : null;
     });
-    let L = await lib();
-    ok('自建课文：存进去两节，序号 1、2', L && L.length === 2 && L.map((x) => x.no).join(',') === '1,2', JSON.stringify(L && L.map((x) => x.no)));
-    ok('自建课文：每节都带稳定 id（lid）', L && L.every((x) => /^lsn-/.test(x.lid || '')), JSON.stringify(L && L.map((x) => x.lid)));
 
-    // 切进这个库，侧栏才显示编辑/删除按钮
-    await page.click('.lib-row .lib-tab');
-    await sleep(400);
-    const rows = page.locator('.lesson-row');
-    const count = await rows.count();
-    let first = -1;
-    for (let i = 0; i < count; i += 1) {
-      const t = await rows.nth(i).innerText();
-      if (t.includes('第二篇') || t.includes('测试')) { first = i; break; }
-    }
-    ok('侧栏：自建课文出现在列表里', count >= 2, String(count) + ' 行');
+    // ① 保存两节课（第二篇换个中文，否则会被当成同一篇覆盖）
+    await L.fill('.big-textarea >> nth=0', '第一篇：春节');
+    await L.click('.editor >> text=保存到课文库', { force: true });
+    await L.waitForSelector('.modal', { timeout: 10000 });
+    await L.fill('.modal input[placeholder*="例如：我的第二册"]', 'E2E 测试库');
+    await L.click('.modal .primary-btn');
+    await L.waitForTimeout(600);
+    await L.fill('.big-textarea >> nth=0', '第二篇：人工智能');
+    await L.click('.editor >> text=保存到课文库', { force: true });
+    await L.waitForSelector('.modal', { timeout: 10000 });
+    await L.click('.modal .primary-btn');
+    await L.waitForTimeout(600);
 
-    // ① 改标题 + ② 改序号（挪到第 1 位）
-    await rows.nth(first).hover();
-    await rows.nth(first).locator('.lesson-edit').click();
-    await page.waitForSelector('[aria-label="编辑课文"]');
-    await page.fill('[aria-label="编辑课文"] input >> nth=0', '春节习俗（改过标题）');
-    await page.fill('[aria-label="编辑课文"] input[type="number"]', '1');
-    await page.click('[aria-label="编辑课文"] >> text=保存');
-    await sleep(500);
-    L = await lib();
-    ok('★ 改标题：新标题已落盘', L && L.some((x) => x.cn === '春节习俗（改过标题）'), JSON.stringify(L && L.map((x) => x.cn)));
+    let list = await lib();
+    ok('自建课文：存进去两节，序号 1、2', list && list.length === 2 && list.map((x) => x.no).join(',') === '1,2', JSON.stringify(list && list.map((x) => x.no)));
+    ok('自建课文：每节都带稳定 id（lid）', list && list.every((x) => /^lsn-/.test(x.lid || '')), JSON.stringify(list && list.map((x) => x.lid)));
+
+    // ② 切进这个库，改标题 + 改序号
+    await L.click('.lib-row .lib-tab');
+    await L.waitForTimeout(400);
+    const rows = L.locator('.lesson-row');
+    const rowCount = await rows.count();
+    ok('侧栏：自建课文出现在列表里', rowCount >= 2, String(rowCount) + ' 行');
+    await rows.nth(1).hover();
+    await rows.nth(1).locator('.lesson-edit').click();
+    await L.waitForSelector('[aria-label="编辑课文"]');
+    await L.fill('[aria-label="编辑课文"] input >> nth=0', '人工智能（改过标题）');
+    await L.fill('[aria-label="编辑课文"] input[type="number"]', '1');
+    await L.click('[aria-label="编辑课文"] >> text=保存');
+    await L.waitForTimeout(500);
+    list = await lib();
+    ok('★ 改标题：新标题已落盘', list && list.some((x) => x.cn === '人工智能（改过标题）'), JSON.stringify(list && list.map((x) => x.cn)));
     ok('★ 改序号：挪到第 1 位、另一节顺移到 2（不重号不空档）',
-      L && L.map((x) => x.no).join(',') === '1,2' && L[0].cn === '春节习俗（改过标题）',
-      JSON.stringify(L && L.map((x) => x.no + ':' + x.cn)));
-    ok('改标题/改序号都不动 lid（练习记录不断链）', L && L.every((x) => /^lsn-/.test(x.lid || '')));
+      list && list.map((x) => x.no).join(',') === '1,2' && list[0].cn === '人工智能（改过标题）',
+      JSON.stringify(list && list.map((x) => x.no + ':' + x.cn)));
+    ok('改标题/改序号都不动 lid（练习记录不断链）', list && list.every((x) => /^lsn-/.test(x.lid || '')));
 
-    // ③ 删掉第 1 节 → 留下 1 的空档（剩下的是第 2 节）
-    page.once('dialog', (d) => d.accept());
+    // ③ 删掉第 1 节 → 序号留空档（剩下的是第 2 节）
+    L.once('dialog', (d) => d.accept());
     await rows.nth(0).hover();
     await rows.nth(0).locator('.lesson-del').click();
-    await sleep(500);
-    L = await lib();
-    ok('删课：剩下的那节序号保持 2（不偷偷重排）', L && L.length === 1 && L[0].no === 2, JSON.stringify(L && L.map((x) => x.no)));
+    await L.waitForTimeout(500);
+    list = await lib();
+    ok('删课：剩下的那节序号保持 2（不偷偷重排）', list && list.length === 1 && list[0].no === 2, JSON.stringify(list && list.map((x) => x.no)));
 
     // ④ 一键重排序号 → 空档补齐
-    await page.click('.my-libs-head >> [aria-label="重排序号"]');
-    await sleep(500);
-    L = await lib();
-    ok('★ 重排序号：2 → 1（补齐删课留下的空档）', L && L[0].no === 1, JSON.stringify(L && L.map((x) => x.no)));
+    await L.click('.my-libs-head >> [aria-label="重排序号"]');
+    await L.waitForTimeout(500);
+    list = await lib();
+    ok('★ 重排序号：2 → 1（补齐删课留下的空档）', list && list[0].no === 1, JSON.stringify(list && list.map((x) => x.no)));
 
-    // ⑤ 回归：**导入**一份没有稳定 id 的旧备份后，编辑按钮必须照样能用
-    // （曾经这里点了没反应：一次性迁移只管"打开页面时已存在"的数据）
-    {
-      const legacy = {
-        app: 'back-translate-studio',
-        exportedAt: new Date().toISOString(),
-        libraries: [{
-          id: 'lib-legacy-import', name: '旧备份库', createdAt: Date.now(),
-          lessons: [
-            { book: 'my', lesson: 1, title_cn: '旧备份里的课文', title_en: '', chinese: '旧中文', english: 'old english', source: '自建', createdAt: 1 },
-            { book: 'my', lesson: 3, title_cn: '旧备份第二篇', title_en: '', chinese: '旧中文二', english: 'old english 2', source: '自建', createdAt: 2 },
-          ],
-        }],
-        favorites: [],
-        history: [],
-      };
-      await page.click('.side-footer >> text=备份');
-      await page.waitForSelector('.modal');
-      await page.setInputFiles('.modal input[type="file"]', { name: 'legacy.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(legacy)) });
-      await sleep(800);
-      await page.click('.modal-head .icon-btn');
-      await sleep(300);
-      await page.click('.lib-row >> text=旧备份库');
-      await sleep(400);
-      const imported = page.locator('.lesson-row').first();
-      await imported.hover();
-      await imported.locator('.lesson-edit').click();
-      await page.waitForSelector('[aria-label="编辑课文"]', { timeout: 8000 });
-      const field = await page.locator('[aria-label="编辑课文"] input >> nth=0').inputValue();
-      ok('★ 导入的旧备份（没有稳定 id）也能打开编辑弹窗', field === '旧备份里的课文', field);
-      await page.fill('[aria-label="编辑课文"] input >> nth=0', '旧备份课文（改过）');
-      await page.click('[aria-label="编辑课文"] >> text=保存');
-      await sleep(500);
-      const fixed = await page.evaluate(() => {
-        const l = JSON.parse(localStorage.getItem('bt-lesson-libraries') || '[]').find((x) => x.name === '旧备份库');
-        return l && { cn: l.lessons[0].title_cn, lid: l.lessons[0].lid };
-      });
-      ok('导入的旧课文改名成功，并补上了稳定 id', fixed && fixed.cn === '旧备份课文（改过）' && /^lsn-/.test(fixed.lid || ''), JSON.stringify(fixed));
+    // ⑤ 回归：**导入**一份没有稳定 id 的旧备份后，编辑按钮照样能用
+    const legacy = {
+      app: 'back-translate-studio',
+      exportedAt: new Date().toISOString(),
+      libraries: [{
+        id: 'lib-legacy-import', name: '旧备份库', createdAt: Date.now(),
+        lessons: [
+          { book: 'my', lesson: 1, title_cn: '旧备份里的课文', title_en: '', chinese: '旧中文', english: 'old english', source: '自建', createdAt: 1 },
+          { book: 'my', lesson: 3, title_cn: '旧备份第二篇', title_en: '', chinese: '旧中文二', english: 'old english 2', source: '自建', createdAt: 2 },
+        ],
+      }],
+      favorites: [],
+      history: [],
+    };
+    await L.click('.side-footer >> text=备份');
+    await L.waitForSelector('.modal');
+    await L.setInputFiles('.modal input[type="file"]', { name: 'legacy.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(legacy)) });
+    await L.waitForTimeout(800);
+    await L.click('.modal-head .icon-btn');
+    await L.waitForTimeout(300);
+    await L.click('.lib-row >> text=旧备份库');
+    await L.waitForTimeout(400);
+    const imported = L.locator('.lesson-row').first();
+    await imported.hover();
+    await imported.locator('.lesson-edit').click();
+    await L.waitForSelector('[aria-label="编辑课文"]', { timeout: 8000 });
+    const field = await L.locator('[aria-label="编辑课文"] input >> nth=0').inputValue();
+    ok('★ 导入的旧备份（没有稳定 id）也能打开编辑弹窗', field === '旧备份里的课文', field);
+    await L.fill('[aria-label="编辑课文"] input >> nth=0', '旧备份课文（改过）');
+    await L.click('[aria-label="编辑课文"] >> text=保存');
+    await L.waitForTimeout(500);
+    const fixed = await L.evaluate(() => {
+      const l = JSON.parse(localStorage.getItem('bt-lesson-libraries') || '[]').find((x) => x.name === '旧备份库');
+      return l && { cn: l.lessons[0].title_cn, lid: l.lessons[0].lid };
+    });
+    ok('导入的旧课文改名成功，并补上了稳定 id', fixed && fixed.cn === '旧备份课文（改过）' && /^lsn-/.test(fixed.lid || ''), JSON.stringify(fixed));
 
-      // 空档库（1、3）里把第 3 课改成 2 → 序号必须真的变（曾经"位置没动就原样返回"，看着像没反应）
-      const imported2 = page.locator('.lesson-row').nth(1);
-      await imported2.hover();
-      await imported2.locator('.lesson-edit').click();
-      await page.waitForSelector('[aria-label="编辑课文"]');
-      await page.fill('[aria-label="编辑课文"] input[type="number"]', '2');
-      await page.click('[aria-label="编辑课文"] .primary-btn');
-      await sleep(500);
-      const nos = await page.evaluate(() => JSON.parse(localStorage.getItem('bt-lesson-libraries') || '[]').find((x) => x.name === '旧备份库').lessons.map((x) => x.lesson));
-      ok('★ 空档库（1、3）里把第 3 课改成 2：序号真的变成 1、2', nos.join(',') === '1,2', nos.join(','));
-    }
+    // ⑥ 空档库（1、3）里把第 3 课改成 2 → 序号必须真的变
+    const imported2 = L.locator('.lesson-row').nth(1);
+    await imported2.hover();
+    await imported2.locator('.lesson-edit').click();
+    await L.waitForSelector('[aria-label="编辑课文"]');
+    await L.fill('[aria-label="编辑课文"] input[type="number"]', '2');
+    await L.click('[aria-label="编辑课文"] .primary-btn');
+    await L.waitForTimeout(500);
+    const nos = await L.evaluate(() => JSON.parse(localStorage.getItem('bt-lesson-libraries') || '[]').find((x) => x.name === '旧备份库').lessons.map((x) => x.lesson));
+    ok('★ 空档库（1、3）里把第 3 课改成 2：序号真的变成 1、2', nos.join(',') === '1,2', nos.join(','));
+    await ctxL.close();
   }
 
   /* ---------- 分享链接：对方设备上没有你的本机缓存，也要能打开 ---------- */
-  const shareJob = await page.evaluate(() => (location.hash.match(/^#job=([A-Za-z0-9-]+)/) || [])[1] || '');
+  const shareJob = await page.evaluate(() => {
+    const h = JSON.parse(localStorage.getItem('bt-history') || '[]');
+    return (h[0] && h[0].jobId) || '';
+  });
   const ctxC = await browser.newContext({ viewport: { width: 1200, height: 900 } });
   const pageC = await ctxC.newPage();
   await pageC.goto(BASE + '#job=' + shareJob, { waitUntil: 'domcontentloaded' });

@@ -9,7 +9,7 @@
  */
 import { useEffect, useRef, useState } from 'react'
 
-export function useModals({ getCloseCamera, getMaterialBusy }) {
+export function useModals({ getCloseCamera, getMaterialBusy, getAuthOpen, closeAuth }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [materialOpen, setMaterialOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -27,7 +27,8 @@ export function useModals({ getCloseCamera, getMaterialBusy }) {
   // 键盘可达性：把「哪个弹窗开着」做成一件事，Esc 关闭、Tab 只在弹窗内循环。
   // 优先级顺序 = 屏幕上的层级顺序（后打开的排前面）。
   useEffect(() => {
-    const open = camOpen ? 'cam' : materialOpen ? 'material' : newJobOpen ? 'newjob' : libModalOpen ? 'lib' : lessonEdit ? 'lessonEdit' : backupOpen ? 'backup' : historyOpen ? 'history' : favOpen ? 'fav' : settingsOpen ? 'settings' : null;
+    const authOpen = Boolean(getAuthOpen && getAuthOpen());
+    const open = camOpen ? 'cam' : materialOpen ? 'material' : newJobOpen ? 'newjob' : libModalOpen ? 'lib' : lessonEdit ? 'lessonEdit' : backupOpen ? 'backup' : historyOpen ? 'history' : favOpen ? 'fav' : authOpen ? 'auth' : settingsOpen ? 'settings' : null;
     if (!open) return undefined;
     const closers = {
       cam: () => { if (getCloseCamera && getCloseCamera()) getCloseCamera()(); },
@@ -38,6 +39,7 @@ export function useModals({ getCloseCamera, getMaterialBusy }) {
       backup: () => setBackupOpen(false),
       history: () => setHistoryOpen(false),
       fav: () => setFavOpen(false),
+      auth: () => { if (closeAuth) closeAuth(); },
       settings: () => setSettingsOpen(false),
     };
     const onKeyDown = (e) => {
@@ -56,7 +58,7 @@ export function useModals({ getCloseCamera, getMaterialBusy }) {
     document.addEventListener('keydown', onKeyDown);
     const timer = setTimeout(() => modalRefs.current[open]?.querySelector('button, input, select, textarea')?.focus(), 40);
     return () => { document.removeEventListener('keydown', onKeyDown); clearTimeout(timer); };
-  }, [camOpen, materialOpen, newJobOpen, libModalOpen, lessonEdit, backupOpen, historyOpen, favOpen, settingsOpen, getCloseCamera, getMaterialBusy]);
+  }, [camOpen, materialOpen, newJobOpen, libModalOpen, lessonEdit, backupOpen, historyOpen, favOpen, settingsOpen, getCloseCamera, getMaterialBusy, getAuthOpen, closeAuth]);
 
   /** 有没有任何弹窗开着（用于全局快捷键 / 滚动锁定这类判断） */
   const anyOpen = Boolean(camOpen || materialOpen || newJobOpen || libModalOpen || lessonEdit || backupOpen || historyOpen || favOpen || settingsOpen);

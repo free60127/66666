@@ -1,18 +1,14 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  BookOpen, Camera, CheckCircle2, ChevronDown, ChevronRight, Cloud, Copy, Download, Flame, FolderPlus, History,
-  ImagePlus, Library, LoaderCircle, PanelLeftClose, PanelLeftOpen, PenLine, Settings, Sparkles, Star, Timer,
-  Upload, UserRound, WandSparkles, X,
-} from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { BookOpen, Camera, CheckCircle2, ChevronDown, ChevronRight, Cloud, Copy, Download, Flame, FolderPlus, History, ImagePlus, Library, LoaderCircle, PanelLeftClose, PanelLeftOpen, PenLine, Settings, Sparkles, Star, Timer, Upload, UserRound, WandSparkles, X } from 'lucide-react'
 // mammoth（894 KB 源码）只在"上传 DOCX"这一个功能里用到，
 // 改为 handleDocx 内动态 import，避免它被打进首屏主包。
-import { createLibrary, ensureLessonIds, findLesson, loadLibraries, mergeLibraries, moveLesson, removeLesson, removeLibrary, renameLesson, renumberLibrary, saveLibraries, upsertLesson } from './lessonLibrary.js'
+import { mergeLibraries, saveLibraries } from './lessonLibrary.js'
 import { analyze, generateMaterial, getAnalyzeJob, getLessons, getLesson, getMaterialJob, getOcrJob, getStatus, loadSettings, matchLesson, ocr, saveSettings, wakeUp } from './api.js'
 import { DEMO_LESSON_18, DEMO_LESSONS } from './demo.js'
 import { mergeHistory } from './sync.js'
 import { hasMorphology, mergeFavorites, morphologyText, saveFavorites } from './favorites.js'
-import { formatDuration } from './format.js';
-import { POLL_ANALYZE_MS, POLL_OCR_MS, TIMEOUT_ANALYZE_MS, TIMEOUT_OCR_MS } from './constants.js';
+import { formatDuration } from './format.js'
+import { POLL_ANALYZE_MS, POLL_OCR_MS, TIMEOUT_ANALYZE_MS, TIMEOUT_OCR_MS } from './constants.js'
 import { loadHistory, loadResultCache, pruneResultCache, safeGet, safeSet, saveHistory, saveResultCache } from './storage.js'
 import { useTimer } from './hooks/useTimer.js'
 import { submitAndPoll } from './hooks/pollJob.js'
@@ -20,11 +16,12 @@ import { useCloudSync } from './hooks/useCloudSync.js'
 import { useAccount } from './hooks/useAccount.js'
 import { useJobRunner } from './hooks/useJobRunner.js'
 import { useModals } from './hooks/useModals.js'
+import { useLibraries } from './hooks/useLibraries.js'
 import { useFavorites } from './hooks/useFavorites.js'
-import ElapsedDisplay from './components/ElapsedDisplay.jsx';
-import { ResultSheet } from './components/ResultSheet/index.jsx';
-import { QuizSheet } from './components/ResultSheet/Quiz.jsx';
-import Sidebar from './components/Sidebar.jsx';
+import ElapsedDisplay from './components/ElapsedDisplay.jsx'
+import { ResultSheet } from './components/ResultSheet/index.jsx'
+import { QuizSheet } from './components/ResultSheet/Quiz.jsx'
+import Sidebar from './components/Sidebar.jsx'
 import FavoritesModal from './components/modals/FavoritesModal.jsx'
 import HistoryModal from './components/modals/HistoryModal.jsx'
 import LessonEditModal from './components/modals/LessonEditModal.jsx'
@@ -165,7 +162,9 @@ function App() {
   const [settings, setSettings] = useState(loadSettings());
   // closeCamera / materialBusy 声明在后面，用 ref 透传「当前」的那一份（避免 TDZ）
   const closeCameraRef = useRef(null);
+  const matchedLessonRef = useRef(null);
   const materialBusyRef = useRef(false);
+  const authOpenRef = useRef(false);
   const [status, setStatus] = useState(null);
   const [lessons, setLessons] = useState([]);
   const [book, setBook] = useState(() => {
@@ -227,7 +226,11 @@ function App() {
     backupOpen, setBackupOpen, camOpen, setCamOpen,
     lessonEdit, setLessonEdit, backupTip, setBackupTip, libTip, setLibTip,
     modalRefs,
-  } = useModals({ getCloseCamera: closeCameraRef, getMaterialBusy: materialBusyRef });
+    // 账号弹窗是后加的，之前漏在键盘可达性之外（Esc 关不掉）—— 接进来
+  } = useModals({
+    getCloseCamera: closeCameraRef, getMaterialBusy: materialBusyRef,
+    getAuthOpen: () => authOpenRef.current, closeAuth: () => setAuthOpen(false),
+  });
   // 拍照 / 图片识别
   const [ocrBusy, setOcrBusy] = useState(null); // null | 'chinese' | 'english'
   const [ocrMode, setOcrMode] = useState('auto'); // auto | handwriting | printed
@@ -246,17 +249,6 @@ function App() {
   // 计时器（记录一篇课文做了多久）
   // 计时器（hooks/useTimer.js）：切课文自动归零、刷新恢复，细节见该文件里的说明
   // 自建课文库（本机保存）：用户可以把自己的作业存成课文，像内置语料一样反复练
-  const [myLibs, setMyLibs] = useState(loadLibraries);
-  const [myLibId, setMyLibId] = useState('');            // 当前选中的自建库（空 = 用内置册）
-  // 自建课文的 key 用**稳定 id**（lid）而不是序号：序号用户随时会改，
-  // 而 key 决定了「同一课的两次练习对比」和计时归属 —— 用序号的话一改就断链。
-  const lessonKey = mode !== 'lesson' ? 'free'
-    : (myLibId && matchedLesson && matchedLesson.book === 'my' && matchedLesson.lid
-      ? `lesson:my-${myLibId}-${matchedLesson.lid}`
-      : `lesson:${book}-${lessonId}`);
-  const { timer, toggle: toggleTimer, reset: resetTimer, elapsedMsNow, hasElapsed } = useTimer(lessonKey);
-  const [libPickId, setLibPickId] = useState('');
-  const [newLibName, setNewLibName] = useState('');
   // 「新建回译作业」弹窗：当前作业有内容时先让用户决定要不要存进课文库
   const pendingNewRef = useRef(true);
   // 备份（课文库 + 收藏夹 + 历史）
@@ -305,6 +297,37 @@ function App() {
   // 任务完成后就不再强行把视图抢回结果页（结果本身仍然保留并写入历史）。
   const genTokenRef = useRef(0);
   const runGenerateRef = useRef(null);
+
+  matchedLessonRef.current = matchedLesson; // 供 useLibraries 读「当前正在练的课」
+
+  // 自建课文库（hooks/useLibraries.js）：状态与增删改都在那里，这里只做适配
+  const {
+    myLibs, setMyLibs, myLibId, setMyLibId, libPickId, setLibPickId, newLibName, setNewLibName,
+    activeLib, openLibModal: resetLibModalFields, deleteLibrary, deleteMyLesson,
+    saveToLibrary, openLessonEdit: openLessonEditRaw,
+    resolveEditLesson, saveLessonEdit: saveLessonEditRaw, renumberMyLib,
+  } = useLibraries({
+    toast: (msg, ms) => flashTip(setToast, msg, ms),
+    setLibTip,
+    // 编辑的是「当前正在练的那节课」时，同步刷新标题 / 序号
+    onLessonEdited: (after, before, titleCn) => {
+      if (matchedLesson && (matchedLesson.lid === (after && after.lid) || matchedLesson.lesson === before.lesson)) {
+        setMatchedLesson(after);
+        setLessonId(after.lesson);
+        if (titleCn && titleCn !== before.title_cn) setTitle(titleCn);
+      }
+    },
+    getSelectedLesson: () => matchedLessonRef.current,
+    onSelectedLessonChanged: (fresh) => { setMatchedLesson(fresh); setLessonId(fresh.lesson); },
+  });
+
+  // 自建课文的 key 用**稳定 id**（lid）而不是序号：序号用户随时会改，
+  // 而 key 决定了「同一课的两次练习对比」和计时归属 —— 用序号的话一改就断链。
+  const lessonKey = mode !== 'lesson' ? 'free'
+    : (myLibId && matchedLesson && matchedLesson.book === 'my' && matchedLesson.lid
+      ? `lesson:my-${myLibId}-${matchedLesson.lid}`
+      : `lesson:${book}-${lessonId}`);
+  const { timer, toggle: toggleTimer, reset: resetTimer, elapsedMsNow, hasElapsed } = useTimer(lessonKey);
 
   /* ---------- 收藏夹 / 复习 / 自测题 ----------
    * 状态与动作都在 hooks/useFavorites.js；变量名沿用原来的，调用点不用改。 */
@@ -416,7 +439,6 @@ function App() {
     else document.title = SITE_NAME + ' · ' + SITE_TAGLINE;
   }, [view, result?.title]);
 
-  const activeLib = useMemo(() => myLibs.find((l) => l.id === myLibId) || null, [myLibs, myLibId]);
   /**
    * 有没有可用的 AI Key：**服务端配了，或者用户自己填了**。
    *
@@ -495,7 +517,7 @@ function App() {
     const first = lessons.find((l) => l.book === nextBook);
     if (first) selectLesson(nextBook, first.lesson);
     else setBook(nextBook);
-  }, [lessons, selectLesson]);
+  }, [lessons, selectLesson, setMyLibId]);
 
   /** 选中自建库（只切换侧栏列表，不改变当前作业）。 */
   const selectMyLib = useCallback((libId) => {
@@ -503,7 +525,7 @@ function App() {
     setError('');
     const lib = myLibs.find((l) => l.id === libId);
     if (lib && !lib.lessons.length) flashTip(setToast, `「${lib.name}」还是空的：把当前作业存进去就能在这里选出来练习`, 4500);
-  }, [myLibs]);
+  }, [myLibs, setMyLibId, setError]);
 
   /** 从自建库载入一节课（本地数据，不发请求）。 */
   const selectMyLesson = useCallback((libId, lessonNo) => {
@@ -526,15 +548,9 @@ function App() {
     setMaterialKeywords([]);
     setError('');
     savedSnapshotRef.current = fingerprintOf(lesson.title_cn || lessonLabel(lesson), lesson.chinese || '', '', lesson.english || '');
-  }, [myLibs]);
+  }, [myLibs, setMyLibId]);
 
   /* ---------- 自建课文库：新建 / 保存 ---------- */
-  const openLibModal = useCallback(() => {
-    setLibPickId(myLibs[0]?.id || '');
-    setNewLibName('');
-    setLibTip('');
-    setLibModalOpen(true);
-  }, [myLibs, setLibTip, setLibModalOpen]);
 
   const openNewJobModal = () => {
     setLibPickId(myLibs[0]?.id || '');
@@ -547,37 +563,24 @@ function App() {
    * 把当前作业写进课文库（含"输入新库名即新建"）。
    * 保存成功返回 true；失败时把原因写进 libTip 并返回 false。
    */
+  // 「保存到课文库」：重置弹窗里的选择 + 打开弹窗（开关归 useModals，字段归 useLibraries）
+  const openLibModal = useCallback(() => { resetLibModalFields(); setLibModalOpen(true); }, [resetLibModalFields, setLibModalOpen]);
+
+  /** 把当前作业存进课文库（编辑区内容在这里取，建库/去重/落盘交给 useLibraries） */
   const persistToLibrary = () => {
-    const name = newLibName.trim();
-    let list = myLibs;
-    let targetId = libPickId;
-    if (name) {
-      const dup = myLibs.find((l) => l.name === name);
-      if (dup) targetId = dup.id;
-      else {
-        const created = createLibrary(myLibs, name);
-        list = created;
-        targetId = created[created.length - 1].id;
-      }
-    }
-    if (!targetId) { setLibTip('请先选择或输入一个课文库名称'); return false; }
     const entry = {
       title_cn: title.trim() || chinese.trim().slice(0, 12) || '未命名作业',
       chinese: chinese.trim(),
       english: currentOriginal.trim(),
     };
     if (!entry.chinese) { setLibTip('中文提示还是空的：至少要有中文提示才能存成课文'); return false; }
-    const { list: next, replaced } = upsertLesson(list, targetId, entry);
-    setMyLibs(next);
-    if (!saveLibraries(next)) { setLibTip('写入本机存储失败（空间可能已满），请先清理浏览器数据'); return false; }
-    setMyLibId(targetId);
+    const r = saveToLibrary({ name: newLibName, pickId: libPickId, entry });
+    if (!r.ok) { setLibTip(r.error); return false; }
     savedSnapshotRef.current = fingerprintOf(title, chinese, draft, manualOriginal);
-    flashTip(setToast, (replaced ? '已更新课文：' : '已保存课文：') + entry.title_cn
-      + (entry.english ? '' : '（没填英文原文，练习时无法做原文对照）'), 4200);
     return true;
   };
-
-  const saveToLibrary = () => {
+  /** 弹窗里点「保存」：成功才关弹窗 */
+  const submitLibrarySave = () => {
     if (persistToLibrary()) setLibModalOpen(false);
   };
 
@@ -769,88 +772,20 @@ function App() {
     syncCode, setSyncCode, setSyncLost, runSync,
     flash: (msg, ms) => flashTip(setToast, msg, ms),
   });
+  authOpenRef.current = authOpen; // 供 useModals 的 Esc/焦点陷阱识别账号弹窗
 
-  const deleteLibrary = useCallback((libId, libName) => {
-    if (!window.confirm(`删除课文库「${libName}」？库里的课文会一起删掉，此操作不可撤销。`)) return;
-    const next = removeLibrary(myLibs, libId);
-    setMyLibs(next);
-    saveLibraries(next);
-    if (myLibId === libId) setMyLibId('');
-    flashTip(setToast, '已删除课文库「' + libName + '」', 3000);
-  }, [myLibs, myLibId]);
 
-  const deleteMyLesson = useCallback((libId, lessonOrNo, label) => {
-    if (!window.confirm(`从课文库删除「${label}」？
-
-（其它课的序号不会自动变；想补齐空档点「我的课文库」旁的「重排序号」）`)) return;
-    // 传进来的可能是"整个课文对象"（侧栏/弹窗），也可能是序号或 lid：
-    // 没有稳定 id 的老数据要退回用序号，否则 Number(对象) = NaN，删除会静默失效
-    const target = (lessonOrNo && typeof lessonOrNo === 'object')
-      ? (lessonOrNo.lid || lessonOrNo.lesson)
-      : lessonOrNo;
-    const next = removeLesson(myLibs, libId, target);
-    setMyLibs(next);
-    saveLibraries(next);
-    flashTip(setToast, '已删除课文「' + label + '」', 3000);
-  }, [myLibs]);
 
   /** 打开「编辑课文」弹窗（改标题 / 改序号） */
-  const openLessonEdit = useCallback((libId, lesson) => {
-    if (!lesson) return;
-    // 同时记住序号：万一这条数据还没有稳定 id（导入/同步进来的旧数据），
-    // 也能按序号定位到它 —— 不能让"点编辑没反应"这种事再发生
-    setLessonEdit({ libId, lid: lesson.lid || '', lesson: lesson.lesson });
-  }, [setLessonEdit]);
+  // 适配：调用点仍是 openLessonEdit(libId, lesson)，这里补上弹窗 setter
+  const openLessonEdit = useCallback((libId, lesson) => openLessonEditRaw(libId, lesson, setLessonEdit), [openLessonEditRaw, setLessonEdit]);
 
-  /** 按 { libId, lid, lesson } 找到要编辑的那节课（lid 优先，退回序号） */
-  const resolveEditLesson = (target) => {
-    if (!target) return null;
-    const lib = myLibs.find((x) => x.id === target.libId);
-    return findLesson(lib, target.lid) || findLesson(lib, target.lesson);
-  };
 
   /** 保存编辑：先改标题，再按需挪序号；两件事落在同一份新列表上。 */
-  const saveLessonEdit = ({ title_cn, title_en, lesson: targetNo }) => {
-    const cur = lessonEdit;
-    if (!cur) return;
-    const before = resolveEditLesson(cur);
-    if (!before) { setLessonEdit(null); return; }
-    // 老数据（没有稳定 id）在这里补一个：这一次编辑之后它就固定下来了
-    const withIds = ensureLessonIds(myLibs).list;
-    const lid = before.lid || (findLesson(withIds.find((x) => x.id === cur.libId), before.lesson) || {}).lid;
-    if (!lid) { setLessonEdit(null); return; }
-    let next = renameLesson(withIds, cur.libId, lid, { title_cn, title_en });
-    const wantNo = Math.round(Number(targetNo) || before.lesson);
-    if (wantNo !== before.lesson) next = moveLesson(next, cur.libId, lid, wantNo);
-    const after = findLesson(next.find((x) => x.id === cur.libId), lid);
-    setMyLibs(next);
-    if (!saveLibraries(next)) { flashTip(setToast, '写入本机存储失败（空间可能已满）', 4000); return; }
-    // 正在练这一课：标题/序号同步刷新，免得编辑器里还显示旧标题
-    if (myLibId === cur.libId && matchedLesson && (matchedLesson.lid === lid || matchedLesson.lesson === before.lesson)) {
-      setMatchedLesson(after);
-      setLessonId(after.lesson);
-      if (title_cn && title_cn !== before.title_cn) setTitle(title_cn);
-    }
-    setLessonEdit(null);
-    const moved = after && after.lesson !== before.lesson;
-    flashTip(setToast, '已保存：' + ((after && after.title_cn) || title_cn)
-      + (moved ? `（挪到第 ${after.lesson} 课，其余顺移）` : ''), 3600);
-  };
+  // 适配：调用点仍是 saveLessonEdit(patch)；编辑目标在 App 的 lessonEdit 状态里
+  const saveLessonEdit = (patch) => saveLessonEditRaw(patch, lessonEdit, () => setLessonEdit(null));
 
   /** 一键把序号补齐成 1、2、3…（补上删课留下的空档） */
-  const renumberMyLib = useCallback((libId) => {
-    const lib = myLibs.find((x) => x.id === libId);
-    if (!lib || !lib.lessons.length) return;
-    const next = renumberLibrary(myLibs, libId);
-    setMyLibs(next);
-    saveLibraries(next);
-    const after = next.find((x) => x.id === libId);
-    if (myLibId === libId && matchedLesson && matchedLesson.lid) {
-      const fresh = findLesson(after, matchedLesson.lid);
-      if (fresh) { setMatchedLesson(fresh); setLessonId(fresh.lesson); }
-    }
-    flashTip(setToast, `已重排序号：${after.lessons.length} 节课现在是 1…${after.lessons.length}`, 3200);
-  }, [myLibs, myLibId, matchedLesson]);
 
   const handleDocx = async (event) => {
     const file = event.target.files?.[0];
@@ -1748,7 +1683,7 @@ function App() {
             {libPickerFields}
             {libTip ? <div className="lib-tip" role="alert">{libTip}</div> : null}
             <div className="modal-actions">
-              <button className="primary-btn" onClick={saveToLibrary}>{newLibName.trim() ? (myLibs.some((l) => l.name === newLibName.trim()) ? '存入该库' : '新建并保存') : '保存'}</button>
+              <button className="primary-btn" onClick={submitLibrarySave}>{newLibName.trim() ? (myLibs.some((l) => l.name === newLibName.trim()) ? '存入该库' : '新建并保存') : '保存'}</button>
               <button className="ghost-btn" onClick={() => setLibModalOpen(false)}>取消</button>
             </div>
           </div>
