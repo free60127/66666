@@ -665,3 +665,101 @@ mark.hl { background: #ffe3e3; color: inherit; padding: 0 2px; border-radius: 2p
   /* 行内文字链接（如「改用自由模式」）撑高会破坏横幅排版，改用内边距扩大热区：19px → 35px */
   .link { padding: 8px 4px; }
 }
+
+/* ---------- 结果页顶部速览条（评分 / 问题数 / 快捷跳转） ----------
+   动机（实测数据）：手机 390×844 上，评分卡在 y=989（1.2 屏）、第一处错误在 y=1808（2.1 屏）——
+   学生等了 1-2 分钟，第一眼看到的却是四段参考材料。先把结论和入口给出来。 */
+.sheet-glance {
+  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  margin: 0 0 18px; padding: 12px 16px;
+  border: 1px solid var(--line); border-left: 4px solid var(--brand);
+  border-radius: 12px; background: #f7fafc;
+}
+.glance-score { display: flex; align-items: baseline; gap: 6px; }
+.glance-score strong { font-size: 26px; line-height: 1; color: var(--brand); }
+.glance-score span { font-size: 11px; color: var(--muted); }
+.glance-meta { font-size: 13px; color: #3d4854; }
+.glance-dot { margin: 0 6px; color: var(--muted); }
+.glance-jump { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
+.glance-jump button {
+  font-size: 12.5px; padding: 5px 12px; border-radius: 999px;
+  border: 1px solid #cfdff5; background: #fff; color: var(--brand); font-weight: 600;
+}
+.glance-jump button:hover { background: #eef5ff; border-color: var(--brand); }
+
+/* ---------- 四段对照材料：手机默认折叠，桌面默认展开 ---------- */
+.refs-toggle {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 9px 12px; margin-bottom: 10px;
+  border: 1px dashed #cfd8e3; border-radius: 10px; background: #fbfcfd;
+  color: var(--text); font-size: 13.5px; font-weight: 600; text-align: left;
+}
+.refs-toggle:hover { border-color: var(--brand); color: var(--brand); }
+.refs-caret { transition: transform .18s ease; color: var(--muted); flex-shrink: 0; }
+.refs-caret.rot { transform: rotate(0deg); }
+.refs-caret:not(.rot) { transform: rotate(-90deg); }
+.refs-hint { font-weight: 400; font-size: 12.5px; color: var(--muted); }
+.refs:not(.refs-open) .refs-body { display: none; }
+
+/* ---------- 正文行宽：中文长文舒适区约 35-45 字/行 ----------
+   原来 .sheet 宽 960px ÷ 16px ≈ 60 字/行，偏长（阅读时容易串行）。
+   只限正文段落，不影响卡片、表格与打印排版。 */
+.sheet-section > p { max-width: 44em; }
+
+@media screen and (max-width: 900px) {
+  .sheet-glance { gap: 10px; padding: 10px 12px; }
+  .glance-score strong { font-size: 22px; }
+  .glance-jump { margin-left: 0; width: 100%; }
+  .glance-jump button { flex: 1; text-align: center; justify-content: center; }
+  .refs-hint { display: none; }
+}
+
+/* 打印/导出 PDF：折叠状态下一并展开（手机上默认折叠，不能让它把内容带丢） */
+@media print {
+  .refs-body { display: block !important; }
+  .refs-toggle, .sheet-glance .glance-jump { display: none !important; }
+  .sheet-glance { border-left-color: var(--brand) !important; }
+}
+
+/* ---------- 新用户三步引导（首次访问、且一次都没生成过时出现） ---------- */
+.start-guide {
+  display: flex; align-items: flex-start; gap: 12px;
+  margin-bottom: 14px; padding: 12px 14px;
+  border: 1px solid #cfdff5; border-left: 4px solid var(--brand);
+  border-radius: 12px; background: #f5f9ff;
+}
+.start-guide-title { display: block; font-size: 13.5px; font-weight: 700; color: #1d4e8f; margin-bottom: 4px; }
+.start-guide-steps { margin: 0; padding-left: 20px; font-size: 13px; line-height: 1.75; color: #30506f; }
+.start-guide-steps li { margin: 0; }
+.start-guide-close { flex-shrink: 0; }
+@media screen and (max-width: 900px) {
+  .start-guide { flex-direction: column; gap: 8px; }
+  .start-guide-close { align-self: flex-end; }
+}
+
+/* 分项得分：手机上默认折叠（.collapsed），打印时强制展开 */
+.score-breakdown-title {
+  display: flex; align-items: center; gap: 6px; width: 100%;
+  font-size: 12px; font-weight: 700; color: var(--muted); margin-bottom: 7px; text-align: left;
+}
+.score-breakdown-title:hover { color: var(--brand); }
+.score-breakdown.collapsed .score-breakdown-body { display: none; }
+@media print {
+  .score-breakdown-body { display: block !important; }
+}
+
+/* ---------- 回到顶部（滚过一屏才出现，滚回顶部自动隐藏） ---------- */
+.back-to-top {
+  position: fixed; right: 20px; bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+  z-index: 45; /* 低于弹窗遮罩(50)：弹窗打开时不该盖在它上面 */
+  width: 44px; height: 44px; border-radius: 50%;
+  display: grid; place-items: center;
+  background: var(--panel); color: var(--text);
+  border: 1px solid var(--line);
+  box-shadow: 0 6px 18px rgba(15, 25, 35, .18);
+}
+.back-to-top:hover { color: var(--brand); border-color: var(--brand); }
+@media screen and (max-width: 900px) {
+  .back-to-top { right: 14px; bottom: calc(14px + env(safe-area-inset-bottom, 0px)); }
+}
+@media print { .back-to-top { display: none !important; } }

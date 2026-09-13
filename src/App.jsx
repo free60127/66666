@@ -25,6 +25,7 @@ import { QuizSheet } from './components/ResultSheet/Quiz.jsx'
 import Sidebar from './components/Sidebar.jsx'
 import FavoritesModal from './components/modals/FavoritesModal.jsx'
 import HistoryModal from './components/modals/HistoryModal.jsx'
+import BackToTop from './components/BackToTop.jsx'
 import LessonEditModal from './components/modals/LessonEditModal.jsx'
 const AI_LEVELS = ['小初', '高考英语', '四六级', '考研/专四', '专八'];
 const DEFAULT_AI_LEVEL = '四六级';
@@ -187,6 +188,10 @@ function App() {
   const backupFileRef = useRef(null);
   // 云同步（同步码）
   const [backendWaking, setBackendWaking] = useState(false); // 免费托管休眠后正在唤醒（首屏要等约 1 分钟）
+  // 新用户三步引导：首屏实测有 15+ 个同级控件，第一次来的人不知道该先点哪个。
+  // 只在"一次都没生成过"且没手动关掉时出现，关掉后永久不再打扰。
+  const [guideDone, setGuideDone] = useState(() => safeGet('bt-guide-done', '') === '1');
+  const dismissGuide = () => { safeSet('bt-guide-done', '1'); setGuideDone(true); };
   // 账号（可选：服务端配了持久存储才有）。账号只是"帮你记住同步码"的一层，
   // 同步码仍然是数据主键 —— 没有账号时一切照旧，有了账号换设备就不用抄码。
   // 最近一次「载入 / 保存」时的内容指纹：用来判断当前作业有没有改动过，
@@ -741,6 +746,19 @@ function App() {
 
         {view === 'editor' ? (
           <section className="editor">
+            {!guideDone && historyList.length === 0 ? (
+              <div className="start-guide" role="note">
+                <div className="start-guide-main">
+                  <span className="start-guide-title">三步开始</span>
+                  <ol className="start-guide-steps">
+                    <li>左边选一节课，或点「上传 DOCX 作业」导入自己的作业</li>
+                    <li>在「你的英文初稿」里写下你的回译</li>
+                    <li>点下面的「生成完整回译训练作业」，等 1-2 分钟出结果</li>
+                  </ol>
+                </div>
+                <button type="button" className="ghost-btn start-guide-close" onClick={dismissGuide}>知道了</button>
+              </div>
+            ) : null}
             <div className="upload-strip">
               <input ref={fileRef} type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden onChange={handleDocx} />
               <button className="primary-btn" onClick={() => fileRef.current?.click()} disabled={parsing}>
@@ -1127,6 +1145,8 @@ function App() {
         onExport={exportFavorites} onImportClick={() => favFileRef.current?.click()} favFileRef={favFileRef} onImportFile={importFavorites} onCopy={copyFavorites} onClear={clearFavorites}
         quizCount={quizCount} onQuizCount={setQuizCount} onGenerateQuiz={generateQuiz} quizBusy={quizBusy} polishLevel={polishLevel}
       />
+
+      <BackToTop />
 
       {settingsOpen && (
         <div className="modal-mask" onClick={() => setSettingsOpen(false)}>

@@ -1,7 +1,11 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App.jsx';
+import { installErrorReporting, reportError } from './errorReport.js';
 import './styles.css';
+
+// 全局兜底：window.onerror / unhandledrejection 都送到自家后端（详见 errorReport.js）
+installErrorReporting();
 
 /**
  * 兜底错误边界。
@@ -20,6 +24,8 @@ class ErrorBoundary extends React.Component {
   }
   componentDidCatch(error, info) {
     console.error('[回译本] 渲染崩溃:', error, info?.componentStack);
+    // 渲染崩溃 = 白屏，是最该被看到的错误类型：连组件栈一起报上去
+    reportError('react', error, { stack: (error && error.stack) + '\n--- componentStack ---\n' + (info?.componentStack || '') });
   }
   render() {
     if (!this.state.error) return this.props.children;

@@ -31,4 +31,17 @@ export default defineConfig({
     },
     chunkSizeWarningLimit: 400,
   },
+  /**
+   * 前端单元测试（vitest）。
+   * 为什么之前没有：所有测试都跑在纯 Node 里（server/*.test.mjs、test/*.test.mjs），
+   * 而 hooks 依赖 React 运行时，纯 Node 加载不了 —— 于是 1800 多行 hooks 一行测试都没有，
+   * 重构期间也因此出过两次线上白屏（漏 import、重复迁移）。这里补上这一层。
+   * 环境用 jsdom（hooks 要碰 localStorage / matchMedia）。
+   */
+  test: {
+    environment: 'jsdom',
+    include: ['test/ui/**/*.test.jsx', 'test/ui/**/*.test.js'],
+    globals: true,
+    restoreMocks: true,
+  },
 });

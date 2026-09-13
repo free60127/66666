@@ -242,12 +242,31 @@ function clientIp(req) {
   });
 }
 const RATE_MAX = Number(process.env.RATE_LIMIT_PER_MIN || 30);
+// 前端错误上报走独立限流桶：错误风暴不应该把「生成」的配额吃掉
+const REPORT_RATE_MAX = Number(process.env.REPORT_LIMIT_PER_MIN || 60);
 const RATE_WINDOW_MS = 60_000;
 const rateBuckets = new Map();
 
-function rateLimited(req) {
+/* ---------- 前端错误上报的落地 ----------
+ * 只放内存：报错是"运维观察"用的短期数据，重启即清（真要长期留就把 recordClientError
+ * 改成写 KV，但当前量级没必要）。上限 200 条，防止错误风暴把内存吃掉。 */
+const CLIENT_ERRORS_MAX = 200;
+const clientErrors = [];
+function recordClientError(entry) {
+  clientErrors.push(entry);
+  if (clientErrors.length > CLIENT_ERRORS_MAX) clientErrors.splice(0, clientErrors.length - CLIENT_ERRORS_MAX);
+  // 同时打到 stdout：Render 等平台的控制台日志能直接看到，不必等有人来查
+  console.error('[client-error]', entry.kind, '|', entry.path, '|', entry.message.slice(0, 200));
+}
+
+/**
+ * 按 IP 的固定窗口限流。
+ * @param {string} bucketKey 可选的桶后缀：前端错误上报这类"不该和生成抢配额"的端点用独立桶
+ * @param {number} max 该桶的上限（缺省用全局 RATE_MAX）
+ */
+function rateLimited(req, bucketKey = '', max = RATE_MAX) {
   const now = Date.now();
-  const ip = clientIp(req);
+  const ip = clientIp(req) + (bucketKey ? '|' + bucketKey : '');
   const bucket = rateBuckets.get(ip);
   if (!bucket || now > bucket.resetAt) {
     rateBuckets.set(ip, { count: 1, resetAt: now + RATE_WINDOW_MS });
@@ -255,7 +274,7 @@ function rateLimited(req) {
   }
   bucket.count += 1;
   if (rateBuckets.size > 5000) for (const [k, v] of rateBuckets) if (now > v.resetAt) rateBuckets.delete(k);
-  return bucket.count > RATE_MAX;
+  return bucket.count > max;
 }
 
 // DeepSeek 最新的 flash 已原生支持图片输入，作为拍照识别（OCR）的默认视觉模型
@@ -975,6 +994,35 @@ const server = http.createServer(async (req, res) => {
   const p = url.pathname;
 
   try {
+    /* ---------- 前端错误上报（自建，不引第三方 SDK）----------
+     * 为什么需要：线上出问题时只能等用户截图 —— 等于"盲飞"。
+     * 隐私：只收错误消息/堆栈/路径，**不收任何用户内容**；URL 里去掉 hash 与查询串
+     *       （结果页的 #job=xxx 是分享凭证，不该进日志）。
+     * 独立限流桶：错误风暴不该把「生成」的配额吃掉。 */
+    if (p === '/api/report' && req.method === 'POST') {
+      if (rateLimited(req, 'report', REPORT_RATE_MAX)) return json(res, 429, { error: 'too many reports' });
+      const body = await readBody(req, 16 * 1024);
+      const message = String(body.message || '').slice(0, 2000).trim();
+      if (!message) return json(res, 400, { error: 'missing message' });
+      recordClientError({
+        kind: String(body.kind || 'unknown').slice(0, 20),
+        message,
+        stack: String(body.stack || '').slice(0, 4000),
+        path: String(body.path || '').slice(0, 300),
+        ua: String(req.headers['user-agent'] || '').slice(0, 300),
+        at: Date.now(),
+      });
+      return json(res, 200, { ok: true });
+    }
+    // 取回最近的上报：默认关闭，只有服务端配了 REPORT_TOKEN 且调用方带对才给看
+    // （错误栈里可能有内部路径信息，不能默认公开）
+    if (p === '/api/reports' && req.method === 'GET') {
+      const want = String(process.env.REPORT_TOKEN || '').trim();
+      if (!want) return json(res, 404, { error: 'unknown api' });
+      if (!safeEqual(url.searchParams.get('token'), want)) return json(res, 403, { error: 'forbidden' });
+      return json(res, 200, { ok: true, count: clientErrors.length, reports: clientErrors.slice(-100).reverse() });
+    }
+
     // 会调用模型的接口先过限流，避免被脚本批量刷（也防匿名白嫖服务端 key）
     if (req.method === 'POST' && ['/api/analyze', '/api/ocr', '/api/quiz', '/api/generate-material', '/api/match'].includes(p) && rateLimited(req)) {
       return json(res, 429, { error: '请求过于频繁，请稍后再试（每分钟上限 ' + RATE_MAX + ' 次）' });
