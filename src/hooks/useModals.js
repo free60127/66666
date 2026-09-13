@@ -26,26 +26,45 @@ export function useModals({ getCloseCamera, getMaterialBusy, getAuthOpen, closeA
 
   // 键盘可达性：把「哪个弹窗开着」做成一件事，Esc 关闭、Tab 只在弹窗内循环。
   // 优先级顺序 = 屏幕上的层级顺序（后打开的排前面）。
+  const authOpen = Boolean(getAuthOpen && getAuthOpen());
+  const open = camOpen ? 'cam' : materialOpen ? 'material' : newJobOpen ? 'newjob' : libModalOpen ? 'lib' : lessonEdit ? 'lessonEdit' : backupOpen ? 'backup' : historyOpen ? 'history' : favOpen ? 'fav' : authOpen ? 'auth' : settingsOpen ? 'settings' : null;
+
+  /**
+   * 回调统一放 ref，下面的 effect 只依赖 `open` 这个字符串，不依赖父组件传进来的函数身份。
+   *
+   * 为什么必须这样（实测 bug，用户反馈"AI 生成训练素材里中文输入法一打字就闪退"）：
+   * 父组件原来传的是 `closeAuth: () => ...` 这种内联箭头，**每次渲染都是新函数**；
+   * 它一旦出现在依赖数组里，effect 就会在每次重渲染时重跑，而 effect 末尾有一句
+   * "把焦点送进弹窗" —— 用户每敲一个字母（触发 setState → 重渲染）焦点就被抢到
+   * 弹窗里第一个可聚焦元素上，**中文输入法的组合被强行打断**，待上屏的字母直接以
+   * 英文落进输入框。PoC 实测：敲 'w' 后 activeElement 从 textarea 变成关闭按钮。
+   */
+  const latest = useRef({});
+  latest.current = { getCloseCamera, getMaterialBusy, closeAuth };
+
   useEffect(() => {
-    const authOpen = Boolean(getAuthOpen && getAuthOpen());
-    const open = camOpen ? 'cam' : materialOpen ? 'material' : newJobOpen ? 'newjob' : libModalOpen ? 'lib' : lessonEdit ? 'lessonEdit' : backupOpen ? 'backup' : historyOpen ? 'history' : favOpen ? 'fav' : authOpen ? 'auth' : settingsOpen ? 'settings' : null;
     if (!open) return undefined;
     const closers = {
-      cam: () => { if (getCloseCamera && getCloseCamera()) getCloseCamera()(); },
-      material: () => { if (!(getMaterialBusy && getMaterialBusy())) setMaterialOpen(false); },
+      cam: () => { const f = latest.current.getCloseCamera; if (f && f()) f()(); },
+      material: () => { const f = latest.current.getMaterialBusy; if (!(f && f())) setMaterialOpen(false); },
       newjob: () => setNewJobOpen(false),
       lib: () => setLibModalOpen(false),
       lessonEdit: () => setLessonEdit(null),
       backup: () => setBackupOpen(false),
       history: () => setHistoryOpen(false),
       fav: () => setFavOpen(false),
-      auth: () => { if (closeAuth) closeAuth(); },
+      auth: () => { const f = latest.current.closeAuth; if (f) f(); },
       settings: () => setSettingsOpen(false),
     };
     const onKeyDown = (e) => {
+      // 输入法正在组合时，按键先归输入法：
+      //  · Escape 在组合中是"取消候选词"，不该顺手把弹窗关掉（用户会丢掉正在填的内容）
+      //  · isComposing / keyCode 229 是各浏览器通用的"这次按键已被输入法接管"标记
+      if (e.isComposing || e.keyCode === 229) return;
+      if (e.key === 'Escape') { e.preventDefault(); const close = closers[open]; if (close) close(); return; }
+      if (e.key !== 'Tab') return;
       const node = modalRefs.current[open];
-      if (e.key === 'Escape') { e.preventDefault(); closers[open](); return; }
-      if (e.key !== 'Tab' || !node) return;
+      if (!node) return;
       const focusables = Array.from(node.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'))
         .filter((el) => !el.disabled && el.offsetParent !== null);
       if (!focusables.length) return;
@@ -56,9 +75,25 @@ export function useModals({ getCloseCamera, getMaterialBusy, getAuthOpen, closeA
       else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
     };
     document.addEventListener('keydown', onKeyDown);
-    const timer = setTimeout(() => modalRefs.current[open]?.querySelector('button, input, select, textarea')?.focus(), 40);
-    return () => { document.removeEventListener('keydown', onKeyDown); clearTimeout(timer); };
-  }, [camOpen, materialOpen, newJobOpen, libModalOpen, lessonEdit, backupOpen, historyOpen, favOpen, settingsOpen, getCloseCamera, getMaterialBusy, getAuthOpen, closeAuth]);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [open]);
+
+  /**
+   * 把焦点送进刚打开的弹窗 —— 只在 open 变化时做一次（不是每次渲染）。
+   * 两条讲究：① 焦点已经在弹窗内就不抢（用户手已经点到输入框上了）；
+   *          ② 优先聚焦输入控件而不是第一个按钮（原来会落在"关闭"上）。
+   */
+  useEffect(() => {
+    if (!open) return undefined;
+    const timer = setTimeout(() => {
+      const node = modalRefs.current[open];
+      if (!node || node.contains(document.activeElement)) return;
+      const target = node.querySelector('input, textarea, select')
+        || node.querySelector('button, [href], [tabindex]:not([tabindex="-1"])');
+      if (target) target.focus();
+    }, 40);
+    return () => clearTimeout(timer);
+  }, [open]);
 
   /** 有没有任何弹窗开着（用于全局快捷键 / 滚动锁定这类判断） */
   const anyOpen = Boolean(camOpen || materialOpen || newJobOpen || libModalOpen || lessonEdit || backupOpen || historyOpen || favOpen || settingsOpen);

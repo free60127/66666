@@ -155,6 +155,11 @@ function App() {
     return safeGet('bt-sidebar', '') !== 'collapsed';
   });
   const fileRef = useRef(null);
+  // closeAuth 的稳定包装：只透过 ref 取值，依赖数组为空 → 身份永远不变。
+  // 若这里写成内联箭头（`closeAuth: () => ...`），useModals 的 effect 会在每次渲染时
+  // 重跑，而那句"把焦点送进弹窗"会抢走输入框焦点、打断中文输入法（实测 bug）。
+  const stableCloseAuth = useCallback(() => { if (closeAuthRef.current) closeAuthRef.current(); }, []);
+
   // 弹窗开关 + 键盘可达性（hooks/useModals.js）；变量名沿用原来的，调用点不用改
   const {
     settingsOpen, setSettingsOpen, materialOpen, setMaterialOpen,
@@ -166,8 +171,10 @@ function App() {
     // 账号弹窗是后加的，之前漏在键盘可达性之外（Esc 关不掉）—— 接进来
   } = useModals({
     getCloseCamera: closeCameraRef, getMaterialBusy: materialBusyRef,
-    // closeAuth 由后面的 useAccount 提供，用 ref 透传（声明前引用会踩 TDZ）
-    closeAuth: () => closeAuthRef.current && closeAuthRef.current(),
+    // closeAuth 由后面的 useAccount 提供，用 ref 透传（声明前引用会踩 TDZ）。
+    // 必须用 useCallback 固定身份：内联箭头每次渲染都是新函数，会让 useModals 里的
+    // effect 每次重渲染都重跑，进而抢走输入框焦点、打断中文输入法（实测 bug）。
+    closeAuth: stableCloseAuth,
   });
   /* ---------- 拍照 / 图片识别（hooks/useOcr.js）----------
    * 状态、refs、摄像头生命周期、识别轮询都在那里；变量名沿用原来的，JSX 不用改。 */

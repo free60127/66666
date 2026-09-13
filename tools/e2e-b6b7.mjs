@@ -366,6 +366,22 @@ try {
       return l ? l.lessons.map((x) => ({ no: x.lesson, lid: x.lid, cn: x.title_cn })) : null;
     });
 
+    /**
+     * 等待本机存储反映出预期变化。
+     * 原来这里用的是固定 `waitForTimeout(500)`：机器一忙（CI/本机同时在跑别的）
+     * 500ms 就不够，断言读到旧值 → **偶发假失败**（同一份代码 6 次挂 3 次）。
+     * 改成轮询到条件成立；超时则返回当前值，让断言报出真实差异而不是干等。
+     */
+    const waitLib = async (pred, timeout = 6000) => {
+      const t0 = Date.now();
+      for (;;) {
+        const cur = await lib();
+        if (pred(cur)) return cur;
+        if (Date.now() - t0 > timeout) return cur;
+        await L.waitForTimeout(100);
+      }
+    };
+
     // ① 保存两节课（第二篇换个中文，否则会被当成同一篇覆盖）
     await L.fill('.big-textarea >> nth=0', '第一篇：春节');
     await L.click('.editor >> text=保存到课文库', { force: true });
@@ -385,7 +401,7 @@ try {
 
     // ② 切进这个库，改标题 + 改序号
     await L.click('.lib-row .lib-tab');
-    await L.waitForTimeout(400);
+    await L.waitForFunction(() => document.querySelectorAll('.lesson-row').length >= 2, null, { timeout: 8000 }).catch(() => {});
     const rows = L.locator('.lesson-row');
     const rowCount = await rows.count();
     ok('侧栏：自建课文出现在列表里', rowCount >= 2, String(rowCount) + ' 行');
@@ -395,8 +411,7 @@ try {
     await L.fill('[aria-label="编辑课文"] input >> nth=0', '人工智能（改过标题）');
     await L.fill('[aria-label="编辑课文"] input[type="number"]', '1');
     await L.click('[aria-label="编辑课文"] >> text=保存');
-    await L.waitForTimeout(500);
-    list = await lib();
+    list = await waitLib((x) => x && x.some((y) => y.cn === '人工智能（改过标题）'));
     ok('★ 改标题：新标题已落盘', list && list.some((x) => x.cn === '人工智能（改过标题）'), JSON.stringify(list && list.map((x) => x.cn)));
     ok('★ 改序号：挪到第 1 位、另一节顺移到 2（不重号不空档）',
       list && list.map((x) => x.no).join(',') === '1,2' && list[0].cn === '人工智能（改过标题）',
@@ -407,14 +422,12 @@ try {
     L.once('dialog', (d) => d.accept());
     await rows.nth(0).hover();
     await rows.nth(0).locator('.lesson-del').click();
-    await L.waitForTimeout(500);
-    list = await lib();
+    list = await waitLib((x) => x && x.length === 1);
     ok('删课：剩下的那节序号保持 2（不偷偷重排）', list && list.length === 1 && list[0].no === 2, JSON.stringify(list && list.map((x) => x.no)));
 
     // ④ 一键重排序号 → 空档补齐
     await L.click('.my-libs-head >> [aria-label="重排序号"]');
-    await L.waitForTimeout(500);
-    list = await lib();
+    list = await waitLib((x) => x && x[0] && x[0].no === 1);
     ok('★ 重排序号：2 → 1（补齐删课留下的空档）', list && list[0].no === 1, JSON.stringify(list && list.map((x) => x.no)));
 
     // ⑤ 回归：**导入**一份没有稳定 id 的旧备份后，编辑按钮照样能用
