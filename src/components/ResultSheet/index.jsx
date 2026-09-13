@@ -136,7 +136,7 @@ function ResultSheetImpl({ result, onBack, onCopy, onShare, shareTip, fav, histo
               ) : null}
             </div>
           </div>
-          <ErrorProfile result={result} history={history} />
+          <ErrorProfile result={result} history={history} jobId={jobId} />
           {sentences.map((sentence, i) => <SentenceCard key={'s' + (sentence.cn || sentence.draft || '') + '#' + i} index={i} sentence={sentence} result={result} fav={fav} />)}
         </section>
         <VocabularyNotes items={result.vocabularyNotes} result={result} fav={fav} />

@@ -26,25 +26,42 @@ const CATEGORY_COLOR = {
  * 只把 error 计入"常犯错误"，improve 单独算"可提升点" —— 混在一起会让学生误以为
  * 自己满篇是错，实际很多只是"还能更好"。
  */
-function ErrorProfileImpl({ result, history }) {
+function ErrorProfileImpl({ result, history, jobId }) {
   const [scope, setScope] = useState('recent'); // recent = 跨历史 | this = 只算本次
-  const recent = useMemo(() => {
-    if (scope === 'this') return [result];
+
+  /**
+   * 先算出"手上有哪几次结果"（**与当前选择无关**），再按 scope 取参与统计的那一份。
+   *
+   * 两个坑都在这里：
+   *  1) 原来只有一份 `recent`，而 `multi = t.used > 1` 直接从它算 —— 点「只算本次」后
+   *     used 变 1、multi 变 false，**整行切换按钮自己消失了**，用户再也切不回去（用户实测反馈）。
+   *     所以「能不能跨次看」必须由**可用数据**决定，不能由"当前选择"决定。
+   *  2) 去重原来用对象身份（`r === result`）—— 但结果页拿到的是 normalize 后的新对象，
+   *     而缓存里是另一次 JSON.parse 出来的副本，**同一次作业会被算两次**：
+   *     明明只练过一遍却显示"最近 2 次作业"，柱状图也被当前这次重复加权。
+   *     所以按 jobId 去重（当前这次单独加，历史里跳过它）。
+   */
+  const recentAll = useMemo(() => {
     const out = [];
     for (const h of (Array.isArray(history) ? history : []).slice(0, 12)) {
-      const r = h && h.jobId ? loadResultCache(h.jobId) : null;
+      if (!h || !h.jobId) continue;
+      if (jobId && h.jobId === jobId) continue; // 当前这次由下面单独加，避免重复计入
+      const r = loadResultCache(h.jobId);
       if (r && Array.isArray(r.sentences) && r.sentences.length) out.push(r);
     }
     // 本次结果可能还没进历史（或历史被清了），确保一定算进去
-    if (result && !out.some((r) => r === result)) out.unshift(result);
+    if (result && Array.isArray(result.sentences) && result.sentences.length) out.unshift(result);
     return out;
-  }, [result, history, scope]);
-  const t = useMemo(() => tallyCategories(recent), [recent]);
+  }, [result, history, jobId]);
+
+  const tallyAll = useMemo(() => tallyCategories(recentAll), [recentAll]);
+  const tallyThis = useMemo(() => tallyCategories(result ? [result] : []), [result]);
+  const t = scope === 'this' ? tallyThis : tallyAll;
 
   if (!t.list.length) return null;
   const top = t.list.slice(0, 6);
   const max = top[0].total || 1;
-  const multi = t.used > 1;
+  const multi = tallyAll.used > 1; // 与 scope 无关：只要有多次可看，开关就一直在
 
   return (
     <section className="sheet-section errprofile">
