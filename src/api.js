@@ -8,7 +8,7 @@ export const API_BASE = String(import.meta.env.VITE_API_BASE || '').replace(/\/+
 
 export const TIMEOUT = { fast: 15000, normal: 30000, upload: 60000, wake: 95000 };
 
-/** 带超时的 fetch。超时统一转成可读错误，避免 AbortError 直接冒到界面上。 */
+/** 带超时的 fetch。超时与网络故障都统一转成中文可读错误，避免 AbortError / TypeError 冒到界面上。 */
 async function request(path, options = {}, timeoutMs = TIMEOUT.normal) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -17,6 +17,12 @@ async function request(path, options = {}, timeoutMs = TIMEOUT.normal) {
   } catch (e) {
     if (e && e.name === 'AbortError') {
       throw new Error(`请求超时（${Math.round(timeoutMs / 1000)} 秒）：请检查网络后重试`);
+    }
+    // fetch 在网络层失败时抛 TypeError，浏览器给的原文是 "Failed to fetch" / "NetworkError"。
+    // 直接把它显示在错误条上，中文用户看到的就是一句英文 —— 换成能照做的提示。
+    // （断网、后端没启动、跨域被拦都会走到这里，所以在提示里把这三种可能都点到。）
+    if (e instanceof TypeError) {
+      throw new Error('网络连接失败：请检查网络是否正常；如果你在自己电脑上运行，也要确认后端服务已启动（npm run server）');
     }
     throw e;
   } finally {
