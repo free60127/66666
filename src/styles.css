@@ -81,7 +81,7 @@ textarea, input { font: inherit; }
 
 .result { flex: 1; overflow-y: auto; padding: 18px; }
 .result-toolbar { max-width: 960px; margin: 0 auto 14px; display: flex; gap: 8px; }
-.sheet { max-width: 820px; margin: 0 auto; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 32px 38px; }
+.sheet { max-width: 960px; margin: 0 auto; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 32px 38px; }
 .sheet-title { border-bottom: 2px solid var(--brand); padding-bottom: 14px; margin-bottom: 22px; }
 .eyebrow { font-size: 11px; letter-spacing: .14em; color: var(--muted); }
 .sheet-title h1 { margin: 6px 0 0; font-size: 26px; }
@@ -701,12 +701,13 @@ mark.hl { background: #ffe3e3; color: inherit; padding: 0 2px; border-radius: 2p
 .refs-hint { font-weight: 400; font-size: 12.5px; color: var(--muted); }
 .refs:not(.refs-open) .refs-body { display: none; }
 
-/* ---------- 正文行宽 ----------
-   第一版做法是给段落加 max-width: 44em，结果**在纸内右侧留出一大条空白**：
-   纸张 960px（内宽 884）而段落只有 704px，中文看着还行，英文段落（原稿/AI 修正版/原文）
-   尤其明显 —— 用户实测反馈"右边一大片空白、文字全挤在左边"。
-   正确做法是**收窄纸张本身**、让文字填满它：见下面 .sheet 的 max-width。
-   留白跑到纸张外面（对称居中），看起来才是有意为之。 */
+/* ---------- 关于"正文行宽"的取舍（别再改回去了） ----------
+   背景：最早 .sheet 是 960px、段落不限宽 → 中文约 60 字/行，我判断偏长，
+   于是给段落加 max-width: 44em。结果**在纸内右侧留出一大条空白**（纸张内宽 884、
+   段落只有 704），英文段落尤其明显 —— 用户反馈"右边一大片空白、文字全挤在左边"。
+   第二版改成收窄纸张到 820px，留白挪到了纸外两侧 —— 用户反馈"两边留白更多，更别扭"。
+   结论：**版式以"文字尽量填满纸张、纸张尽量靠近原宽度"为准**，
+   行宽（每行字数）不是本项目要优化的指标 —— 别再为此改纸张宽度了。 */
 
 @media screen and (max-width: 900px) {
   .sheet-glance { gap: 10px; padding: 10px 12px; }
