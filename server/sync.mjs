@@ -32,6 +32,7 @@ export const SNAPSHOT_LIMITS = Object.freeze({
   deletedHistory: 500,     // 已删除的作业号（墓碑）：防止"并集合并"把用户删掉的记录从云端复活
   progress: 2000,          // 逐课进度：lessonKey → {n,best,last,at,ms}（客户端上限也是 2000）
   progressKeyChars: 64,
+  days: 400,               // 学习日期（连续天数）：YYYY-MM-DD 去重列表
   libraryIdChars: 64,
   libraryNameChars: 80,
   lessonTitleChars: 300,
@@ -43,7 +44,7 @@ export const SNAPSHOT_LIMITS = Object.freeze({
 export const newSyncCode = () => randomBytes(16).toString('hex');
 export const isValidSyncCode = (code) => CODE_RE.test(String(code || ''));
 
-export const emptySnapshot = () => ({ libraries: [], favorites: [], history: [], deletedHistory: [], progress: {} });
+export const emptySnapshot = () => ({ libraries: [], favorites: [], history: [], deletedHistory: [], progress: {}, days: [] });
 
 const isPlainObject = (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
 const jsonBytes = (v) => {
@@ -143,7 +144,15 @@ export function sanitizeSnapshot(raw) {
     };
   }
 
-  const data = { libraries, favorites, history, deletedHistory, progress };
+  // 学习日期（连续天数用）：只收 YYYY-MM-DD 形状、去重、按条数上限截断最近的天
+  if (raw.days !== undefined && !Array.isArray(raw.days)) return { ok: false, error: 'days 必须是数组' };
+  const daySet = new Set();
+  for (const d of Array.isArray(raw.days) ? raw.days : []) {
+    if (typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d)) daySet.add(d);
+  }
+  const days = [...daySet].sort().reverse().slice(0, L.days);
+
+  const data = { libraries, favorites, history, deletedHistory, progress, days };
   if (jsonBytes(data) > MAX_SNAPSHOT_BYTES) {
     return { ok: false, error: `同步数据过大（上限 ${Math.round(MAX_SNAPSHOT_BYTES / 1024 / 1024)}MB）` };
   }

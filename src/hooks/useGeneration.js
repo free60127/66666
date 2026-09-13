@@ -11,6 +11,7 @@ import { POLL_ANALYZE_MS, TIMEOUT_ANALYZE_MS } from '../constants.js'
 import { normalizeResult } from '../resultData.js'
 import { loadProgress, recordAttempt, saveProgress } from '../lessonProgress.js'
 import { scoreOf } from '../progress.js'
+import { loadDays, recordDay, saveDays } from '../studyStreak.js'
 
 /**
  * 生成结果的「一份数据 + 一整条链路」：提交 → 轮询 → 入历史 → 结果页 / 分享 / 复制 / 离线示例。
@@ -67,6 +68,8 @@ export function useGeneration({
   // 逐课进度：按 lessonKey 聚合"练过几次 / 最好多少分"，**不随历史 20 条淘汰**
   // —— 侧栏打星、"本册已练 N/96"都靠它（历史记录只能看到最近 20 次）
   const [lessonProgress, setLessonProgress] = useState(loadProgress);
+  // 连续学习天数：按"天"存去重日期（历史只留 20 条，推不出哪天练过）
+  const [studyDays, setStudyDays] = useState(loadDays);
   const [shareTip, setShareTip] = useState('');
   // 「取消等待」标记：不是取消任务，只是让界面解锁（见 cancelGenerate 的说明）
   const cancelGenRef = useRef(false);
@@ -87,6 +90,14 @@ export function useGeneration({
     if (next === lessonProgress) return; // 自由模式 / 空 key：无归属，不记录
     saveProgress(next);
     setLessonProgress(next);
+  };
+
+  /** 记"今天练过"（连续天数用）。任何成功生成都算 —— 自由模式也是在学。 */
+  const bumpStudyDay = () => {
+    const next = recordDay(studyDays);
+    if (next === studyDays) return;
+    saveDays(next);
+    setStudyDays(next);
   };
 
   /** 结果写入历史：结果缓存跟随历史条数淘汰，否则会无限增长写满 5MB 配额。 */
@@ -292,6 +303,7 @@ export function useGeneration({
           if (jobId) {
             addToHistory(jobId, (data && data.title) || title, enriched, durationMs, deleteToken);
             bumpProgress(lessonKey, enriched, durationMs);
+            bumpStudyDay();
             window.history.replaceState(null, '', '#job=' + jobId);
           }
           if (cancelled) flashTip(setToast, '刚才那篇已经生成好，存进「历史结果」了', 6000);
@@ -364,7 +376,7 @@ export function useGeneration({
   return {
     result, setResult, currentJobId, setCurrentJobId, historyList, setHistoryList, shareTip, setShareTip,
     deletedHistory, setDeletedHistory, addTombstones, removeFromHistory,
-    lessonProgress, setLessonProgress, bumpProgress,
+    lessonProgress, setLessonProgress, bumpProgress, studyDays, setStudyDays, bumpStudyDay,
     currentOriginal,
     runGenerate, cancelGenerate, addToHistory, openHistoryModal, loadHistoryJob,
     shareResult, copyAll, loadDemo,

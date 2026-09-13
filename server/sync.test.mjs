@@ -142,6 +142,23 @@ function mockUpstash({ evalBroken = false } = {}) {
   check('progress：老快照没有该字段也能通过（回退为空对象）', noField.ok === true && typeof noField.data.progress === 'object');
 }
 
+
+/* ---------- 学习日期（days，连续天数） ---------- */
+{
+  const ok1 = sanitizeSnapshot({ ...emptySnapshot(), days: ['2026-09-13', '2026-09-12'] });
+  check('days：正常快照被接受', ok1.ok === true, ok1.ok ? '' : ok1.error);
+  check('days：按倒序保留', ok1.ok && ok1.data.days[0] === '2026-09-13');
+  const dirty = sanitizeSnapshot({ ...emptySnapshot(), days: ['2026-09-13', 'bad', '2026-9-1', 42, null, '2026-09-13'] });
+  check('days：非法格式与非字符串被丢弃、重复被去掉', dirty.ok && JSON.stringify(dirty.data.days) === JSON.stringify(['2026-09-13']), dirty.ok ? JSON.stringify(dirty.data.days) : '');
+  const notArr = sanitizeSnapshot({ ...emptySnapshot(), days: 'x' });
+  check('days：不是数组 → 拒绝', notArr.ok === false);
+  const many = Array.from({ length: 450 }, (_, i) => `2026-01-${String((i % 28) + 1).padStart(2, '0')}`);
+  const capped = sanitizeSnapshot({ ...emptySnapshot(), days: many });
+  check('days：超上限时截断到 400 条（日期是幂等集合，截断安全）', capped.ok && capped.data.days.length <= 400, capped.ok ? String(capped.data.days.length) : capped.error);
+  const noField = sanitizeSnapshot({ ...emptySnapshot() });
+  check('days：老快照没有该字段也能通过', noField.ok === true && Array.isArray(noField.data.days));
+}
+
 /* ---------- 4. Upstash 驱动：EVAL 不可用时退回加锁（仍要正确） ---------- */
 {
   const m = mockUpstash({ evalBroken: true });

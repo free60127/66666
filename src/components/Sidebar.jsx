@@ -1,6 +1,7 @@
 import React from 'react';
-import { Download, FolderPlus, Library, ListOrdered, PenLine, Plus, Settings, Star, Trash2, X } from 'lucide-react';
+import { Download, Flame, FolderPlus, Library, ListOrdered, PenLine, Plus, Settings, Star, Trash2, X } from 'lucide-react';
 import { doneSet, progressOf, summarize } from '../lessonProgress.js';
+import { summarizeStreak } from '../studyStreak.js';
 
 /**
  * 左侧栏：课文库（内置 4 册 + 我的课文库）+ 搜课 + 课文列表 + 底部设置/备份入口。
@@ -14,7 +15,7 @@ function Sidebar({
   onNewJob, myLibId, book, onBookChange, myLibs, onOpenLibModal, onSelectLib, onDeleteLib,
   lessonQuery, onLessonQuery, activeLib, lessons, visibleLessons,
   mode, lessonId, onSelectLesson, onSelectMyLesson, onDeleteMyLesson, onEditMyLesson, onRenumberLib,
-  onOpenSettings, onOpenBackup, lessonProgress,
+  onOpenSettings, onOpenBackup, lessonProgress, studyDays,
 }) {
   // 每节课的 lessonKey 必须与生成时用的完全一致（App 里的 lessonKey 也是这个格式），
   // 否则会出现"明明练过却不打星"。自建库用稳定 id（lid），所以改标题/改序号都不会丢进度。
@@ -23,6 +24,7 @@ function Sidebar({
     : `lesson:${l.book}-${l.lesson}`);
   const done = doneSet(lessonProgress);
   const scopeStats = summarize(lessonProgress, visibleLessons.map(keyOf));
+  const streak = summarizeStreak(studyDays);
 
   return (
     <>
@@ -77,6 +79,16 @@ function Sidebar({
               <button className="lesson-search-clear" onClick={() => onLessonQuery('')} aria-label="清空搜索"><X size={13} /></button>
             ) : null}
           </div>
+
+          {streak.total > 0 ? (
+            <div className={'streak-row' + (streak.current > 0 ? ' on' : '')}
+              title={`连续学习 ${streak.current} 天 · 最长 ${streak.longest} 天 · 累计 ${streak.total} 天${streak.todayDone ? ' · 今天已完成' : ' · 今天还没练'}`}>
+              <span className="streak-flame"><Flame size={13} fill={streak.current > 0 ? 'currentColor' : 'none'} /></span>
+              {streak.current > 0
+                ? <><strong>连续 {streak.current} 天</strong><span className="streak-sub">{streak.todayDone ? '今天已完成' : '今天还没练'}</span></>
+                : <><strong>连续中断</strong><span className="streak-sub">最长 {streak.longest} 天 · 练一课即可重启</span></>}
+            </div>
+          ) : null}
 
           {scopeStats.total > 0 ? (
             <div className="book-progress" title={`已练 ${scopeStats.done} 课 · 共 ${scopeStats.total} 课${scopeStats.attempts ? ` · 累计 ${scopeStats.attempts} 次` : ''}`}>

@@ -10,6 +10,7 @@
 import { mergeFavorites } from './favorites.js';
 import { mergeLibraries } from './lessonLibrary.js';
 import { mergeProgress } from './lessonProgress.js';
+import { mergeDays } from './studyStreak.js';
 
 export const HISTORY_LIMIT = 20;
 export const DELETED_LIMIT = 500;
@@ -56,12 +57,14 @@ export function mergeSnapshot(local, remote) {
   const deletedHistory = mergeDeleted(local.deletedHistory, remote && remote.deletedHistory);
   const history = mergeHistory(local.history, remote && remote.history, HISTORY_LIMIT, deletedHistory);
   const progress = mergeProgress(local.progress, remote && remote.progress);
+  const days = mergeDays(local.days, remote && remote.days);
   return {
     libraries,
     favorites,
     history,
     deletedHistory,
     progress,
+    days,
     added: {
       libsAdded,
       lessonsAdded,

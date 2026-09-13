@@ -95,6 +95,8 @@ export async function syncOnce({ code, local, device, maxAttempts = 3 }) {
         deletedHistory: payload.deletedHistory,
         // 逐课进度：换设备也能看到"我练过哪些课"（历史只留 20 条，进度才是完整记录）
         progress: payload.progress || {},
+        // 学习日期：连续天数跨设备一致
+        days: payload.days || [],
       },
     });
     if (r.ok) return { ok: true, version: r.data.version, merged: payload, added: payload.added, recovered };
@@ -103,7 +105,10 @@ export async function syncOnce({ code, local, device, maxAttempts = 3 }) {
       baseVersion = r.data.version;
       recovered = false; // 已经有人在写这串码了，不算"重建"
       payload = mergeSnapshot(
-        { libraries: payload.libraries, favorites: payload.favorites, history: payload.history, deletedHistory: payload.deletedHistory, progress: payload.progress },
+        {
+          libraries: payload.libraries, favorites: payload.favorites, history: payload.history,
+          deletedHistory: payload.deletedHistory, progress: payload.progress, days: payload.days,
+        },
         r.data.data,
       );
       continue;

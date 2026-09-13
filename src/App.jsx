@@ -8,6 +8,7 @@ import { mergeHistory } from './sync.js'
 import { mergeFavorites, saveFavorites } from './favorites.js'
 import { safeGet, safeSet, saveDeletedHistory, saveHistory } from './storage.js'
 import { saveProgress } from './lessonProgress.js'
+import { saveDays } from './studyStreak.js'
 import { useTimer } from './hooks/useTimer.js'
 import { useCloudSync } from './hooks/useCloudSync.js'
 import { useAccount } from './hooks/useAccount.js'
@@ -327,6 +328,7 @@ function App() {
     result, setResult, currentJobId, historyList, setHistoryList, shareTip,
     deletedHistory, setDeletedHistory, removeFromHistory,
     lessonProgress, setLessonProgress,
+    studyDays, setStudyDays,
     currentOriginal,
     runGenerate, cancelGenerate, openHistoryModal, loadHistoryJob,
     shareResult, copyAll, loadDemo,
@@ -572,6 +574,12 @@ function App() {
       saveProgress(merged.progress);
       changed = true;
     }
+    // 学习日期（跨设备）：取并集（一天就是一天，不会重复计数）
+    if (Array.isArray(merged.days) && JSON.stringify(studyDays) !== JSON.stringify(merged.days)) {
+      setStudyDays(merged.days);
+      saveDays(merged.days);
+      changed = true;
+    }
     return changed;
   };
 
@@ -583,7 +591,7 @@ function App() {
     codeInput, setCodeInput, syncLost, setSyncLost,
     runSync, startNewSync, useExistingCode, copySyncCode, stopSync,
   } = useCloudSync({
-    local: { libraries: myLibs, favorites, history: historyList, deletedHistory, progress: lessonProgress },
+    local: { libraries: myLibs, favorites, history: historyList, deletedHistory, progress: lessonProgress, days: studyDays },
     applyMerged: applyMergedSnapshot,
     flash: (msg, ms) => flashTip(setToast, msg, ms),
   });
@@ -722,7 +730,7 @@ function App() {
         mode={mode} lessonId={lessonId} onSelectLesson={selectLesson} onSelectMyLesson={selectMyLesson} onDeleteMyLesson={deleteMyLesson}
         onEditMyLesson={openLessonEdit} onRenumberLib={renumberMyLib}
         onOpenSettings={openSettings} onOpenBackup={openBackup}
-        lessonProgress={lessonProgress}
+        lessonProgress={lessonProgress} studyDays={studyDays}
       />
 
       <main className="main">

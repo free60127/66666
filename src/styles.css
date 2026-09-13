@@ -778,3 +778,14 @@ mark.hl { background: #ffe3e3; color: inherit; padding: 0 2px; border-radius: 2p
 .lesson-item .lesson-title { flex: 1; min-width: 0; }
 .lesson-done { display: inline-flex; align-items: center; flex-shrink: 0; margin-left: 6px; color: #f0b429; }
 .lesson-row.active .lesson-done { color: #ffd166; }
+
+/* ---------- 侧栏：连续学习天数 ---------- */
+.streak-row {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  margin: 0 4px 8px; padding: 6px 8px; border-radius: 8px;
+  font-size: 12px; color: #8fa6b5; background: rgba(255, 255, 255, .05);
+}
+.streak-row.on { color: #ffd166; background: rgba(240, 180, 41, .12); }
+.streak-row strong { font-size: 12.5px; }
+.streak-flame { display: inline-flex; align-items: center; }
+.streak-sub { margin-left: auto; font-size: 11px; color: #7f99aa; }
