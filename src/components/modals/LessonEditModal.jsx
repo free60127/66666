@@ -15,12 +15,29 @@ function LessonEditModal({ open, lesson, onClose, onSave, onDelete, modalRef }) 
   const [no, setNo] = useState(1);
   const firstRef = useRef(null);
 
-  // 每次打开时用当前课文填充表单
+  // 打开时用当前课文填充表单。
+  //
+  // 这里刻意在**渲染期同步填充**，而不是放 useEffect：effect 要等浏览器绘制之后才跑，
+  // 中间存在"弹窗已经可见、输入框还是空"的一帧。后果不只是视觉上闪一下：
+  //   · 自动化测试在这一帧读到空标题 → 断言失败（tools/e2e-b6b7.mjs 里偶发复现过）
+  //   · 更糟的是用户手快先输入，随后 effect 再用课文原值把输入覆盖掉 —— 表现为"改了没生效"
+  // 不能靠 useState 初值兜住：本组件是常驻挂载的（关闭时只是 return null），初值只在首次挂载时生效。
+  const fillKey = open && lesson
+    ? `${lesson.lid || ''}|${lesson.lesson || ''}|${lesson.title_cn || ''}|${lesson.title_en || ''}`
+    : null;
+  const [filledFor, setFilledFor] = useState(null);
+  if (fillKey !== filledFor) {
+    setFilledFor(fillKey);
+    if (fillKey) {
+      setTitleCn(lesson.title_cn || '');
+      setTitleEn(lesson.title_en || '');
+      setNo(Number(lesson.lesson) || 1);
+    }
+  }
+
+  // 聚焦仍然放 effect（要在 DOM 提交后才能 focus）
   useEffect(() => {
-    if (!open || !lesson) return;
-    setTitleCn(lesson.title_cn || '');
-    setTitleEn(lesson.title_en || '');
-    setNo(Number(lesson.lesson) || 1);
+    if (!open || !lesson) return undefined;
     const t = setTimeout(() => firstRef.current?.focus(), 40);
     return () => clearTimeout(t);
   }, [open, lesson]);
