@@ -408,10 +408,32 @@ try {
     await rows.nth(1).hover();
     await rows.nth(1).locator('.lesson-edit').click();
     await L.waitForSelector('[aria-label="编辑课文"]');
+    // 诊断①：确认弹窗开在**预期的这一节**上，且表单已填好
+    // （曾偶发失败但只看到结果、看不到现场；把现场记下来，下次一眼定位）
+    await L.waitForFunction(() => {
+      const i = document.querySelector('[aria-label="编辑课文"] input');
+      return i && i.value.trim().length > 0;
+    }, null, { timeout: 5000 }).catch(() => {});
+    const editBefore = await L.evaluate(() => {
+      const inputs = document.querySelectorAll('[aria-label="编辑课文"] input');
+      const save = [...document.querySelectorAll('[aria-label="编辑课文"] button')].find((b) => b.innerText.includes('保存'));
+      return { title: inputs[0] ? inputs[0].value : '(无)', no: inputs[2] ? inputs[2].value : '', saveDisabled: save ? save.disabled : null };
+    });
+    // 注意：这里**不能**要求标题已经是"人工智能" —— 那是下一步才输入的新标题，
+    // 此刻弹窗显示的应当是这一节的原标题（两节都是默认课文标题）。
+    // 该断言只负责确认"开对了课文 + 表单已填好 + 保存可用"。
+    ok('编辑弹窗：开在预期课文上、表单已填好、保存可用',
+      editBefore.title.trim().length > 0 && editBefore.no === '2' && editBefore.saveDisabled === false,
+      JSON.stringify(editBefore));
+
     await L.fill('[aria-label="编辑课文"] input >> nth=0', '人工智能（改过标题）');
     await L.fill('[aria-label="编辑课文"] input[type="number"]', '1');
     await L.click('[aria-label="编辑课文"] >> text=保存');
+    // 诊断②：保存后弹窗应关闭；没关说明保存没生效（按钮灰着 / 被拦下）
+    const saveClosed = await L.waitForSelector('[aria-label="编辑课文"]', { state: 'detached', timeout: 5000 })
+      .then(() => true).catch(() => false);
     list = await waitLib((x) => x && x.some((y) => y.cn === '人工智能（改过标题）'));
+    ok('保存后弹窗关闭（未关闭说明保存没生效）', saveClosed);
     ok('★ 改标题：新标题已落盘', list && list.some((x) => x.cn === '人工智能（改过标题）'), JSON.stringify(list && list.map((x) => x.cn)));
     ok('★ 改序号：挪到第 1 位、另一节顺移到 2（不重号不空档）',
       list && list.map((x) => x.no).join(',') === '1,2' && list[0].cn === '人工智能（改过标题）',
