@@ -7,6 +7,7 @@ import { getStatus, loadSettings, matchLesson, saveSettings } from './api.js'
 import { mergeHistory } from './sync.js'
 import { mergeFavorites, saveFavorites } from './favorites.js'
 import { safeGet, safeSet, saveDeletedHistory, saveHistory } from './storage.js'
+import { saveProgress } from './lessonProgress.js'
 import { useTimer } from './hooks/useTimer.js'
 import { useCloudSync } from './hooks/useCloudSync.js'
 import { useAccount } from './hooks/useAccount.js'
@@ -325,6 +326,7 @@ function App() {
   const {
     result, setResult, currentJobId, historyList, setHistoryList, shareTip,
     deletedHistory, setDeletedHistory, removeFromHistory,
+    lessonProgress, setLessonProgress,
     currentOriginal,
     runGenerate, cancelGenerate, openHistoryModal, loadHistoryJob,
     shareResult, copyAll, loadDemo,
@@ -564,6 +566,12 @@ function App() {
       saveDeletedHistory(merged.deletedHistory);
       changed = true;
     }
+    // 逐课进度（跨设备）：合并规则见 lessonProgress.mergeProgress（计数取 max，不重复计数）
+    if (merged.progress && JSON.stringify(lessonProgress) !== JSON.stringify(merged.progress)) {
+      setLessonProgress(merged.progress);
+      saveProgress(merged.progress);
+      changed = true;
+    }
     return changed;
   };
 
@@ -575,7 +583,7 @@ function App() {
     codeInput, setCodeInput, syncLost, setSyncLost,
     runSync, startNewSync, useExistingCode, copySyncCode, stopSync,
   } = useCloudSync({
-    local: { libraries: myLibs, favorites, history: historyList, deletedHistory },
+    local: { libraries: myLibs, favorites, history: historyList, deletedHistory, progress: lessonProgress },
     applyMerged: applyMergedSnapshot,
     flash: (msg, ms) => flashTip(setToast, msg, ms),
   });
@@ -714,6 +722,7 @@ function App() {
         mode={mode} lessonId={lessonId} onSelectLesson={selectLesson} onSelectMyLesson={selectMyLesson} onDeleteMyLesson={deleteMyLesson}
         onEditMyLesson={openLessonEdit} onRenumberLib={renumberMyLib}
         onOpenSettings={openSettings} onOpenBackup={openBackup}
+        lessonProgress={lessonProgress}
       />
 
       <main className="main">

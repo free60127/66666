@@ -9,6 +9,8 @@ import {
 } from '../storage.js'
 import { POLL_ANALYZE_MS, TIMEOUT_ANALYZE_MS } from '../constants.js'
 import { normalizeResult } from '../resultData.js'
+import { loadProgress, recordAttempt, saveProgress } from '../lessonProgress.js'
+import { scoreOf } from '../progress.js'
 
 /**
  * 生成结果的「一份数据 + 一整条链路」：提交 → 轮询 → 入历史 → 结果页 / 分享 / 复制 / 离线示例。
@@ -62,6 +64,9 @@ export function useGeneration({
   const [historyList, setHistoryList] = useState(loadHistory);
   // 已删除作业号（墓碑）：云同步的历史合并是并集，没有它会"删了又出现"
   const [deletedHistory, setDeletedHistory] = useState(loadDeletedHistory);
+  // 逐课进度：按 lessonKey 聚合"练过几次 / 最好多少分"，**不随历史 20 条淘汰**
+  // —— 侧栏打星、"本册已练 N/96"都靠它（历史记录只能看到最近 20 次）
+  const [lessonProgress, setLessonProgress] = useState(loadProgress);
   const [shareTip, setShareTip] = useState('');
   // 「取消等待」标记：不是取消任务，只是让界面解锁（见 cancelGenerate 的说明）
   const cancelGenRef = useRef(false);
@@ -72,6 +77,17 @@ export function useGeneration({
   const currentOriginal = manualOriginal.trim()
     || generatedOriginal
     || (myLibId ? (matchedLesson?.english || '') : '');
+
+  /**
+   * 记一次"完成"（按 lessonKey 聚合）。只有真正生成成功才会走到这里 ——
+   * 从历史里翻看旧结果不算重新练习，所以不在 loadHistoryJob 里调用。
+   */
+  const bumpProgress = (key, result, ms) => {
+    const next = recordAttempt(lessonProgress, key, { score: scoreOf(result), durationMs: ms, at: Date.now() });
+    if (next === lessonProgress) return; // 自由模式 / 空 key：无归属，不记录
+    saveProgress(next);
+    setLessonProgress(next);
+  };
 
   /** 结果写入历史：结果缓存跟随历史条数淘汰，否则会无限增长写满 5MB 配额。 */
   const addToHistory = (jobId, jobTitle, data, durationMs, deleteToken) => {
@@ -275,6 +291,7 @@ export function useGeneration({
           if (!cancelled && myToken === genTokenRef.current) setView('result');
           if (jobId) {
             addToHistory(jobId, (data && data.title) || title, enriched, durationMs, deleteToken);
+            bumpProgress(lessonKey, enriched, durationMs);
             window.history.replaceState(null, '', '#job=' + jobId);
           }
           if (cancelled) flashTip(setToast, '刚才那篇已经生成好，存进「历史结果」了', 6000);
@@ -347,6 +364,7 @@ export function useGeneration({
   return {
     result, setResult, currentJobId, setCurrentJobId, historyList, setHistoryList, shareTip, setShareTip,
     deletedHistory, setDeletedHistory, addTombstones, removeFromHistory,
+    lessonProgress, setLessonProgress, bumpProgress,
     currentOriginal,
     runGenerate, cancelGenerate, addToHistory, openHistoryModal, loadHistoryJob,
     shareResult, copyAll, loadDemo,

@@ -93,6 +93,8 @@ export async function syncOnce({ code, local, device, maxAttempts = 3 }) {
         history: payload.history,
         // 墓碑一起推上去：其它设备才会知道"这条已被删除"，否则它们本机的旧副本会把它并回来
         deletedHistory: payload.deletedHistory,
+        // 逐课进度：换设备也能看到"我练过哪些课"（历史只留 20 条，进度才是完整记录）
+        progress: payload.progress || {},
       },
     });
     if (r.ok) return { ok: true, version: r.data.version, merged: payload, added: payload.added, recovered };
@@ -101,7 +103,7 @@ export async function syncOnce({ code, local, device, maxAttempts = 3 }) {
       baseVersion = r.data.version;
       recovered = false; // 已经有人在写这串码了，不算"重建"
       payload = mergeSnapshot(
-        { libraries: payload.libraries, favorites: payload.favorites, history: payload.history, deletedHistory: payload.deletedHistory },
+        { libraries: payload.libraries, favorites: payload.favorites, history: payload.history, deletedHistory: payload.deletedHistory, progress: payload.progress },
         r.data.data,
       );
       continue;

@@ -30,6 +30,8 @@ export const SNAPSHOT_LIMITS = Object.freeze({
   favorites: 5000,
   history: 200,
   deletedHistory: 500,     // 已删除的作业号（墓碑）：防止"并集合并"把用户删掉的记录从云端复活
+  progress: 2000,          // 逐课进度：lessonKey → {n,best,last,at,ms}（客户端上限也是 2000）
+  progressKeyChars: 64,
   libraryIdChars: 64,
   libraryNameChars: 80,
   lessonTitleChars: 300,
@@ -41,7 +43,7 @@ export const SNAPSHOT_LIMITS = Object.freeze({
 export const newSyncCode = () => randomBytes(16).toString('hex');
 export const isValidSyncCode = (code) => CODE_RE.test(String(code || ''));
 
-export const emptySnapshot = () => ({ libraries: [], favorites: [], history: [], deletedHistory: [] });
+export const emptySnapshot = () => ({ libraries: [], favorites: [], history: [], deletedHistory: [], progress: {} });
 
 const isPlainObject = (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
 const jsonBytes = (v) => {
@@ -121,7 +123,27 @@ export function sanitizeSnapshot(raw) {
   }
   const deletedHistory = [...deletedSet];
 
-  const data = { libraries, favorites, history, deletedHistory };
+  // 逐课进度：对象（lessonKey → 计数/分数），只保留形状正确的数字字段。
+  // 它决定"我完成了多少课"，客户端算好后同步过来；换设备登录同一同步码即可看到。
+  const progressRaw = isPlainObject(raw.progress) ? raw.progress : {};
+  const progressEntries = Object.entries(progressRaw);
+  if (progressEntries.length > L.progress) {
+    return { ok: false, error: `progress 条目过多（上限 ${L.progress}，收到 ${progressEntries.length}）` };
+  }
+  const numOr0 = (v) => (Number.isFinite(Number(v)) ? Math.max(0, Number(v)) : 0);
+  const progress = {};
+  for (const [k, v] of progressEntries) {
+    if (!k || k.length > L.progressKeyChars || !isPlainObject(v)) continue;
+    progress[k] = {
+      n: Math.floor(numOr0(v.n)),
+      best: numOr0(v.best),
+      last: numOr0(v.last),
+      at: numOr0(v.at),
+      ms: numOr0(v.ms),
+    };
+  }
+
+  const data = { libraries, favorites, history, deletedHistory, progress };
   if (jsonBytes(data) > MAX_SNAPSHOT_BYTES) {
     return { ok: false, error: `同步数据过大（上限 ${Math.round(MAX_SNAPSHOT_BYTES / 1024 / 1024)}MB）` };
   }

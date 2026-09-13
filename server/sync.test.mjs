@@ -11,7 +11,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import http from 'node:http';
-import { createFileStore, createUpstashStore } from './sync.mjs';
+import { createFileStore, createUpstashStore, emptySnapshot, sanitizeSnapshot } from './sync.mjs';
 
 const results = [];
 const check = (name, ok, detail = '') => {
@@ -124,6 +124,22 @@ function mockUpstash({ evalBroken = false } = {}) {
   check('⑬ 冲突方没有覆盖赢家的数据', (await store.read(CODE)).data.favorites[0].id === 'A');
 
   m.server.close();
+}
+
+
+/* ---------- 逐课进度（progress）字段 ---------- */
+{
+  const ok1 = sanitizeSnapshot({ ...emptySnapshot(), progress: { 'lesson:2-18': { n: 3, best: 86, last: 72, at: 1700000000000, ms: 372000 } } });
+  check('progress：正常快照被接受', ok1.ok === true, ok1.ok ? '' : ok1.error);
+  check('progress：字段被原样保留', ok1.ok && ok1.data.progress['lesson:2-18'].best === 86);
+  const dirty = sanitizeSnapshot({ ...emptySnapshot(), progress: { 'lesson:2-18': { n: '3', best: 'x', at: -5 }, bad: 'not-an-object', '': { n: 1 } } });
+  check('progress：脏值被清理成合法数字', dirty.ok && dirty.data.progress['lesson:2-18'].n === 3 && dirty.data.progress['lesson:2-18'].best === 0 && dirty.data.progress['lesson:2-18'].at === 0);
+  check('progress：非对象条目被丢弃', dirty.ok && !('bad' in dirty.data.progress) && !('' in dirty.data.progress));
+  const huge = {}; for (let i = 0; i < 2001; i += 1) huge['lesson:2-' + i] = { n: 1 };
+  const over = sanitizeSnapshot({ ...emptySnapshot(), progress: huge });
+  check('progress：超上限明确拒绝（不静默截断）', over.ok === false, over.ok ? '' : over.error);
+  const noField = sanitizeSnapshot({ ...emptySnapshot() });
+  check('progress：老快照没有该字段也能通过（回退为空对象）', noField.ok === true && typeof noField.data.progress === 'object');
 }
 
 /* ---------- 4. Upstash 驱动：EVAL 不可用时退回加锁（仍要正确） ---------- */

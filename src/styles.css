@@ -763,3 +763,18 @@ mark.hl { background: #ffe3e3; color: inherit; padding: 0 2px; border-radius: 2p
   .back-to-top { right: 14px; bottom: calc(14px + env(safe-area-inset-bottom, 0px)); }
 }
 @media print { .back-to-top { display: none !important; } }
+
+/* ---------- 侧栏：本册（本库）进度 + 课文"已完成"星标 ----------
+   动机：历史记录只留最近 20 条，练到第 21 课就看不出总共完成了多少。
+   进度存在 bt-lesson-progress（按 lessonKey 聚合），这里把它显示出来作为学习激励。 */
+.book-progress { margin: 0 4px 8px; }
+.book-progress-head { display: flex; justify-content: space-between; align-items: baseline; font-size: 11px; color: #7f99aa; margin-bottom: 4px; }
+.book-progress-head strong { color: #dbe9f5; font-size: 12px; }
+.book-progress-head strong i { font-style: normal; font-weight: 400; color: #7f99aa; }
+.book-progress-track { height: 4px; border-radius: 999px; background: rgba(255, 255, 255, .12); overflow: hidden; }
+.book-progress-fill { height: 100%; border-radius: 999px; background: linear-gradient(90deg, #2aa7ff, #1164d8); transition: width .3s ease; }
+
+/* 已完成星标停在行尾；标题占满剩余宽度（否则长标题会把星标挤出可视区） */
+.lesson-item .lesson-title { flex: 1; min-width: 0; }
+.lesson-done { display: inline-flex; align-items: center; flex-shrink: 0; margin-left: 6px; color: #f0b429; }
+.lesson-row.active .lesson-done { color: #ffd166; }
