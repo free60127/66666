@@ -197,6 +197,14 @@ mark.hl { background: #ffe3e3; color: inherit; padding: 0 2px; border-radius: 2p
   .sidebar.collapsed { display: none; }
   .sidebar-close { display: inline-flex; position: absolute; top: 10px; right: 10px; z-index: 41; }
   .sidebar-backdrop { display: block; position: fixed; inset: 0; z-index: 39; background: rgba(0, 0, 0, .35); }
+
+  /* 手机端改为整页滚动：顶栏（历史结果 / 收藏夹 / 今日待复习 / 状态条）不再常驻屏幕顶部，
+     而是随内容一起滚走 —— 全屏壳布局下它要占掉 4 行、约 1/4 屏幕，视觉上很挤。
+     写法参考下方 @media print 的整页化（同一套属性，只是不做 display:none）。 */
+  html, body, #root { height: auto; min-height: 100%; }
+  .app { display: block; height: auto; min-height: 100%; }
+  .main { display: block; min-height: 0; overflow: visible; }
+  .editor, .result { overflow: visible; height: auto; }
   .editor-grid { grid-template-columns: 1fr; }
   .sheet { padding: 16px 12px; border-radius: 12px; }
   .v-row { grid-template-columns: 52px 1fr; gap: 6px; }
@@ -208,6 +216,8 @@ mark.hl { background: #ffe3e3; color: inherit; padding: 0 2px; border-radius: 2p
   .topbar-left strong { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: inline-block; max-width: 100%; vertical-align: middle; }
   .topbar .ghost-btn { white-space: nowrap; }
   .status-chip { margin-left: 0; order: 9; flex-basis: 100%; justify-content: center; max-width: 100%; padding: 5px 8px; font-size: 11px; }
+  /* 手机上只留「AI 已配置」：模型名（deepseek-chat）与课数对学习者是无意义噪音，还占一整行 */
+  .status-chip .chip-detail { display: none; }
 
   /* 结果页操作栏：2 列网格，按钮占满半宽 */
   .result { padding: 10px 8px; }
@@ -270,8 +280,16 @@ mark.hl { background: #ffe3e3; color: inherit; padding: 0 2px; border-radius: 2p
 .share-tip { font-size: 12px; color: var(--teal); align-self: center; }
 .history-modal { width: 460px; }
 .history-list { display: flex; flex-direction: column; gap: 8px; max-height: 55vh; overflow: auto; margin: 4px 0 10px; }
-.history-item { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; text-align: left; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: #fbfcfd; cursor: pointer; }
+.history-item { display: flex; align-items: center; gap: 6px; width: 100%; border: 1px solid var(--line); border-radius: 10px; padding: 6px 8px 6px 12px; background: #fbfcfd; }
 .history-item:hover { border-color: var(--brand); }
+/* 「查看结果」主区域与删除按钮是并列的两个 button —— 不能把删除塞进主按钮里（按钮不可嵌套） */
+.history-open { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex: 1; min-width: 0; text-align: left; padding: 4px 0; }
+.history-del { flex-shrink: 0; color: var(--muted); }
+.history-del:hover { color: var(--red); background: #fdecec; }
+.history-del-confirm { display: inline-flex; align-items: center; gap: 10px; flex-shrink: 0; font-size: 12.5px; }
+.history-del-confirm .link.danger { color: var(--red); font-weight: 600; }
+.history-del-confirm .link:disabled { opacity: .6; cursor: default; }
+.history-del-err { margin: 0 0 8px; font-size: 12.5px; color: var(--red); }
 .history-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .history-info strong { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .history-link { font-size: 12px; color: var(--brand); flex-shrink: 0; }
@@ -596,21 +614,10 @@ mark.hl { background: #ffe3e3; color: inherit; padding: 0 2px; border-radius: 2p
 @media (max-width: 720px) {
   .auth-label input { font-size: 16px; }
 
-  /* 手机端把「生成」按钮固定在底部。
-     编辑区是个长表单（标题 / 等级 / 识别模式 / 中文提示 / 初稿…），
-     主按钮在最底下 —— 每次练习都要划过整屏才能点到，而回译本主要就是手机上用。
-     用 sticky 而不是 fixed：不用手写占位高度，也不会盖住最后一段内容。 */
-  .actions-bar {
-    position: sticky;
-    bottom: 0;
-    z-index: 20;
-    /* 抵消 .editor 的 20px 内边距，让背景铺满整宽 */
-    margin: 16px -20px -20px;
-    padding: 10px 20px calc(10px + env(safe-area-inset-bottom, 0px));
-    background: var(--panel);
-    border-top: 1px solid var(--line);
-    box-shadow: 0 -6px 16px rgba(15, 25, 35, .08);
-  }
+  /* 底部「生成」按钮**不再固定在屏幕上**：用户反馈固定底栏（加上常驻顶栏）视觉上太挤。
+     手机端整页滚动后（见 max-width:900px 的布局规则），按钮本来就在表单最末尾，
+     随内容滚到底即可，无需 sticky。 */
+  .actions-bar { margin-top: 16px; }
   .actions-bar .primary-btn.big { flex: 1; justify-content: center; }
   /* 手机上那行说明文字会把按钮挤窄，收到按钮下面单独一行 */
   .actions-hint { width: 100%; font-size: 11.5px; line-height: 1.5; }
@@ -623,4 +630,38 @@ mark.hl { background: #ffe3e3; color: inherit; padding: 0 2px; border-radius: 2p
 @media screen and (max-width: 900px) {
   .fold-note { margin-left: 0; width: 100%; text-align: left; order: 3; }
   .fold-head .panel-tools { margin-left: auto; }
+}
+
+/* ---------- 矮视口（手机横屏）：侧栏课表曾被压成 0 高，完全无法选课 ----------
+   实测 740×360：.side-section 是 flex:1 + min-height:0，被压到 171px，
+   而内部固定块（标题 31 + 书签 30 + 我的库 73 + 搜索 37）正好吃满 → 课表 0px，
+   且侧栏 scrollHeight === clientHeight，连滚动条都不出现，条目跑到屏幕外点不到。
+   对策：矮视口下让子块保持自然高度、由侧栏整体滚动，并给课表保底高度。 */
+@media (max-height: 520px) {
+  .sidebar { overflow-y: auto; }
+  .side-section { flex: 0 0 auto; }
+  .lesson-list { min-height: 96px; max-height: 46vh; }
+  .my-libs { max-height: 88px; overflow-y: auto; }
+  .brand { padding: 2px 6px; }
+  .brand span { display: none; }
+  .side-title { padding: 4px 6px; }
+  .sidebar { padding: 10px 12px; gap: 8px; }
+}
+
+/* ---------- 触摸设备：可点元素至少 44×44（Apple HIG / WCAG 2.5.5）----------
+   实测手机首屏 22 处、侧栏展开后 127 处小于 44px；
+   最小的「改用自由模式」只有 19px 高，单手几乎点不中。 */
+@media (pointer: coarse) {
+  .icon-btn { min-width: 44px; min-height: 44px; }
+  .side-toggle { width: 44px; height: 44px; }
+  .primary-btn { min-height: 44px; }
+  .ghost-btn { min-height: 44px; padding: 8px 14px; }
+  .ghost-btn.sm { min-height: 38px; padding: 7px 12px; }
+  .book-tabs button { min-height: 44px; }
+  .lesson-item { min-height: 44px; padding: 10px 8px; }
+  .lesson-search, .lesson-search input { min-height: 44px; }
+  .ocr-mode, .mode-tabs button, .fold-toggle { min-height: 44px; }
+  .lib-add { width: 44px; height: 44px; }
+  /* 行内文字链接（如「改用自由模式」）撑高会破坏横幅排版，改用内边距扩大热区：19px → 35px */
+  .link { padding: 8px 4px; }
 }

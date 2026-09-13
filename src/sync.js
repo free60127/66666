@@ -11,12 +11,10 @@
  * 安全：同步码本身就是凭证（拿到的人可读写），按密码对待，不要外传。
  */
 import { createSyncCode, pullCloudSync, pushCloudSync } from './api.js';
-import { mergeFavorites } from './favorites.js';
-import { mergeLibraries } from './lessonLibrary.js';
+import { mergeSnapshot } from './syncMerge.js';
 
 const CODE_KEY = 'bt-sync-code';
 const META_KEY = 'bt-sync-meta';
-export const HISTORY_LIMIT = 20;
 
 export function loadSyncCode() {
   try { return localStorage.getItem(CODE_KEY) || ''; } catch { return ''; }
@@ -42,42 +40,10 @@ export function deviceId() {
   return id;
 }
 
-/** 历史记录合并：按 jobId 去重、按时间倒序、只留最近 N 条。 */
-export function mergeHistory(localHistory, remoteHistory, limit = HISTORY_LIMIT) {
-  const seen = new Set();
-  const merged = [];
-  const all = [...(Array.isArray(localHistory) ? localHistory : []), ...(Array.isArray(remoteHistory) ? remoteHistory : [])];
-  for (const item of all) {
-    if (!item || !item.jobId || seen.has(item.jobId)) continue;
-    seen.add(item.jobId);
-    merged.push(item);
-  }
-  return merged.sort((a, b) => (Number(b.time) || 0) - (Number(a.time) || 0)).slice(0, limit);
-}
-
-/**
- * 把云端快照合并进本地数据。纯函数，不碰存储。
- * @returns {{libraries, favorites, history, added: {libsAdded, lessonsAdded, favAdded, histAdded}}}
- */
-export function mergeSnapshot(local, remote) {
-  const { list: libraries, libsAdded, lessonsAdded } = mergeLibraries(local.libraries, remote && remote.libraries);
-  // 收藏合并会把「复习进度（ease/interval/due/reps）」一起并过来：同一张卡在两台设备上都复习过时，
-  // 以复习得更新的那份为准 —— 否则后同步的那台会把另一台的进度顶掉。
-  const { merged: favorites, added: favAdded, updated: favUpdated } = mergeFavorites((remote && remote.favorites) || [], local.favorites);
-  const history = mergeHistory(local.history, remote && remote.history);
-  return {
-    libraries,
-    favorites,
-    history,
-    added: {
-      libsAdded,
-      lessonsAdded,
-      favAdded,
-      favUpdated: favUpdated || 0,
-      histAdded: Math.max(0, history.length - (Array.isArray(local.history) ? local.history.length : 0)),
-    },
-  };
-}
+/* 纯合并函数已抽到 ./syncMerge.js —— 那个文件不依赖 api.js，可以在纯 Node 里被测试
+   （sync.js 自己用了 Vite 专有的 import.meta.env，import 不进来）。
+   这里再导出一次，调用方的 import 路径不用改。 */
+export { DELETED_LIMIT, HISTORY_LIMIT, mergeDeleted, mergeHistory, mergeSnapshot } from './syncMerge.js';
 
 /** 生成一个新同步码并在云端建好空槽位。 */
 export async function createNewSyncCode() {
@@ -108,7 +74,7 @@ export async function syncOnce({ code, local, device, maxAttempts = 3 }) {
     // 打错码的担忧不成立：手填新码时界面会先探一次（见 useExistingCode），
     // 不存在的码在输入那一刻就被拦下了，走不到这里。
     if (e && e.status === 404) {
-      remote = { version: 0, updatedAt: 0, data: { libraries: [], favorites: [], history: [] } };
+      remote = { version: 0, updatedAt: 0, data: { libraries: [], favorites: [], history: [], deletedHistory: [] } };
       recovered = true;
     } else {
       throw e;
@@ -121,14 +87,23 @@ export async function syncOnce({ code, local, device, maxAttempts = 3 }) {
     const r = await pushCloudSync(code, {
       baseVersion,
       device: device || deviceId(),
-      data: { libraries: payload.libraries, favorites: payload.favorites, history: payload.history },
+      data: {
+        libraries: payload.libraries,
+        favorites: payload.favorites,
+        history: payload.history,
+        // 墓碑一起推上去：其它设备才会知道"这条已被删除"，否则它们本机的旧副本会把它并回来
+        deletedHistory: payload.deletedHistory,
+      },
     });
     if (r.ok) return { ok: true, version: r.data.version, merged: payload, added: payload.added, recovered };
     if (r.status === 409 && r.data) {
       // 其它设备抢先写了：拿云端最新数据重新合并后再推
       baseVersion = r.data.version;
       recovered = false; // 已经有人在写这串码了，不算"重建"
-      payload = mergeSnapshot({ libraries: payload.libraries, favorites: payload.favorites, history: payload.history }, r.data.data);
+      payload = mergeSnapshot(
+        { libraries: payload.libraries, favorites: payload.favorites, history: payload.history, deletedHistory: payload.deletedHistory },
+        r.data.data,
+      );
       continue;
     }
     return { ok: false, error: (r.data && r.data.error) || ('同步失败：HTTP ' + r.status) };

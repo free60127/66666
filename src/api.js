@@ -68,6 +68,15 @@ export const getLesson = (book, n) => api('/api/lessons/' + (n == null ? book : 
 export const matchLesson = (payload) => api('/api/match', { method: 'POST', body: JSON.stringify(payload) });
 export const analyze = (payload) => api('/api/analyze', { method: 'POST', body: JSON.stringify(payload) });
 export const getAnalyzeJob = (jobId) => api('/api/analyze/' + jobId, {}, TIMEOUT.fast);
+/**
+ * 删除某次作业：本机历史 + 服务端记录一起删（分享链接随即失效）。
+ * deleteToken 是创建任务时服务端只发一次给的删除凭据；老任务没有它，服务端会放行。
+ */
+export const deleteAnalyzeJob = (jobId, deleteToken) => api(
+  '/api/analyze/' + jobId,
+  { method: 'DELETE', headers: { 'Content-Type': 'application/json', ...(deleteToken ? { 'X-Delete-Token': deleteToken } : {}) } },
+  TIMEOUT.fast,
+);
 export const generateMaterial = (payload) => api('/api/generate-material', { method: 'POST', body: JSON.stringify(payload) });
 export const getMaterialJob = (jobId) => api('/api/generate-material/' + jobId, {}, TIMEOUT.fast);
 // 拍照 / 图片识别：提交图片 → 轮询识别结果（要上传 base64 图片，给更长的超时）

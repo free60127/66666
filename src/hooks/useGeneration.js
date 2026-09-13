@@ -1,9 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
-import { analyze, getAnalyzeJob } from '../api.js'
+import { analyze, deleteAnalyzeJob, getAnalyzeJob } from '../api.js'
 import { DEMO_LESSON_18 } from '../demo.js'
 import { formatDuration } from '../format.js'
 import { hasMorphology, morphologyText } from '../favorites.js'
-import { loadHistory, loadResultCache, pruneResultCache, saveHistory, saveResultCache } from '../storage.js'
+import {
+  DELETED_HISTORY_MAX, loadDeletedHistory, loadHistory, loadResultCache,
+  pruneResultCache, removeResultCache, saveDeletedHistory, saveHistory, saveResultCache,
+} from '../storage.js'
 import { POLL_ANALYZE_MS, TIMEOUT_ANALYZE_MS } from '../constants.js'
 import { normalizeResult } from '../resultData.js'
 
@@ -57,6 +60,8 @@ export function useGeneration({
   const [result, setResult] = useState(null);
   const [currentJobId, setCurrentJobId] = useState('');
   const [historyList, setHistoryList] = useState(loadHistory);
+  // 已删除作业号（墓碑）：云同步的历史合并是并集，没有它会"删了又出现"
+  const [deletedHistory, setDeletedHistory] = useState(loadDeletedHistory);
   const [shareTip, setShareTip] = useState('');
   // 「取消等待」标记：不是取消任务，只是让界面解锁（见 cancelGenerate 的说明）
   const cancelGenRef = useRef(false);
@@ -69,14 +74,56 @@ export function useGeneration({
     || (myLibId ? (matchedLesson?.english || '') : '');
 
   /** 结果写入历史：结果缓存跟随历史条数淘汰，否则会无限增长写满 5MB 配额。 */
-  const addToHistory = (jobId, jobTitle, data, durationMs) => {
+  const addToHistory = (jobId, jobTitle, data, durationMs, deleteToken) => {
     saveResultCache(jobId, data);
     // lessonKey 一起进历史：结果页要靠它认出"上一次练的是同一课"（老记录没有，靠标题兜底）
-    const entry = { jobId, title: jobTitle || '回译作业', time: Date.now(), durationMs: Number(durationMs) || 0, lessonKey: String((data && data.lessonKey) || '') };
+    // deleteToken：删除这条记录时回传给服务端的凭据（老记录没有，服务端会放行）
+    const entry = {
+      jobId, title: jobTitle || '回译作业', time: Date.now(),
+      durationMs: Number(durationMs) || 0,
+      lessonKey: String((data && data.lessonKey) || ''),
+      ...(deleteToken ? { deleteToken } : {}),
+    };
     const next = [entry, ...historyList.filter((x) => x.jobId !== jobId)].slice(0, 20);
     saveHistory(next);
     pruneResultCache(next.map((x) => x.jobId)); // 结果缓存跟随历史条数淘汰，否则无限增长写满 5MB 配额
     setHistoryList(next);
+  };
+
+  /** 记录墓碑（去重 + 保上限），并同步进 state —— 云同步会把它一起推到云端。 */
+  const addTombstones = (ids) => {
+    const next = [...new Set([...deletedHistory, ...ids])].slice(-DELETED_HISTORY_MAX);
+    saveDeletedHistory(next);
+    setDeletedHistory(next);
+    return next;
+  };
+
+  /**
+   * 删除一条历史：**本机 + 服务端一起删**，分享链接随即失效。
+   *
+   * 两个容易踩的点：
+   *  1) 必须先删服务端再动本机 —— 顺序反了而服务端删除失败，就留下"本机没了、云端还在"的不一致；
+   *  2) 删完要留**墓碑**（deletedHistory）。云同步的历史合并是并集，不留标记的话
+   *     下一次同步会把云端那份旧记录原样并回来，用户看到的就是"删了又出现"。
+   * @returns {Promise<{ok: boolean, error?: string}>}
+   */
+  const removeFromHistory = async (jobId) => {
+    if (!jobId) return { ok: false, error: '缺少任务号' };
+    const entry = historyList.find((x) => x.jobId === jobId);
+    try {
+      await deleteAnalyzeJob(jobId, entry && entry.deleteToken);
+    } catch (e) {
+      // 服务端已经没有这条（过期 / 被条数上限清理）时按删除成功处理，否则用户永远删不掉一条幽灵记录
+      if (!/不存在|已被删除/.test((e && e.message) || '')) {
+        return { ok: false, error: (e && e.message) || '删除失败，请稍后重试' };
+      }
+    }
+    const next = historyList.filter((x) => x.jobId !== jobId);
+    saveHistory(next);
+    removeResultCache(jobId); // 本机结果缓存也清掉，否则刷新后还能从缓存把内容捞回来
+    setHistoryList(next);
+    addTombstones([jobId]);
+    return { ok: true };
   };
 
   const openHistoryModal = () => {
@@ -193,16 +240,21 @@ export function useGeneration({
     // 点击生成时定格用时（本次练习从开始计时到提交用掉的时长）
     const durationMs = elapsedMsNow(); // 定格「从开始计时到提交」的用时（不算等 AI 的时间）
     let jobId = '';
+    let deleteToken = ''; // 创建响应里只发一次的删除凭据，随历史条目一起存，删记录时回传
     try {
       await runJob({
-        submit: () => analyze({
+        submit: async () => {
+          const resp = await analyze({
           title: title.trim(), chinese: cn, draft: df,
           book: mode === 'lesson' && !myLibId ? book : undefined,
           lessonId: mode === 'lesson' && !myLibId ? id : undefined,
           original: currentOriginal || undefined,
           level: polishLevel,
           baseUrl: settings.baseUrl, model: settings.model, apiKey: settings.apiKey,
-        }),
+          });
+          deleteToken = (resp && resp.deleteToken) || '';
+          return resp;
+        },
         fetchJob: getAnalyzeJob,
         intervalMs: POLL_ANALYZE_MS,
         timeoutMs: TIMEOUT_ANALYZE_MS,
@@ -222,7 +274,7 @@ export function useGeneration({
           const cancelled = cancelGenRef.current;
           if (!cancelled && myToken === genTokenRef.current) setView('result');
           if (jobId) {
-            addToHistory(jobId, (data && data.title) || title, enriched, durationMs);
+            addToHistory(jobId, (data && data.title) || title, enriched, durationMs, deleteToken);
             window.history.replaceState(null, '', '#job=' + jobId);
           }
           if (cancelled) flashTip(setToast, '刚才那篇已经生成好，存进「历史结果」了', 6000);
@@ -294,6 +346,7 @@ export function useGeneration({
 
   return {
     result, setResult, currentJobId, setCurrentJobId, historyList, setHistoryList, shareTip, setShareTip,
+    deletedHistory, setDeletedHistory, addTombstones, removeFromHistory,
     currentOriginal,
     runGenerate, cancelGenerate, addToHistory, openHistoryModal, loadHistoryJob,
     shareResult, copyAll, loadDemo,

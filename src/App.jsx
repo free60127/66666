@@ -6,7 +6,7 @@ import { ensureLessonIds, mergeLibraries, saveLibraries } from './lessonLibrary.
 import { getStatus, loadSettings, matchLesson, saveSettings } from './api.js'
 import { mergeHistory } from './sync.js'
 import { mergeFavorites, saveFavorites } from './favorites.js'
-import { safeGet, safeSet, saveHistory } from './storage.js'
+import { safeGet, safeSet, saveDeletedHistory, saveHistory } from './storage.js'
 import { useTimer } from './hooks/useTimer.js'
 import { useCloudSync } from './hooks/useCloudSync.js'
 import { useAccount } from './hooks/useAccount.js'
@@ -222,6 +222,10 @@ function App() {
     for (const t of tipTimersRef.current.values()) clearTimeout(t);
     tipTimersRef.current.clear();
   }, []);
+  // 手机端是**整页滚动**（见 styles.css 的 max-width:900px 布局规则）：
+  // 切「编辑 ⇄ 结果」时页面会停在上一视图的滚动位置，落在结果页中间，所以切视图后回顶部。
+  // 桌面端编辑器是独立滚动容器、window 本身不滚，这里是空操作。
+  useEffect(() => { window.scrollTo(0, 0); }, [view]);
   // 生成任务令牌：用户在生成过程中切课 / 点「新建」时作废，
   // 任务完成后就不再强行把视图抢回结果页（结果本身仍然保留并写入历史）。
   const genTokenRef = useRef(0);
@@ -315,6 +319,7 @@ function App() {
    * 放在 useLessons / useTimer 之后：提交参数与 lessonKey 都来自那边。 */
   const {
     result, setResult, currentJobId, historyList, setHistoryList, shareTip,
+    deletedHistory, setDeletedHistory, removeFromHistory,
     currentOriginal,
     runGenerate, cancelGenerate, openHistoryModal, loadHistoryJob,
     shareResult, copyAll, loadDemo,
@@ -547,6 +552,13 @@ function App() {
     if (JSON.stringify(myLibs) !== JSON.stringify(mergedLibs)) { setMyLibs(mergedLibs); saveLibraries(mergedLibs); changed = true; }
     if (JSON.stringify(favorites) !== JSON.stringify(merged.favorites)) { setFavorites(merged.favorites); saveFavorites(merged.favorites); changed = true; }
     if (JSON.stringify(historyList) !== JSON.stringify(merged.history)) { setHistoryList(merged.history); saveHistory(merged.history); changed = true; }
+    // 墓碑（已删除的作业号）也要写回：合并用的是并集，只有本机记住了"哪些删过"，
+    // 下一次推送才能把它带给其它设备，否则别的设备会把删掉的记录再并回来。
+    if (Array.isArray(merged.deletedHistory) && JSON.stringify(deletedHistory) !== JSON.stringify(merged.deletedHistory)) {
+      setDeletedHistory(merged.deletedHistory);
+      saveDeletedHistory(merged.deletedHistory);
+      changed = true;
+    }
     return changed;
   };
 
@@ -558,7 +570,7 @@ function App() {
     codeInput, setCodeInput, syncLost, setSyncLost,
     runSync, startNewSync, useExistingCode, copySyncCode, stopSync,
   } = useCloudSync({
-    local: { libraries: myLibs, favorites, history: historyList },
+    local: { libraries: myLibs, favorites, history: historyList, deletedHistory },
     applyMerged: applyMergedSnapshot,
     flash: (msg, ms) => flashTip(setToast, msg, ms),
   });
@@ -707,8 +719,9 @@ function App() {
           <div className="topbar-left"><BookOpen size={18} /><strong>{mode === 'lesson' ? '课文回译训练' : '自由回译训练'}</strong></div>
           <div className="status-chip" title={status ? (status.model + ' @ ' + status.baseUrl) : '请先启动后端 npm run server'}>
             <span className={'dot ' + (status ? 'ok' : 'err')} />
-            {status ? (hasAiKey ? 'AI 已配置 · ' + status.model : '未配置 API Key · ' + status.model) : '后端未连接'}
-            {status?.corpusLessons ? ' · ' + status.corpusLessons + ' 课' : ''}
+            {status ? (hasAiKey ? 'AI 已配置' : '未配置 API Key') : '后端未连接'}
+            {status ? <span className="chip-detail">{' · ' + status.model}</span> : null}
+            {status?.corpusLessons ? <span className="chip-detail">{' · ' + status.corpusLessons + ' 课'}</span> : null}
           </div>
           <button className="ghost-btn" onClick={backToEditor}><X size={15} />编辑器</button>
           <button className="ghost-btn" onClick={openHistoryModal}><History size={15} />历史结果{historyList.length ? ` (${historyList.length})` : ''}</button>
@@ -1104,7 +1117,7 @@ function App() {
         modalRef={lessonEditModalRef}
       />
 
-      <HistoryModal open={historyOpen} onClose={closeHistory} modalRef={historyModalRef} items={historyList} onOpen={loadHistoryJob} />
+      <HistoryModal open={historyOpen} onClose={closeHistory} modalRef={historyModalRef} items={historyList} onOpen={loadHistoryJob} onDelete={removeFromHistory} />
 
       <FavoritesModal
         open={favOpen} onClose={closeFavorites} modalRef={favModalRef}

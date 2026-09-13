@@ -29,6 +29,7 @@ export const SNAPSHOT_LIMITS = Object.freeze({
   lessonsPerLibrary: 1000,
   favorites: 5000,
   history: 200,
+  deletedHistory: 500,     // 已删除的作业号（墓碑）：防止"并集合并"把用户删掉的记录从云端复活
   libraryIdChars: 64,
   libraryNameChars: 80,
   lessonTitleChars: 300,
@@ -40,7 +41,7 @@ export const SNAPSHOT_LIMITS = Object.freeze({
 export const newSyncCode = () => randomBytes(16).toString('hex');
 export const isValidSyncCode = (code) => CODE_RE.test(String(code || ''));
 
-export const emptySnapshot = () => ({ libraries: [], favorites: [], history: [] });
+export const emptySnapshot = () => ({ libraries: [], favorites: [], history: [], deletedHistory: [] });
 
 const isPlainObject = (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
 const jsonBytes = (v) => {
@@ -57,7 +58,7 @@ export function sanitizeSnapshot(raw) {
   if (!isPlainObject(raw)) return { ok: false, error: '同步数据必须是一个 JSON 对象' };
   const L = SNAPSHOT_LIMITS;
 
-  for (const [key, max] of [['libraries', L.libraries], ['favorites', L.favorites], ['history', L.history]]) {
+  for (const [key, max] of [['libraries', L.libraries], ['favorites', L.favorites], ['history', L.history], ['deletedHistory', L.deletedHistory]]) {
     const v = raw[key];
     if (v !== undefined && !Array.isArray(v)) return { ok: false, error: `${key} 必须是数组` };
     if (Array.isArray(v) && v.length > max) {
@@ -110,7 +111,17 @@ export function sanitizeSnapshot(raw) {
   // 被丢弃的条数要能观测到：不静默吞掉（单条超限的是派生/缓存类数据，丢弃比整单拒绝更合理）
   const dropped = { favorites: favRaw.length - favorites.length, history: hisRaw.length - history.length };
 
-  const data = { libraries, favorites, history };
+  // 墓碑（已删除的作业号）：只留**字符串**形状合法的去重值。
+  // 它不参与渲染，只是"别再并回来"的标记；客户端传来的永远是字符串，非字符串一律丢弃。
+  const deletedSet = new Set();
+  for (const id of Array.isArray(raw.deletedHistory) ? raw.deletedHistory : []) {
+    if (typeof id !== 'string') continue;
+    const s = boundedString(id, L.libraryIdChars + 1);
+    if (s && s.length <= L.libraryIdChars) deletedSet.add(s);
+  }
+  const deletedHistory = [...deletedSet];
+
+  const data = { libraries, favorites, history, deletedHistory };
   if (jsonBytes(data) > MAX_SNAPSHOT_BYTES) {
     return { ok: false, error: `同步数据过大（上限 ${Math.round(MAX_SNAPSHOT_BYTES / 1024 / 1024)}MB）` };
   }

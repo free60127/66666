@@ -1,7 +1,7 @@
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { SYSTEM_PROMPT, buildUserMessage, MATERIAL_PROMPT, buildMaterialMessage, QUIZ_PROMPT, buildQuizMessage, AI_LEVEL_KEYS, DEFAULT_AI_LEVEL, normalizeLevel } from './prompt.mjs';
 import { recognizeImage } from './ocr.mjs';
@@ -330,9 +330,45 @@ const jobs = new Map();
 const JOB_PREFIX = 'bts:job:';
 const JOB_TTL_SEC = Math.floor(JOB_TTL / 1000);
 
+/**
+ * 已被用户删除的任务号。
+ * 为什么需要：生成中的任务在**跑完之后**还会 saveJob 一次（写 status/结果），
+ * 不加这道闸，用户删掉的记录会被那个收尾写入重新写回 KV，看起来就是"删不掉"。
+ * 只放内存即可 —— 进程重启后本来就不存在"还在跑的旧任务"。
+ */
+const deletedJobs = new Set();
+const DELETED_JOBS_MAX = 1000;
+
+function markJobDeleted(jobId) {
+  deletedJobs.add(jobId);
+  if (deletedJobs.size > DELETED_JOBS_MAX) {
+    deletedJobs.delete(deletedJobs.values().next().value);
+  }
+}
+
+/** 删除一条任务记录：内存 + KV 都要删，并挡住后续的收尾写入。 */
+async function deleteJob(jobId) {
+  markJobDeleted(jobId);
+  jobs.delete(jobId);
+  try {
+    await kv.del(JOB_PREFIX + jobId);
+  } catch (e) {
+    console.error('删除任务失败:', e.message);
+    throw e;
+  }
+}
+
+/** 定长比较（删除凭据），避免用 === 比字符串泄露长度/前缀信息。 */
+function safeEqual(a, b) {
+  const x = Buffer.from(String(a == null ? '' : a));
+  const y = Buffer.from(String(b == null ? '' : b));
+  return x.length > 0 && x.length === y.length && timingSafeEqual(x, y);
+}
+
 /** 内存是快路径，KV 是持久层。写入不阻塞请求（任务状态更新很频繁）。 */
 function saveJob(job) {
   if (!job || !job.jobId) return;
+  if (deletedJobs.has(job.jobId)) return; // 已被用户删除：别把收尾写入变成"复活"
   jobs.set(job.jobId, job);
   Promise.resolve(kv.set(JOB_PREFIX + job.jobId, JSON.stringify(job), JOB_TTL_SEC))
     .catch((e) => console.error('任务落盘失败:', e.message));
@@ -927,8 +963,8 @@ function applyCors(req, res) {
   if (!origin || !ALLOWED_ORIGINS.includes(origin)) return;
   res.setHeader('Access-Control-Allow-Origin', origin);
   res.setHeader('Vary', 'Origin');
-  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,DELETE,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Delete-Token');
 }
 
 const server = http.createServer(async (req, res) => {
@@ -1231,14 +1267,17 @@ const server = http.createServer(async (req, res) => {
       if (!apiKey) return json(res, 400, { error: '未配置 AI_API_KEY：请复制 .env.example 为 .env 并填写，或在设置面板填入 API Key' });
 
       const jobId = randomUUID();
-      saveJob({ jobId, kind: 'analyze', title, status: 'pending', createdAt: Date.now(), data: null, error: null });
+      // 删除凭据：分享链接是「可读」能力，不该顺带给出删除权，所以删除要另配一个只发一次的 token。
+      // 只在**创建响应**里返回，GET /api/analyze/:jobId 不会带它。
+      const deleteToken = randomBytes(16).toString('hex');
+      saveJob({ jobId, kind: 'analyze', title, status: 'pending', createdAt: Date.now(), data: null, error: null, deleteToken });
       registerJob(jobId);
       // 立即返回任务号，后台再调用模型；手机端/弱网不会因长时间占用请求而卡死
       safeRun('analyze', jobId, () => runAnalyzeJob(jobId, {
         title, chinese, draft, original: lesson ? lesson.english : userOriginal,
         lesson, lessonNo, baseUrl, model, apiKey, level,
       }));
-      return json(res, 200, { ok: true, jobId, status: 'pending' });
+      return json(res, 200, { ok: true, jobId, status: 'pending', deleteToken });
     }
     const jobMatch = p.match(/^\/api\/analyze\/([A-Za-z0-9-]{8,64})$/);
     if (jobMatch && req.method === 'GET') {
@@ -1248,6 +1287,18 @@ const server = http.createServer(async (req, res) => {
         ok: true,
         job: { jobId: job.jobId, status: job.status, data: job.data || null, error: job.error || null },
       });
+    }
+    // 删除某次作业（历史记录里的「删除」）：服务端记录一并删掉，分享链接随即失效
+    if (jobMatch && req.method === 'DELETE') {
+      const job = await findJob(jobMatch[1]);
+      if (!job) return json(res, 404, { error: '任务不存在或已被删除' });
+      // 新任务带 deleteToken，必须匹配；老任务（本功能上线前创建）没有 token，
+      // 为免"永远删不掉"仍允许删除 —— 它们本来就只靠不可猜的 jobId 保护。
+      if (job.deleteToken && !safeEqual(req.headers['x-delete-token'], job.deleteToken)) {
+        return json(res, 403, { error: '删除凭据不匹配：这条记录不是在本机生成的，无法删除' });
+      }
+      await deleteJob(job.jobId);
+      return json(res, 200, { ok: true, deleted: job.jobId });
     }
     if (p.startsWith('/api/')) return json(res, 404, { error: 'unknown api' });
     return serveStatic(res, p);
