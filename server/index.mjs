@@ -9,6 +9,7 @@ import { MAX_SNAPSHOT_BYTES, createSyncStore, emptySnapshot, isValidSyncCode, ne
 import { createUpstashKv, createFileKv } from './kv.mjs';
 import { resolveClientIp, trustProxyHops, trustCloudflareHeader } from './client-ip.mjs';
 import { createAccounts } from './accounts.mjs';
+import { sanitizeOverall, sanitizeSentences } from './resultShape.mjs';
 import { sendMail } from './mailer.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -671,23 +672,6 @@ function parseJsonLoose(raw) {
 function objectArray(value) {
   return (Array.isArray(value) ? value : []).filter((x) => x && typeof x === 'object' && !Array.isArray(x));
 }
-function stringArray(value) {
-  return (Array.isArray(value) ? value : []).filter((x) => typeof x === 'string');
-}
-function sanitizeSentences(value) {
-  return objectArray(value).map((s) => ({
-    ...s,
-    findings: objectArray(s.findings).map((f) => ({
-      ...f,
-      dimensions: stringArray(f.dimensions),
-      synonyms: Array.isArray(f.synonyms) ? f.synonyms.filter((x) => x != null) : [],
-    })),
-  }));
-}
-function sanitizeOverall(value) {
-  const o = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
-  return { ...o, scoreBreakdown: objectArray(o.scoreBreakdown) };
-}
 
 async function postChat({ url, headers, body, withFormat, timeoutMs = 120000 }) {
   let r;
@@ -771,6 +755,12 @@ async function runAnalyzeJob(jobId, { title, chinese, draft, original, lesson, l
     } catch (e) {
       throw new Error('模型返回不是有效 JSON，请重试或换模型');
     }
+    // 清洗 findings：丢掉「went → went」这类无意义对照（模型偶尔会为凑数而生造），
+    // 丢了多少条打进日志 —— 数量长期偏高就说明 prompt 需要再收一收。
+    const cleanedSentences = sanitizeSentences(parsed.sentences);
+    if (cleanedSentences.dropped > 0) {
+      console.warn(`[analyze] 丢弃 ${cleanedSentences.dropped} 条无意义 findings（from 与 to 相同/缺失或重复）`);
+    }
     job.data = {
       title: parsed.title || title,
       chinese: parsed.chinese || chinese,
@@ -779,7 +769,7 @@ async function runAnalyzeJob(jobId, { title, chinese, draft, original, lesson, l
       original: parsed.original || original,
       aiLevel: level || DEFAULT_AI_LEVEL,
       overall: sanitizeOverall(parsed.overall),
-      sentences: sanitizeSentences(parsed.sentences),
+      sentences: cleanedSentences.list,
       vocabularyNotes: objectArray(parsed.vocabularyNotes),
       idiomHighlights: objectArray(parsed.idiomHighlights),
       advancedSentences: Array.isArray(parsed.advancedSentences) ? parsed.advancedSentences : [],
