@@ -31,26 +31,42 @@ export default function BackToTop() {
   const [show, setShow] = useState(false);
 
   useEffect(() => {
-    const readScrollTop = (e) => {
-      const t = e && e.target;
+    // 最近一次"真实滚动"的容器。MutationObserver 拿不到滚动容器，只能沿用这个值。
+    let lastScroller = null;
+
+    const readTop = (target) => {
       // 整页滚动时事件目标是 document（或 documentElement），否则是内部滚动容器
-      if (!t || t === document || t === document.documentElement || t === document.body || t === window) {
+      if (!target || target === document || target === document.documentElement || target === document.body || target === window) {
         return window.scrollY || document.documentElement.scrollTop || 0;
       }
-      return t.scrollTop || 0;
+      return target.scrollTop || 0;
     };
-    const onScroll = (e) => {
-      const t = e && e.target;
+
+    /** 用"最近一次真实滚动"的位置重新判断是否该显示 */
+    const apply = () => {
       // 弹窗打开时一律不显示：按钮在遮罩下面（z-index 45 < 50），点它只会把弹窗关掉
       if (document.querySelector('.modal-mask')) { setShow(false); return; }
-      if (!isPageScroller(t)) return; // 侧栏课表 / 弹窗列表的滚动不算
-      setShow(readScrollTop(e) > SHOW_AFTER_PX);
+      if (lastScroller && !isPageScroller(lastScroller)) return; // 侧栏课表 / 弹窗列表的滚动不算数
+      setShow(readTop(lastScroller) > SHOW_AFTER_PX);
     };
+
+    const onScroll = (e) => {
+      lastScroller = (e && e.target) || null;
+      apply();
+    };
+
     document.addEventListener('scroll', onScroll, true);
-    onScroll(); // 初始进来可能已经是滚动状态（比如从分享链接恢复）
-    // 弹窗开合本身不产生 scroll 事件，得单独听一次，否则按钮会一直挂在遮罩下面
-    const observer = new MutationObserver(onScroll);
+    apply(); // 初始进来可能已经是滚动状态（比如从分享链接恢复）
+
+    /* 弹窗开合本身不产生 scroll 事件，得单独听一次 DOM 变化，否则按钮会一直挂在遮罩下面。
+       ⚠️ 这里**不能**把 MutationRecord 直接丢给 onScroll（踩过）：
+       MutationRecord.target 是"被改动的那个节点"，不是滚动容器 ——
+       桌面端滚动的是 .result 内部容器，而 window.scrollY 恒为 0，
+       于是界面每更新一次（提示条消失、收藏星标、云端同步提示…）就会把已经出现的按钮又藏回去，
+       用户看到的就是"回到顶部没了"。所以只借用它来重算，位置一律取 lastScroller。 */
+    const observer = new MutationObserver(apply);
     observer.observe(document.body, { childList: true, subtree: true });
+
     return () => {
       document.removeEventListener('scroll', onScroll, true);
       observer.disconnect();

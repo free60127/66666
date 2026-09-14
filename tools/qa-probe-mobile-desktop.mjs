@@ -398,6 +398,36 @@ async function runDevice(label, ctxOpts) {
     if (after) note('⚠️ 关闭侧栏后「回到顶部」仍然挂在屏幕上（只有下一次 scroll 事件才会复位）');
   }
 
+  /* ---- 8b. 「回到顶部」：滚过一屏要出现，且界面更新时不能被误藏 ----
+     回归的 bug：MutationObserver 把 MutationRecord 当成 scroll 事件传给了处理器，
+     而 MutationRecord.target 是"被改动的节点"（不是滚动容器）—— 桌面端于是读到
+     window.scrollY = 0，界面每更新一次就把已经出现的按钮又藏回去，用户看到"按钮没了"。 */
+  {
+    if (!(await page.$('.result-sheet'))) {
+      await page.locator('.primary-btn.big').click().catch(() => {});
+      await page.waitForSelector('.result-sheet', { timeout: 120000 }).catch(() => {});
+      await page.waitForFunction(() => !document.querySelector('.busy, .progress'), null, { timeout: 120000 }).catch(() => {});
+      await sleep(400);
+    }
+    // 手机端滚整页、桌面端滚 .result 内部容器 —— 两种都滚一遍，覆盖两条路径
+    const scrolled = await page.evaluate(() => {
+      const box = document.querySelector('.editor, .result');
+      const before = box ? box.scrollTop : 0;
+      if (box) box.scrollTop = 700;
+      window.scrollTo(0, 700);
+      return { hadBox: Boolean(box), before, boxTop: box ? box.scrollTop : 0, winY: Math.round(window.scrollY) };
+    });
+    await sleep(500);
+    const appeared = await page.evaluate(() => Boolean(document.querySelector('.back-to-top')));
+    ok(`[${label}] 滚过一屏后出现「回到顶部」`, appeared,
+      `内部容器 ${scrolled.before}→${scrolled.boxTop}，window.scrollY=${scrolled.winY}`);
+
+    // 静置几秒：提示条自动消失、云端同步提示刷新等都会改动 DOM（正是当初把它藏回去的时机）
+    await sleep(4500);
+    const still = await page.evaluate(() => Boolean(document.querySelector('.back-to-top')));
+    ok(`[${label}] 界面更新后按钮仍在（不会闪一下就没）`, still);
+  }
+
   /* ---- 9. 触屏：自建课文库的「删除」按钮必须可见（原来靠 hover 揭示，手机上永远看不到） ---- */
   if (isMobile) {
     await closeAnyModal(page);
