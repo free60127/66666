@@ -55,6 +55,9 @@ const ctx = await browser.newContext({ viewport: { width: 1360, height: 950 } })
 const page = await ctx.newPage();
 const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
+// 切方向时若初稿非空会 window.confirm 问一句；Playwright 默认把原生对话框当"取消"，
+// 于是切换被静默中止（这个坑踩过一次）——这里统一同意。
+page.on('dialog', (d) => d.accept());
 
 await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'domcontentloaded' });
 await page.waitForSelector('.status-chip');
@@ -120,16 +123,51 @@ ok('逐句解析标题换成"译文对比"', /译文对比/.test(sheet.analysisT
 ok('拿到真实评分', Boolean(sheet.score), sheet.score || '');
 
 /* ---------- 5. 切回汉译英：标签跟着回来 ---------- */
-await page.locator('.result-toolbar >> text=返回编辑').first().click();
-await sleep(400);
+// 上一段结束时已经在编辑页了；这里兜一下，让本段单独跑（或上一段被跳过时）也能工作
+if (!(await page.$('.dir-tabs'))) {
+  await page.locator('.result-toolbar >> text=返回编辑').first().click();
+  await sleep(400);
+}
+// 切换前先把两栏的内容记下来：等会儿要验证它们**真的换了位置**，而不是只换了标签。
+// （用户反馈的错觉正是"标签换了、内容没换"—— 那时要重新点一次课文才会重填。）
+// 参考译文栏是**条件渲染**（折叠时不进 DOM）——读取前先确保它是展开的。
+// 用 class 判断再点，别靠"猜它现在是开还是关"（之前就是猜错方向，读到空值）。
+const ensureFoldOpen = async () => {
+  await page.evaluate(() => {
+    const fold = document.querySelector('.original-fold');
+    if (fold && !fold.classList.contains('open')) document.querySelector('.fold-toggle')?.click();
+  });
+  await sleep(250);
+};
+await ensureFoldOpen();
+const beforeSwitch = await page.evaluate(() => ({
+  src: (document.querySelectorAll('.big-textarea')[0]?.value || '').trim(),
+  ref: (document.querySelector('.original-fold textarea')?.value || '').trim(),
+}));
+
 await page.locator('.dir-tabs button', { hasText: '汉译英' }).click();
-await sleep(400);
+await sleep(450);
+await ensureFoldOpen();
 const back = await page.evaluate(() => ({
   panels: [...document.querySelectorAll('.panel-head h2')].map((h) => h.textContent.trim()),
   btn: [...document.querySelectorAll('button')].find((b) => /生成完整/.test(b.textContent))?.textContent.trim(),
+  src: (document.querySelectorAll('.big-textarea')[0]?.value || '').trim(),
+  ref: (document.querySelector('.original-fold textarea')?.value || '').trim(),
+  fold: document.querySelector('.fold-title')?.textContent.trim(),
+  foldNote: document.querySelector('.fold-note')?.textContent.trim() || '',
 }));
 ok('切回汉译英后面板标签恢复', back.panels.includes('中文提示') && back.panels.includes('你的英文初稿'), back.panels.join(' | '));
 ok('生成按钮也切回回译', /回译/.test(back.btn || ''), back.btn || '');
+
+/* 用户实测反馈的错位：切方向只换了标签，框里还是上一个方向的内容，
+   要重新点一次课文才会重填 —— 看着就像"没换"。这里钉住"切换当下就对调"。 */
+const hasCjk = (t) => /[一-鿿]/.test(String(t));
+ok('切方向后题目栏换成中文（不用重新点课文）',
+  hasCjk(back.src) && !/^[A-Za-z][A-Za-z\s,.'!?-]*$/.test(back.src), `题目 = ${back.src.slice(0, 30)}`);
+ok('切方向后标准答案栏换成英文', /[A-Za-z]{4,}/.test(back.ref), `${back.fold} = ${back.ref.slice(0, 30)}`);
+ok('对调是"互换"而不是复制（两栏内容确实换了位置）',
+  Boolean(beforeSwitch.src && beforeSwitch.ref) && back.src === beforeSwitch.ref && back.ref === beforeSwitch.src,
+  `题目 ${beforeSwitch.src.slice(0, 10)}… → ${back.src.slice(0, 10)}… ／ 答案 ${beforeSwitch.ref.slice(0, 10)}… → ${back.ref.slice(0, 10)}…`);
 
 /* ---------- 6. 刷新后不再拦人（方向已记住） ---------- */
 // 生成完 URL 上带着 #job=，刷新会被"分享链接恢复"送回结果页 —— 那里没有方向开关。

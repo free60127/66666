@@ -548,6 +548,26 @@ function App() {
     doStartNewJob(pendingNewRef.current !== false);
   };
 
+  /* ---------- 切换练习方向（编辑器里的开关走这里）----------
+   * 只换标签是不够的：框里的内容还是上一个方向填进去的，于是出现
+   * **标题写着「英文原文」、里面却还是中文**的错位（用户在界面上实测反馈）。
+   * 之前只有"重新点一次课文"才会按新方向重填，看着就像没换 —— 所以这里在**切换的当下**
+   * 把「题目栏」和「标准答案栏」对调，等价于"换个方向看同一份材料"。
+   * 初稿是上一个方向的答案（连语言都不对），非空时先问一句再清空，不静默销毁用户写的东西。 */
+  const switchDirection = useCallback((next) => {
+    const nextDir = normalizeDirection(next);
+    if (nextDir === dir) return;
+    const answer = manualOriginal.trim() || generatedOriginal || ''; // 有效标准答案（手填 > AI 素材 > 空）
+    if (draft.trim() && !window.confirm('切换方向会把「题目」和「标准答案」对调，并清空你的初稿（它是上一个方向的答案）。继续吗？')) return;
+    const question = chinese;      // 旧题目（这一侧的文字）
+    setChinese(answer);            // 新题目 = 旧的标准答案
+    setManualOriginal(question);   // 新标准答案 = 旧的题目
+    setDraft('');
+    setGeneratedOriginal('');      // 它的内容已经挪进题目栏了，留着会串
+    chooseDirection(nextDir);
+    flashTip(setToast, `已切换到${directionMeta(nextDir).name}：题目与标准答案已对调`, 3200);
+  }, [dir, chinese, draft, manualOriginal, generatedOriginal, chooseDirection, setChinese, setManualOriginal, setDraft, setGeneratedOriginal]);
+
   /** 顶栏「编辑器」：只切回编辑视图，不动任何内容（只清 #job= 免得刷新跳回结果页）。 */
   const backToEditor = useCallback(() => {
     setView('editor');
@@ -926,7 +946,7 @@ function App() {
                 <button
                   key={d}
                   className={dir === d ? 'active' : ''}
-                  onClick={() => chooseDirection(d)}
+                  onClick={() => switchDirection(d)}
                   title={directionMeta(d).blurb}
                 >
                   <Languages size={15} />{directionMeta(d).name}
