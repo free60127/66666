@@ -24,7 +24,8 @@ const SECRET_PORT = 8953;     // 假装是内网服务（云元数据 / 本机�
 const MOCK_PORT = 8954;       // 正常模型接口
 const EVIL_PORT = 8955;       // 攻击者的"公网"域名：307 跳内网
 
-const SECRET = 'INTERNAL-SECRET-DO-NOT-LEAK';
+// 内容里带 FAKE：一眼看出是测试夹具，也让凭证扫描器（test/no-secrets.test.mjs）不误报
+const SECRET = 'FAKE-INTERNAL-MARKER-DO-NOT-LEAK';
 let secretHits = 0;
 let evilHits = 0;
 
@@ -123,7 +124,7 @@ console.log('=== SSRF 回归测试 ===\n');
   const probe = await submit(APP_PORT_OPEN, `http://[::ffff:127.0.0.1]:${SECRET_PORT}/v1`);
   const job = probe.body.jobId ? await settle(APP_PORT_OPEN, probe.body.jobId) : null;
   check('（对照组）放行内网时确实能打到内网服务 —— 说明这条链路是通的', probe.status === 200 && secretHits > 0, `HTTP ${probe.status}, secretHits=${secretHits}`);
-  check('（对照组）内网响应会经 job.error 回显 —— 所以必须拦住', Boolean(job && /INTERNAL-SECRET/.test(job.error || '')), String(job && job.error || '').slice(0, 60));
+  check('（对照组）内网响应会经 job.error 回显 —— 所以必须拦住', Boolean(job && /FAKE-INTERNAL-MARKER/.test(job.error || '')), String(job && job.error || '').slice(0, 60));
   secretHits = 0; // 归零，下面的重定向用例单独计数
 }
 
