@@ -1015,7 +1015,10 @@ function App() {
             <p className="muted small">把纸张放平、光线充足、尽量让文字填满画面；手写体建议先把「识别模式」设为「手写体优先」。</p>
             <div className="modal-actions">
               <button className="primary-btn" onClick={snapPhoto}><Camera size={16} />拍照并识别</button>
-              <button className="ghost-btn" onClick={() => { const side = camSide; closeCamera(); (side === 'chinese' ? chineseCamRef : side === 'original' ? originalCamRef : englishCamRef).current?.click(); }}>从相册选择</button>
+              {/* 这里必须点 *FileRef（相册/文件选择器），不能点 *CamRef：
+                  后者带 capture="environment"，手机上会**再打开一次相机 App** ——
+                  用户明明点了"从相册选择"，却又被丢回相机。 */}
+              <button className="ghost-btn" onClick={() => { const side = camSide; closeCamera(); (side === 'chinese' ? chineseFileRef : side === 'original' ? originalFileRef : englishFileRef).current?.click(); }}>从相册选择</button>
             </div>
           </div>
         </div>
