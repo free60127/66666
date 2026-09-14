@@ -167,10 +167,46 @@ function resolveLesson({ book, lessonId, title, chinese }) {
   return matchLesson({ title, chinese, book }).match;
 }
 
+/* ---------- API Key 归一化 ----------
+ * 真实踩坑（线上实测）：在部署平台的环境变量框里粘贴 Key 时，很容易把界面上的说明文字
+ * 一起带进去 —— 线上那把实际是 `sk-…dff 必`（"必填"标记连着空格被粘了进来）。
+ * 后果不是"认证失败"这么直白：undici 的 fetch 直接抛
+ *     Cannot convert argument to a ByteString because the character at index 43 …
+ * 用户看到的是一句完全不知所云的英文；更隐蔽的是 hasKey 仍然是 true，
+ * 从状态接口看不出任何异常，排查时得先猜"是 key 错了还是模型接口挂了"。
+ *
+ * Key 只可能是可打印 ASCII，所以这里把非 ASCII 字符与所有空白一律去掉；
+ * 真的改动过内容时打一行警告（不静默），且每个变量只警告一次，避免刷日志。
+ * 访客在前端手填的 Key 走同一套归一化 —— 从别处复制粘贴带上空格是同样常见的事。 */
+function normalizeApiKey(raw) {
+  const s = String(raw == null ? '' : raw);
+  const cleaned = s.replace(/[^!-~]/g, '');
+  return { key: cleaned, dirty: Boolean(s) && cleaned !== s };
+}
+const warnedDirtyKeys = new Set();
+const warnDirtyKey = (name) => {
+  if (warnedDirtyKeys.has(name)) return;
+  warnedDirtyKeys.add(name);
+  console.warn('⚠️  ' + name + ' 里混进了非 ASCII 字符或空白（常见于粘贴时带上了平台界面的提示文字），'
+    + '已自动清理后使用。建议到部署平台核对该项，避免把多余字符一起发往模型服务商。');
+};
+const envKey = () => {
+  const { key, dirty } = normalizeApiKey(process.env.AI_API_KEY);
+  if (dirty) warnDirtyKey('AI_API_KEY');
+  return key;
+};
+const envVisionBase = () => String(process.env.AI_VISION_BASE_URL || '').trim();
+
+const envVisionKey = () => {
+  const { key, dirty } = normalizeApiKey(process.env.AI_VISION_API_KEY);
+  if (dirty) warnDirtyKey('AI_VISION_API_KEY');
+  return key;
+};
+
 const stat = {
   baseUrl: () => String(process.env.AI_BASE_URL || 'https://api.deepseek.com/v1').trim(),
   model: () => process.env.AI_MODEL || 'deepseek-chat',
-  hasKey: () => Boolean(process.env.AI_API_KEY),
+  hasKey: () => Boolean(envKey()),
 };
 
 /* ---------- 接入点安全边界 ----------
@@ -183,9 +219,7 @@ const stat = {
  */
 const ALLOW_SERVER_KEY = process.env.ALLOW_SERVER_KEY !== '0'; // 公共站点可设 0：强制访客自带 key
 const ALLOW_PRIVATE_BASE = process.env.ALLOW_PRIVATE_BASE_URL === '1';
-const envKey = () => String(process.env.AI_API_KEY || '').trim();
-const envVisionBase = () => String(process.env.AI_VISION_BASE_URL || '').trim();
-const envVisionKey = () => String(process.env.AI_VISION_API_KEY || '').trim();
+
 
 const sameEndpoint = (a, b) => String(a || '').replace(/\/+$/, '') === String(b || '').replace(/\/+$/, '');
 
@@ -268,7 +302,7 @@ async function isSafeBaseUrl(raw) {
  */
 async function resolveEndpoint({ bodyBase, bodyKey, fallbackBase, fallbackKey }) {
   const base = String(bodyBase || '').trim();
-  const key = String(bodyKey || '').trim();
+  const key = normalizeApiKey(bodyKey).key; // 前端粘贴的 key 同样可能带空格/全角字符
   if (!base || sameEndpoint(base, fallbackBase)) {
     return { baseUrl: fallbackBase, apiKey: key || (ALLOW_SERVER_KEY ? fallbackKey : '') };
   }
