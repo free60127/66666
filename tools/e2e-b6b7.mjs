@@ -86,7 +86,19 @@ const mock = http.createServer((req, res) => {
 await new Promise((r) => mock.listen(9877, '127.0.0.1', r));
 
 const browser = await chromium.launch();
+/**
+ * 预置练习方向。
+ * 新版本进站会先弹「练习方向选择页」（汉译英 / 英译汉），而它是**全屏遮罩**，
+ * 不选就会挡住后面所有点击。这个脚本关心的是生成/对比/同步那几条链路，
+ * 方向选择页本身由 tools/e2e-direction.mjs 专门覆盖 —— 这里直接把选择结果写进
+ * localStorage，等价于"用户已经选过汉译英"。
+ */
+const seedDirection = (ctx) => ctx.addInitScript(() => {
+  try { localStorage.setItem('bt-direction', 'cn2en'); } catch { /* 无痕等场景忽略 */ }
+});
+
 const ctx = await browser.newContext({ viewport: { width: 1360, height: 950 } });
+await seedDirection(ctx);
 const page = await ctx.newPage();
 const errors = [];
 page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
@@ -295,6 +307,7 @@ try {
   // B 端：手上是同一张卡（还没复习过），先复习（忘了），再把同步码填进来
   const favorite = (await favStore())[0];
   const ctxB = await browser.newContext({ viewport: { width: 1360, height: 950 } });
+  await seedDirection(ctxB);
   const pageB = await ctxB.newPage();
   await pageB.addInitScript((fav) => {
     localStorage.setItem('bt-favorites', JSON.stringify([{ ...fav, ease: 2.5, interval: 0, reps: 0, due: Date.now() - 1000, lastReviewed: 0, lastGrade: '' }]));
@@ -356,6 +369,7 @@ try {
   /* ---------- 自建课文：保存 / 改标题 / 改序号 / 重排序号（独立上下文，避免长会话的脏状态） ---------- */
   {
     const ctxL = await browser.newContext({ viewport: { width: 1360, height: 900 } });
+  await seedDirection(ctxL);
     const L = await ctxL.newPage();
     await L.goto(BASE, { waitUntil: 'domcontentloaded' });
     await L.waitForSelector('.editor', { timeout: 60000 });
@@ -508,6 +522,7 @@ try {
     return (h[0] && h[0].jobId) || '';
   });
   const ctxC = await browser.newContext({ viewport: { width: 1200, height: 900 } });
+  await seedDirection(ctxC);
   const pageC = await ctxC.newPage();
   await pageC.goto(BASE + '#job=' + shareJob, { waitUntil: 'domcontentloaded' });
   await pageC.waitForSelector('.result-sheet', { timeout: 45000 });

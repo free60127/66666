@@ -68,6 +68,20 @@ try {
   await page.waitForSelector('.status-chip', { timeout: 45000 });
   ok('页面渲染出主界面（未白屏）', true, BASE);
 
+  // 新访客的第一屏是「练习方向」（汉译英 / 英译汉）—— 真站就该真的有这一步。
+  // 注意：这一步**必须**成功，否则那张全屏遮罩会挡住后面所有点击（本脚本正是这样挂过一次）。
+  {
+    const appeared = await page.locator('.dir-modal').waitFor({ timeout: 15000 }).then(() => true).catch(() => false);
+    ok('首次访问出现「练习方向」选择页', appeared);
+    if (appeared) {
+      const cards = await page.locator('.dir-card strong').allInnerTexts();
+      ok('两个方向都给出（汉译英 / 英译汉）', cards.join() === '汉译英,英译汉', cards.join('/'));
+      await page.locator('.dir-card', { hasText: '汉译英' }).click();
+      await sleep(300);
+      ok('选择后遮罩消失（不再挡点击）', (await page.locator('.dir-modal').count()) === 0);
+    }
+  }
+
   // 首屏资源不能 404（VITE_BASE 配错时这里会挂）
   const failed = [];
   page.on('response', (res) => { if (res.status() >= 400) failed.push(`${res.status()} ${res.url()}`); });
@@ -125,6 +139,10 @@ try {
       await fp.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 60000 });
       await fp.waitForSelector('.status-chip', { timeout: 45000 });
       await fp.waitForFunction(() => /AI 已配置/.test(document.querySelector('.status-chip')?.textContent || ''), null, { timeout: 90000 });
+      // 全新访客：先过「练习方向」这一屏（这次选英译汉，顺带验证另一个方向也能正常开局）
+      await fp.waitForSelector('.dir-modal', { timeout: 20000 }).catch(() => {});
+      await fp.locator('.dir-card', { hasText: '英译汉' }).click().catch(() => {});
+      await sleep(300);
       await fp.waitForSelector('.lesson-item', { timeout: 60000 }).catch(() => {});
       const lessons = await fp.evaluate(() => document.querySelectorAll('.lesson-item').length);
       ok('[生成] 课文列表来自后端（跨域时同时验证 CORS）', lessons > 5, `${lessons} 条`);
