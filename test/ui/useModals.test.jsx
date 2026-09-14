@@ -113,3 +113,38 @@ describe('useModals：Esc 与 Tab', () => {
     expect(document.activeElement.closest('[role="dialog"]')).not.toBeNull();
   });
 });
+
+describe('useModals：弹窗打开时锁住背景滚动', () => {
+  // 实测 bug：手机上打开收藏夹后在遮罩空白处滑动，背后那条长页面被滚走
+  // （scrollY 60 → 660）；关掉弹窗用户已经不在原来的阅读位置。
+  it('打开弹窗时锁住 html/body 滚动，关闭后还原并恢复滚动位置', async () => {
+    render(<Harness />);
+    const html = document.documentElement;
+    const { body } = document;
+    expect(html.style.overflow).toBe('');
+    expect(body.style.overflow).toBe('');
+
+    fireEvent.click(screen.getByText('打开素材弹窗'));
+    await tick();
+    expect(html.style.overflow).toBe('hidden');
+    expect(body.style.overflow).toBe('hidden');
+
+    act(() => { fireEvent.keyDown(document, { key: 'Escape' }); });
+    await tick();
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(html.style.overflow).toBe('');
+    expect(body.style.overflow).toBe('');
+  });
+
+  it('原本就写着 overflow 的内联样式被原样还原（不覆盖调用方的设置）', async () => {
+    document.documentElement.style.overflow = 'auto';
+    render(<Harness />);
+    fireEvent.click(screen.getByText('打开素材弹窗'));
+    await tick();
+    expect(document.documentElement.style.overflow).toBe('hidden');
+    act(() => { fireEvent.keyDown(document, { key: 'Escape' }); });
+    await tick();
+    expect(document.documentElement.style.overflow).toBe('auto');
+    document.documentElement.style.overflow = '';
+  });
+});

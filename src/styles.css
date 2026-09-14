@@ -7,9 +7,22 @@
 }
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; margin: 0; }
-body { font-family: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif; background: var(--bg); color: var(--text); }
+body { font-family: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif; background: var(--bg); color: var(--text); overflow-wrap: break-word; }
 button { font: inherit; cursor: pointer; border: none; background: none; }
 textarea, input { font: inherit; }
+
+/* ---------- 长 token 换行兜底 ----------
+   场景：AI 输出里出现超长英文单词 / URL / 连写学术词时，块级容器不会断词，
+   于是整页被撑宽。实测 390px 手机上 scrollWidth 变成 437px（正文被推出屏幕，
+   页面能左右拖）。原来只有 .finding-diff 单独加了 overflow-wrap，其余容器全漏。
+   为什么用 anywhere 而不是 break-word：break-word 不参与 min-content 计算，
+   在 flex/grid 子项里仍会把容器撑开；anywhere 会。 */
+.sheet p, .sheet li, .sheet h1, .sheet h2, .sheet h3,
+.v-row p, .summary-quote, .summary-tip, .overall-body p, .advice li,
+.finding-diff, .finding-exp, .finding-top, .vocab-note, .vocab-meaning, .idiom-exp,
+.example-line em, .syn-ex, .quiz-question, .quiz-option,
+.fav-title, .fav-body, .fav-extra, .modal p, .history-info strong,
+.sheet-glance, .score-comment, .match-text, .ocr-note { overflow-wrap: anywhere; }
 
 .app { display: flex; height: 100%; }
 .sidebar { width: 268px; min-width: 268px; background: #10222e; color: #dfe9f0; display: flex; flex-direction: column; padding: 16px 12px; gap: 14px; overflow-y: auto; transition: margin-left .25s ease; }
@@ -177,7 +190,7 @@ mark.hl { background: #ffe3e3; color: inherit; padding: 0 2px; border-radius: 2p
 .idiom-example { font-size: 13px; color: #0d7a70; font-style: italic; margin: 3px 0; }
 .idiom-exp { margin: 0; font-size: 13px; line-height: 1.7; }
 
-.modal-mask { position: fixed; inset: 0; background: rgba(15, 25, 35, .45); display: flex; align-items: center; justify-content: center; z-index: 50; overflow-y: auto; padding: 20px; }
+.modal-mask { position: fixed; inset: 0; background: rgba(15, 25, 35, .45); display: flex; align-items: center; justify-content: center; z-index: 50; overflow-y: auto; padding: 20px; overscroll-behavior: contain; }
 /* max-height + 内部滚动：小屏/横屏下收藏夹这类高弹窗原来底部按钮够不到、页面也滚不动 */
 .modal { width: 420px; max-width: calc(100vw - 32px); max-height: calc(100vh - 40px); overflow-y: auto; background: #fff; border-radius: 14px; padding: 20px; }
 .modal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
@@ -453,11 +466,13 @@ mark.hl { background: #ffe3e3; color: inherit; padding: 0 2px; border-radius: 2p
 .fav-star { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; margin: -10px -10px -10px auto; border-radius: 8px; color: #7c8792; flex-shrink: 0; }
 .fav-star:hover { background: #fff5d6; color: var(--gold); }
 .fav-star.on { color: var(--gold); }
-.fav-tip { position: fixed; top: 66px; right: 18px; z-index: 60; background: #10222e; color: #eaf3f8; font-size: 12.5px; padding: 8px 12px; border-radius: 10px; box-shadow: 0 6px 18px rgba(0, 0, 0, .18); }
+/* 提示条一律不吃点击：它们是 role="status" 的纯文字，没有可点的东西；
+   但 z-index 60/90 又必然盖在最上层 —— 不加这一条，提示出现期间它盖住的那片区域点不动。 */
+.fav-tip { position: fixed; top: 66px; right: 18px; z-index: 60; background: #10222e; color: #eaf3f8; font-size: 12.5px; padding: 8px 12px; border-radius: 10px; box-shadow: 0 6px 18px rgba(0, 0, 0, .18); pointer-events: none; }
 /* 全局提示条（保存课文 / 新建作业 / 删除 等）：错开收藏提示，避免叠在一起 */
 .fav-tip.toast { top: 108px; max-width: min(420px, calc(100vw - 36px)); line-height: 1.6; }
 /* 后端冷启动提示：免费托管休眠后唤醒约 1 分钟，放在最顶端并压住其它浮层 */
-.wake-tip { position: fixed; top: 10px; left: 50%; transform: translateX(-50%); z-index: 90; display: flex; align-items: center; gap: 8px; background: #10222e; color: #eaf3f8; font-size: 12.5px; padding: 8px 14px; border-radius: 999px; box-shadow: 0 6px 18px rgba(0, 0, 0, .18); max-width: calc(100vw - 24px); }
+.wake-tip { position: fixed; top: 10px; left: 50%; transform: translateX(-50%); z-index: 90; display: flex; align-items: center; gap: 8px; background: #10222e; color: #eaf3f8; font-size: 12.5px; padding: 8px 14px; border-radius: 999px; box-shadow: 0 6px 18px rgba(0, 0, 0, .18); max-width: calc(100vw - 24px); pointer-events: none; }
 .fav-modal { width: 720px; }
 .fav-toolbar { display: flex; gap: 8px; margin-bottom: 10px; }
 .fav-search { flex: 1; min-width: 0; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font: inherit; }
@@ -482,9 +497,17 @@ mark.hl { background: #ffe3e3; color: inherit; padding: 0 2px; border-radius: 2p
 
 @media screen and (max-width: 900px) {
   .fav-modal { width: calc(100vw - 24px); }
-  .fav-tip { left: 12px; right: 12px; top: auto; bottom: 16px; text-align: center; }
+  /* ⚠️ 选择器必须连 .toast 一起写，不能只写 .fav-tip：
+     `.fav-tip.toast`(0,2,0) 的 top:108px 特异度高于 `.fav-tip`(0,1,0)，
+     只改后者的话 top 收不回来 —— 于是 fixed 元素同时拿到 top:108px 与 bottom:16px，
+     被拉伸成 720px 高（占 390×844 手机视口的 85%），整片区域还挡住点击。
+     实测数据见 tools/qa-probe-mobile-desktop.mjs 的 toast 尺寸断言。 */
+  .fav-tip, .fav-tip.toast {
+    inset: auto 12px calc(16px + env(safe-area-inset-bottom, 0px)) 12px;
+    max-width: none; text-align: center;
+  }
   /* 手机上挪到底部，避免盖住顶栏的课本/课次选择 */
-  .wake-tip { top: auto; bottom: 16px; left: 12px; right: 12px; transform: none; justify-content: center; border-radius: 12px; }
+  .wake-tip { top: auto; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); left: 12px; right: 12px; transform: none; justify-content: center; border-radius: 12px; }
   .fav-toolbar { flex-wrap: wrap; }
 }
 
@@ -545,22 +568,27 @@ mark.hl { background: #ffe3e3; color: inherit; padding: 0 2px; border-radius: 2p
 .lib-row.active .lib-tab { color: #fff; }
 .lib-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lib-count { font-size: 10.5px; color: #a9bdc9; background: rgba(255,255,255,.1); border-radius: 999px; padding: 1px 6px; }
-.lib-del { display: none; padding: 4px; border-radius: 6px; color: #8fa6b5; margin-right: 4px; }
-.lib-row:hover .lib-del { display: inline-flex; }
+/* 行内「改 / 删」按钮：桌面 hover 才显形，但必须**始终占位**。
+   原来用 display:none → hover 时突然插入，行内布局当场变化：
+   手机上（iOS 的 :hover 会粘在刚点过的那一行）表现为"点一下之后手指底下长出一个删除按钮"，
+   第二次点击就命中删除。改成 visibility 后位置固定、不产生位移，且不可点、不可聚焦。 */
+.lib-del, .lesson-del, .lesson-edit { display: inline-flex; visibility: hidden; padding: 4px; border-radius: 6px; color: #8fa6b5; margin-right: 4px; }
+.lib-row:hover .lib-del, .lib-row:focus-within .lib-del { visibility: visible; }
 .lib-del:hover { color: #ff9a9a; background: rgba(255,255,255,.08); }
 /* 课文行：内置册只有按钮，自建库多一个删除按钮 */
 .lesson-row { display: flex; align-items: center; border-radius: 8px; }
 .lesson-row.active { background: rgba(66,150,255,.18); }
 .lesson-row .lesson-item { flex: 1; min-width: 0; }
 .lesson-row.active .lesson-item { color: #fff; }
-.lesson-del, .lesson-edit { display: none; padding: 4px; border-radius: 6px; color: #8fa6b5; margin-right: 4px; }
-.lesson-row:hover .lesson-del, .lesson-row:hover .lesson-edit, .lesson-row.active .lesson-del, .lesson-row.active .lesson-edit { display: inline-flex; }
+.lesson-row:hover .lesson-del, .lesson-row:hover .lesson-edit,
+.lesson-row:focus-within .lesson-del, .lesson-row:focus-within .lesson-edit,
+.lesson-row.active .lesson-del, .lesson-row.active .lesson-edit { visibility: visible; }
 .lesson-del:hover { color: #ff9a9a; background: rgba(255,255,255,.08); }
 .lesson-edit:hover { color: #9fd0ff; background: rgba(255,255,255,.08); }
-/* 触屏没有 hover：自建课文（可编辑）的按钮直接常显 */
+/* 触屏没有 hover：三类行内按钮一律常显（否则用户根本删不掉课文库）。
+   常显还顺带解决了"点一下界面自己长出按钮"——布局从一开始就是最终布局。 */
 @media (hover: none) {
-  .lesson-edit { display: inline-flex; }
-  .lesson-row.active .lesson-del { display: inline-flex; }
+  .lib-del, .lesson-del, .lesson-edit { visibility: visible; }
 }
 
 /* ---------- 英文原文（标准答案）折叠栏 ---------- */
@@ -664,6 +692,24 @@ mark.hl { background: #ffe3e3; color: inherit; padding: 0 2px; border-radius: 2p
   .lib-add { width: 44px; height: 44px; }
   /* 行内文字链接（如「改用自由模式」）撑高会破坏横幅排版，改用内边距扩大热区：19px → 35px */
   .link { padding: 8px 4px; }
+
+  /* ---- 下面这批原来漏在 44px 规则之外，实测是手机首屏最难点的几个 ----
+     统一用「负外边距抵消」保持视觉密度不变（.fav-star 早就用了这个技巧）。 */
+  /* 朗读 🔊：原来是 22×22，词汇表里每个词后面都有一个，单手几乎点不中 */
+  .speak-btn { width: 44px; height: 44px; margin: -11px -6px; }
+  /* 结果页速览条的四个跳转入口：首屏主入口却只有约 27px 高 */
+  .glance-jump button { min-height: 44px; padding: 8px 14px; }
+  /* 「只算本次 / 看最近几次」切换（约 23px） */
+  .chip-btn { min-height: 44px; padding: 8px 14px; }
+  /* 「分项得分」折叠开关（约 20px）—— 撑高会影响卡片排版，用内边距扩热区 */
+  .score-breakdown-title { padding: 11px 4px; }
+  /* 侧栏行内的改 / 删：原来 20×20 且只在 hover 出现 */
+  .lib-del, .lesson-del, .lesson-edit { min-width: 44px; min-height: 44px; margin-right: 0; }
+  /* 历史记录的「确认删除 / 取消」：两个小字挨着 10px，点偏就删 */
+  .history-del-confirm .link { min-height: 44px; padding: 12px 14px; }
+  .history-del-confirm { gap: 16px; }
+  /* 拍照 / 导入图片：38px → 44px */
+  .ghost-btn.sm { min-height: 44px; padding: 8px 12px; }
 }
 
 /* ---------- 结果页顶部速览条（评分 / 问题数 / 快捷跳转） ----------

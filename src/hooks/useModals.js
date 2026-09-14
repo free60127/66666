@@ -95,6 +95,40 @@ export function useModals({ getCloseCamera, getMaterialBusy, getAuthOpen, closeA
     return () => clearTimeout(timer);
   }, [open]);
 
+  /**
+   * 弹窗打开时锁住背景滚动。
+   *
+   * 为什么需要：`.modal-mask` 是 position:fixed，但它只挡住了点击，不阻断**滚动链** ——
+   * 手机上在遮罩空白处滑动（桌面是滚轮），背后那条长页面照样被滚走；关掉弹窗后
+   * 用户已经不在原来的阅读位置。实测（390×844，打开收藏夹后在遮罩上滚）：
+   * scrollY 60 → 660。详见 tools/qa-probe-mobile-desktop.mjs 的滚动穿透断言。
+   *
+   * 为什么要在关闭时还原 scrollY：给 <html> 设 overflow:hidden 会让滚动偏移被钳到 0，
+   * 不还原就等于"关掉弹窗被扔回页面顶部"。移动端整页滚动时滚的是 <html>（见 styles.css
+   * 的 max-width:900px 块），桌面端滚的是 .editor/.result 内部容器，所以两处都要锁。
+   *
+   * 依赖用布尔值而不是 `open` 字符串：弹窗之间互相切换（如备份 → 账号）时
+   * 字符串会变，effect 重跑会把滚动位置先还回去再锁上，用户会看到页面跳一下。
+   */
+  const anyModal = open !== null;
+  useEffect(() => {
+    if (!anyModal) return undefined;
+    const html = document.documentElement;
+    const { body } = document;
+    const prev = { html: html.style.overflow, body: body.style.overflow, y: window.scrollY };
+    html.style.overflow = 'hidden';
+    body.style.overflow = 'hidden';
+    // 上锁这一下，Chromium 实测**不会**动滚动位置；但 Safari 在 overflow:hidden 时会把
+    // 偏移钳到 0（页面看起来"跳回顶部"）。这里补一次，代价是一行、且幂等。
+    if (window.scrollY !== prev.y) window.scrollTo(0, prev.y);
+
+    return () => {
+      html.style.overflow = prev.html;
+      body.style.overflow = prev.body;
+      if (window.scrollY !== prev.y) window.scrollTo(0, prev.y);
+    };
+  }, [anyModal]);
+
   /** 有没有任何弹窗开着（用于全局快捷键 / 滚动锁定这类判断） */
   const anyOpen = Boolean(camOpen || materialOpen || newJobOpen || libModalOpen || lessonEdit || backupOpen || historyOpen || favOpen || settingsOpen);
 
