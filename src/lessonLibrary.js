@@ -156,19 +156,28 @@ export function removeLibrary(list, libId) {
 
 /**
  * 把一篇作业存进指定库。
- * 同一份作业（标题 + 中文提示相同）重复保存时覆盖原条目，不产生重复课文。
+ * 同一份作业重复保存时覆盖原条目，不产生重复课文。
+ *
+ * 判重顺序**必须是 lid 优先**：lid 是这节课的稳定身份，改标题/改序号都不变。
+ * 只按"标题 + 中文"判重的话，改名会被当成一节新课 —— 跨设备同步或导入备份时
+ * 同一节课会增生出第二条（旧标题那条还在），而且两条的 lessonKey 不同，
+ * 「同课二次练习对比」、打星、计时归属就都断了。
  * @returns {{list: Array, lesson: object, replaced: boolean}}
  */
 export function upsertLesson(list, libId, entry) {
   const titleCn = String(entry.title_cn || '').trim() || '未命名作业';
   const chinese = String(entry.chinese || '').trim();
   const english = String(entry.english || '').trim();
+  const incomingLid = String(entry.lid || '').trim();
   let replaced = false;
+  let hitLid = '';
   const next = list.map((lib) => {
     if (lib.id !== libId) return lib;
-    const dup = lib.lessons.find((l) => l.title_cn === titleCn && l.chinese === chinese);
+    const dup = (incomingLid && lib.lessons.find((l) => l.lid === incomingLid))
+      || lib.lessons.find((l) => l.title_cn === titleCn && l.chinese === chinese);
     if (dup) {
       replaced = true;
+      hitLid = dup.lid || '';
       return {
         ...lib,
         lessons: lib.lessons.map((l) =>
@@ -180,7 +189,7 @@ export function upsertLesson(list, libId, entry) {
     const nextNo = lib.lessons.reduce((max, l) => Math.max(max, Number(l.lesson) || 0), 0) + 1;
     const lesson = {
       book: 'my',
-      lid: String(entry.lid || '') || newLessonId(),
+      lid: incomingLid || newLessonId(),
       lesson: nextNo,
       title_cn: titleCn,
       title_en: String(entry.title_en || ''),
@@ -189,10 +198,12 @@ export function upsertLesson(list, libId, entry) {
       source: '自建',
       createdAt: Date.now(),
     };
+    hitLid = lesson.lid;
     return { ...lib, lessons: [...lib.lessons, lesson].sort((a, b) => a.lesson - b.lesson) };
   });
   const lib = next.find((l) => l.id === libId);
-  const lesson = lib ? lib.lessons.find((l) => l.title_cn === titleCn && l.chinese === chinese) : null;
+  // 命中已有条目时按 lid 找回来 —— 不能用"标题 + 中文"，因为这次可能刚把标题改掉了
+  const lesson = lib ? (lib.lessons.find((l) => l.lid && l.lid === hitLid) || null) : null;
   return { list: next, lesson, replaced };
 }
 

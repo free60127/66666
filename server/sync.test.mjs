@@ -181,6 +181,54 @@ function mockUpstash({ evalBroken = false } = {}) {
 }
 
 console.log('\n' + '='.repeat(62));
+/* ---------- ⑲ lid 必须能在服务端往返中活下来 ---------- */
+{
+  // 服务端原来重建 lesson 时只保留内容字段，把 lid 丢了 —— 云端走一趟回来身份就没了，
+  // 客户端只能退回"标题+中文"判重：改过标题的同一节课会被当成新课增生一条副本。
+  const sent = {
+    libraries: [{
+      id: 'lib-1', name: '测试库', createdAt: 1,
+      lessons: [{ book: 'my', lid: 'lsn-keepme', lesson: 1, title_cn: 'A', title_en: '', chinese: '中文', english: 'en', source: '自建', createdAt: 1 }],
+    }],
+    favorites: [], history: [], deletedHistory: [],
+  };
+  const r = sanitizeSnapshot(sent);
+  check('⑲ 快照接受带 lid 的课文库', r.ok === true, r.ok ? '' : r.error);
+  const back = r.ok ? r.data.libraries[0].lessons[0] : {};
+  check('⑳ 服务端往返后 lid 原样保留', back.lid === 'lsn-keepme', String(back.lid));
+  check('㉑ 内容字段同时保留（没有为了 lid 丢别的）', back.title_cn === 'A' && back.chinese === '中文' && back.english === 'en');
+
+  // 老快照（没有 lid）不能被拒；此时 lid 为空串，由客户端 ensureLessonIds 补
+  const old = sanitizeSnapshot({ libraries: [{ id: 'lib-1', name: 'x', lessons: [{ lesson: 1, title_cn: 'A', chinese: '中' }] }], favorites: [], history: [] });
+  check('㉒ 老数据没有 lid 时照常通过（向后兼容）', old.ok === true && old.data.libraries[0].lessons[0].lid === '', JSON.stringify(old.ok ? old.data.libraries[0].lessons[0].lid : old.error));
+
+  // 超长 lid 要被截断，不能成为塞数据的口子
+  const long = sanitizeSnapshot({ libraries: [{ id: 'lib-1', name: 'x', lessons: [{ lesson: 1, title_cn: 'A', chinese: '中', lid: 'L'.repeat(500) }] }], favorites: [], history: [] });
+  check('㉓ 超长 lid 被截断到 64 字符', long.ok === true && long.data.libraries[0].lessons[0].lid.length === 64, String(long.ok ? long.data.libraries[0].lessons[0].lid.length : long.error));
+}
+
+/* ---------- ㉔ 三类删除墓碑要能通过服务端白名单往返 ---------- */
+{
+  const sent = {
+    libraries: [], favorites: [], history: [], deletedHistory: ['job-1'],
+    deletedLibraries: ['lib-1'], deletedLessons: ['lib-1|lsn-a'], deletedFavorites: ['f1'],
+  };
+  const r = sanitizeSnapshot(sent);
+  check('㉔ 三类墓碑都被接受', r.ok === true, r.ok ? '' : r.error);
+  check('㉕ 墓碑原样保留（少一类，那一类的删除就会在别的设备上复活）',
+    r.ok && r.data.deletedLibraries[0] === 'lib-1' && r.data.deletedLessons[0] === 'lib-1|lsn-a' && r.data.deletedFavorites[0] === 'f1',
+    JSON.stringify(r.ok ? [r.data.deletedLibraries, r.data.deletedLessons, r.data.deletedFavorites] : r.error));
+
+  const bad = sanitizeSnapshot({ libraries: [], deletedLessons: 'not-an-array' });
+  check('㉖ 非数组的墓碑被明确拒绝（不静默吞）', bad.ok === false && /deletedLessons/.test(bad.error || ''), bad.error || '');
+
+  const dirty = sanitizeSnapshot({ libraries: [], deletedFavorites: ['f1', 'f1', 42, null, ''] });
+  check('㉗ 墓碑去重且丢掉非字符串', JSON.stringify(dirty.data.deletedFavorites) === JSON.stringify(['f1']), JSON.stringify(dirty.data.deletedFavorites));
+
+  const tooMany = sanitizeSnapshot({ libraries: [], deletedLibraries: Array.from({ length: 201 }, (_, i) => 'lib-' + i) });
+  check('㉘ 超过上限明确拒绝（附带上限数字，便于用户自救）', tooMany.ok === false && /200/.test(tooMany.error || ''), tooMany.error || '');
+}
+
 const failed = results.filter((r) => !r.ok);
 console.log(failed.length ? `❌ ${failed.length}/${results.length} 项失败` : `✅ 全部 ${results.length} 项通过`);
 process.exit(failed.length ? 1 : 0);

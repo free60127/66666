@@ -9,7 +9,7 @@
  * 这里只负责"跟云端对齐"这件事。
  */
 import { useEffect, useRef, useState } from 'react'
-import { createNewSyncCode, loadSyncCode, loadSyncMeta, saveSyncCode, saveSyncMeta, syncOnce } from '../sync.js'
+import { createNewSyncCode, loadSyncCode, loadSyncMeta, mergeSnapshot, saveSyncCode, saveSyncMeta, syncOnce } from '../sync.js'
 import { pullCloudSync } from '../api.js'
 
 export function useCloudSync({ local, applyMerged, flash }) {
@@ -29,6 +29,13 @@ export function useCloudSync({ local, applyMerged, flash }) {
   // 直接捕获 runSync 会拿着**过期数据**去合并 —— 统一走 ref 取最新那一次渲染的函数与数据。
   const localRef = useRef(local);
   localRef.current = local;
+
+  // applyMerged 同样要走 ref。挂载时那次同步是在**首次渲染**的闭包里跑的，
+  // 而它可能要等 30-90 秒（免费托管冷启动）—— 这期间用户新收藏的内容不在那个闭包
+  // 读到的 state 里，写回时会被判成"变了"然后被合并结果覆盖掉（实测的数据丢失路径）。
+  // ref 保证用的永远是最新那次渲染的函数，读到的也是最当前的 state。
+  const applyMergedRef = useRef(applyMerged);
+  useEffect(() => { applyMergedRef.current = applyMerged; });
 
   const runSync = async (manual = true, codeOverride) => {
     const code = codeOverride || syncCode;
@@ -52,10 +59,16 @@ export function useCloudSync({ local, applyMerged, flash }) {
       // 必须明确告诉用户 —— 否则他以为还是坏的，会去点「换码」把好端端的码换掉。
       if (res.recovered) flash('云端原本没有这串同步码，已用本机数据重建；其它设备下次同步会自动恢复', 6000);
       lastSyncAtRef.current = Date.now();
-      const changed = applyMerged(res.merged);
+      // ⚠️ 写回前必须**用当前本机数据再合并一次**。
+      // res.merged 是"发起同步那一刻"的本机快照与云端合并出来的；请求在飞的这段时间里
+      // （冷启动时可达 30-90 秒）用户可能又收藏了一条 / 存了一篇课文 —— 直接 applyMerged(res.merged)
+      // 会把这段时间内的本地写入从内存和 localStorage 里一起抹掉，而用户看到的是"我刚收藏的没了"。
+      // 二次合并把 res.merged 当作远端、把**此刻**的本机数据当作本地，两边的写入都保住。
+      const settled = mergeSnapshot(localRef.current, res.merged);
+      const changed = applyMergedRef.current(settled);
       const meta = { ...loadSyncMeta(), lastSyncAt: lastSyncAtRef.current, version: res.version };
       saveSyncMeta(meta); setSyncMeta(meta);
-      const a = res.added || {};
+      const a = settled.added || res.added || {};
       const gained = (a.libsAdded || 0) + (a.lessonsAdded || 0) + (a.favAdded || 0) + (a.histAdded || 0);
       if (manual) {
         setSyncTip(gained

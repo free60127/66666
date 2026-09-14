@@ -19,7 +19,7 @@ import { useJobRunner } from './useJobRunner.js';
  * @param {object} o.settings AI 设置（自测题要用同一套 Key/模型）
  * @param {string} o.polishLevel 润色等级（影响出题难度）
  */
-export function useFavorites({ flash, setView, settings, polishLevel, isOpen, openFavs, closeFavs }) {
+export function useFavorites({ flash, setView, settings, polishLevel, isOpen, openFavs, closeFavs, onDeleted }) {
   const [favorites, setFavorites] = useState(loadFavorites);
   const [favQuery, setFavQuery] = useState('');
   const [favKind, setFavKind] = useState('all');
@@ -43,19 +43,26 @@ export function useFavorites({ flash, setView, settings, polishLevel, isOpen, op
       : [{ ...withSchedule(item), createdAt: Date.now() }, ...favorites];
     const ok = saveFavorites(next);
     setFavorites(next);
+    // 取消收藏也要留墓碑（云同步的收藏合并同样是并集，不留标记会被并回来）
+    if (exists && onDeleted) onDeleted({ favorite: item.id });
     flash(setFavTip, exists ? '已取消收藏' : (ok ? '已收藏，可在右上角「收藏夹」随时复习' : '收藏失败：本机存储空间可能已满，请先导出备份'));
-  }, [favorites, flash]);
+  }, [favorites, flash, onDeleted]);
 
   const removeFavorite = (id) => {
     const next = favorites.filter((x) => x.id !== id);
     saveFavorites(next);
     setFavorites(next);
+    if (onDeleted) onDeleted({ favorite: id });
+    flash(setFavTip, '已删除该收藏', 2500);   // 原来完全没有反馈，用户不知道删没删掉
   };
   const clearFavorites = () => {
     if (!favorites.length) return;
     if (!window.confirm('确定清空全部收藏？建议先「导出备份」。')) return;
+    const ids = favorites.map((x) => x.id);
     saveFavorites([]);
     setFavorites([]);
+    // 清空是破坏性操作：每条都留墓碑，否则下一次同步会把它们整批并回来（= 静默回滚）
+    if (onDeleted) onDeleted({ favorites: ids });
     flash(setFavTip, '已清空收藏', 2500);
   };
   /* ---------- 间隔重复复习（SM-2） ---------- */

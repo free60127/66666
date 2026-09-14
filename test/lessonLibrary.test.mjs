@@ -47,6 +47,27 @@ const titles = (list, id = 'lib-1') => (list.find((x) => x.id === id)?.lessons |
   check('newLibraryId / newLessonId 前缀正确', newLibraryId().startsWith('lib-') && ensureLessonIds([lib([L(1, 'A')])]).list[0].lessons[0].lid.startsWith('lsn-'));
 }
 
+/* ---------- 1b. 判重必须 lid 优先（改名不能变成新课） ---------- */
+{
+  // 用户先存了「A」，之后把标题改成「B」再存一次（或从另一台设备的同步里拿到改名后的副本）
+  const list = [lib([L(1, 'A', 'lsn-x'), L(2, 'B', 'lsn-y')])];
+  const { list: after, replaced, lesson } = upsertLesson(list, 'lib-1', { title_cn: 'A-改名', chinese: '中文1', lid: 'lsn-x' });
+  check('改名重存：按 lid 命中并覆盖，不新增课文', after[0].lessons.length === 2 && replaced === true, `len=${after[0].lessons.length}`);
+  check('改名重存：标题已更新、lid 与序号不变', lesson.title_cn === 'A-改名' && lesson.lid === 'lsn-x' && lesson.lesson === 1);
+  check('改名重存：返回的 lesson 就是改名后那条（不是 null）', lesson != null);
+
+  // 跨设备同步：云端回来的那节课带 lid，但标题已被另一台设备改过 —— 不能增生
+  const remote = [{ id: 'lib-1', name: '测试库', createdAt: 1, lessons: [L(1, 'A-改名', 'lsn-x')] }];
+  const merged = mergeLibraries(list, remote);
+  check('同步合并：同一 lid 改名后不产生重复课文', merged.list[0].lessons.length === 2, `len=${merged.list[0].lessons.length}`);
+  check('同步合并：改名生效', merged.list[0].lessons.find((l) => l.lid === 'lsn-x').title_cn === 'A-改名');
+
+  // 向后兼容：对方（老版本备份/老数据）没有 lid 时，仍按"标题+中文"判重
+  const noLid = [{ id: 'lib-1', name: '测试库', createdAt: 1, lessons: [{ book: 'my', lesson: 1, title_cn: 'A-改名', title_en: '', chinese: '中文1', english: 'en1', source: '自建', createdAt: 1 }] }];
+  const merged2 = mergeLibraries(merged.list, noLid);
+  check('同步合并：对方没有 lid 时退回内容判重，也不增生', merged2.list[0].lessons.length === 2, `len=${merged2.list[0].lessons.length}`);
+}
+
 /* ---------- 2. 改标题 ---------- */
 {
   const list = [lib([L(1, '旧标题', 'a'), L(2, '第二节', 'b')])];

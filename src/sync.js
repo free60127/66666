@@ -43,7 +43,10 @@ export function deviceId() {
 /* 纯合并函数已抽到 ./syncMerge.js —— 那个文件不依赖 api.js，可以在纯 Node 里被测试
    （sync.js 自己用了 Vite 专有的 import.meta.env，import 不进来）。
    这里再导出一次，调用方的 import 路径不用改。 */
-export { DELETED_LIMIT, HISTORY_LIMIT, mergeDeleted, mergeHistory, mergeSnapshot } from './syncMerge.js';
+export {
+  DELETED_FAVORITES_LIMIT, DELETED_LIBRARIES_LIMIT, DELETED_LESSONS_LIMIT, DELETED_LIMIT,
+  HISTORY_LIMIT, applyLibraryTombstones, mergeDeleted, mergeHistory, mergeSnapshot,
+} from './syncMerge.js';
 
 /** 生成一个新同步码并在云端建好空槽位。 */
 export async function createNewSyncCode() {
@@ -74,7 +77,10 @@ export async function syncOnce({ code, local, device, maxAttempts = 3 }) {
     // 打错码的担忧不成立：手填新码时界面会先探一次（见 useExistingCode），
     // 不存在的码在输入那一刻就被拦下了，走不到这里。
     if (e && e.status === 404) {
-      remote = { version: 0, updatedAt: 0, data: { libraries: [], favorites: [], history: [], deletedHistory: [] } };
+      remote = {
+        version: 0, updatedAt: 0,
+        data: { libraries: [], favorites: [], history: [], deletedHistory: [], deletedLibraries: [], deletedLessons: [], deletedFavorites: [] },
+      };
       recovered = true;
     } else {
       throw e;
@@ -91,8 +97,12 @@ export async function syncOnce({ code, local, device, maxAttempts = 3 }) {
         libraries: payload.libraries,
         favorites: payload.favorites,
         history: payload.history,
-        // 墓碑一起推上去：其它设备才会知道"这条已被删除"，否则它们本机的旧副本会把它并回来
+        // 墓碑一起推上去：其它设备才会知道"这条已被删除"，否则它们本机的旧副本会把它并回来。
+        // 四类都要推（历史 / 课文库 / 课文 / 收藏）—— 少推一类，那一类的删除就会在别的设备上复活。
         deletedHistory: payload.deletedHistory,
+        deletedLibraries: payload.deletedLibraries || [],
+        deletedLessons: payload.deletedLessons || [],
+        deletedFavorites: payload.deletedFavorites || [],
         // 逐课进度：换设备也能看到"我练过哪些课"（历史只留 20 条，进度才是完整记录）
         progress: payload.progress || {},
         // 学习日期：连续天数跨设备一致
@@ -107,7 +117,9 @@ export async function syncOnce({ code, local, device, maxAttempts = 3 }) {
       payload = mergeSnapshot(
         {
           libraries: payload.libraries, favorites: payload.favorites, history: payload.history,
-          deletedHistory: payload.deletedHistory, progress: payload.progress, days: payload.days,
+          deletedHistory: payload.deletedHistory,
+          deletedLibraries: payload.deletedLibraries, deletedLessons: payload.deletedLessons, deletedFavorites: payload.deletedFavorites,
+          progress: payload.progress, days: payload.days,
         },
         r.data.data,
       );

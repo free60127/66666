@@ -21,7 +21,7 @@ import {
  * @param {Function} o.getSelectedLesson 取"当前正在练的那节课"（用来同步刷新）
  * @param {Function} o.onSelectedLessonChanged 当前课的标题/序号变了时通知 App
  */
-export function useLibraries({ toast, setLibTip, onLessonEdited, getSelectedLesson, onSelectedLessonChanged }) {
+export function useLibraries({ toast, setLibTip, onLessonEdited, getSelectedLesson, onSelectedLessonChanged, onDeleted }) {
   const [myLibs, setMyLibs] = useState(loadLibraries);
   const [myLibId, setMyLibId] = useState(''); // 当前选中的自建库（空 = 用内置册）
   const [libPickId, setLibPickId] = useState('');
@@ -62,8 +62,10 @@ export function useLibraries({ toast, setLibTip, onLessonEdited, getSelectedLess
     setMyLibs(next);
     saveLibraries(next);
     if (myLibId === libId) setMyLibId('');
+    // 留墓碑：不然下一次云同步会把整个库从云端旧副本里并回来（"删了又出现"）
+    if (onDeleted) onDeleted({ library: libId });
     toast('已删除课文库「' + libName + '」', 3000);
-  }, [myLibs, myLibId, toast]);
+  }, [myLibs, myLibId, toast, onDeleted]);
 
   const deleteMyLesson = useCallback((libId, lessonOrNo, label) => {
     if (!window.confirm(`从课文库删除「${label}」？\n\n（其它课的序号不会自动变；想补齐空档点「我的课文库」旁的「重排序号」）`)) return;
@@ -72,9 +74,14 @@ export function useLibraries({ toast, setLibTip, onLessonEdited, getSelectedLess
     const target = (lessonOrNo && typeof lessonOrNo === 'object')
       ? (lessonOrNo.lid || lessonOrNo.lesson)
       : lessonOrNo;
+    // 墓碑要用**稳定 id（lid）**：按序号删的老数据先解析出它对应的 lid，
+    // 否则改过序号的课文会留下一条对不上的墓碑（删了还是会复活）
+    const lib = myLibs.find((l) => l.id === libId);
+    const hit = lib ? findLesson(lib, target) : null;
     persist(removeLesson(myLibs, libId, target));
+    if (onDeleted && hit && hit.lid) onDeleted({ lesson: { libId, lid: hit.lid } });
     toast('已删除课文「' + label + '」', 3000);
-  }, [myLibs, persist, toast]);
+  }, [myLibs, persist, toast, onDeleted]);
 
   /**
    * 把当前作业存进课文库（**一次算完**）。

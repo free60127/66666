@@ -77,3 +77,35 @@ export function saveDeletedHistory(arr) {
   const list = [...new Set((Array.isArray(arr) ? arr : []).filter((x) => typeof x === 'string' && x))];
   safeSet(DELETED_HISTORY_KEY, JSON.stringify(list.slice(-DELETED_HISTORY_MAX)));
 }
+
+/* ---------- 删除墓碑：课文库 / 课文 / 收藏 ----------
+ * 历史先有了墓碑（见上），这里把同一套机制补齐到另外三类 —— 原因完全相同：
+ * 云同步的合并是**并集**，只在本机删掉的话，下一次同步会把云端旧副本原样并回来，
+ * 用户看到的是"删了又出现"；对「清空收藏」「删除课文库」这类破坏性操作来说，
+ * 等于静默回滚（用户以为清空了，下次又冒出来）。
+ * 三条上限都远大于实际规模，只是防无限增长。 */
+export const DELETED_LIBRARIES_KEY = 'bt-libs-deleted';
+export const DELETED_LESSONS_KEY = 'bt-lessons-deleted';
+export const DELETED_FAVORITES_KEY = 'bt-favs-deleted';
+export const DELETED_LIBRARIES_MAX = 200;
+export const DELETED_LESSONS_MAX = 1000;
+export const DELETED_FAVORITES_MAX = 1000;
+
+/** 课文的墓碑键：libId + '|' + lid（lid 是稳定 id，改标题/改序号都不变） */
+export const lessonTombstoneKey = (libId, lid) => String(libId || '') + '|' + String(lid || '');
+
+function loadIds(key) {
+  try {
+    const arr = JSON.parse(safeGet(key, '[]'));
+    return Array.isArray(arr) ? arr.filter((x) => typeof x === 'string' && x) : [];
+  } catch { return []; }
+}
+function saveIds(key, arr, max) {
+  safeSet(key, JSON.stringify([...new Set((Array.isArray(arr) ? arr : []).filter((x) => typeof x === 'string' && x))].slice(-max)));
+}
+export const loadDeletedLibraries = () => loadIds(DELETED_LIBRARIES_KEY);
+export const saveDeletedLibraries = (arr) => saveIds(DELETED_LIBRARIES_KEY, arr, DELETED_LIBRARIES_MAX);
+export const loadDeletedLessons = () => loadIds(DELETED_LESSONS_KEY);
+export const saveDeletedLessons = (arr) => saveIds(DELETED_LESSONS_KEY, arr, DELETED_LESSONS_MAX);
+export const loadDeletedFavorites = () => loadIds(DELETED_FAVORITES_KEY);
+export const saveDeletedFavorites = (arr) => saveIds(DELETED_FAVORITES_KEY, arr, DELETED_FAVORITES_MAX);

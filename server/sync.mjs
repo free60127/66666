@@ -30,11 +30,15 @@ export const SNAPSHOT_LIMITS = Object.freeze({
   favorites: 5000,
   history: 200,
   deletedHistory: 500,     // 已删除的作业号（墓碑）：防止"并集合并"把用户删掉的记录从云端复活
+  deletedLibraries: 200,   // 已删除的课文库 id
+  deletedLessons: 1000,    // 已删除的课文（libId|lid）
+  deletedFavorites: 1000,  // 已删除的收藏 id
   progress: 2000,          // 逐课进度：lessonKey → {n,best,last,at,ms}（客户端上限也是 2000）
   progressKeyChars: 64,
   days: 400,               // 学习日期（连续天数）：YYYY-MM-DD 去重列表
   libraryIdChars: 64,
   libraryNameChars: 80,
+  lessonLidChars: 64,      // 课文的稳定 id（客户端生成，形如 lsn-xxxx）：跨设备必须原样带回
   lessonTitleChars: 300,
   lessonFieldChars: 40000, // chinese / english 单字段上限（真实课文约 1-3 千字符）
   favoriteBytes: 20000,    // 单条收藏的 JSON 体积
@@ -44,7 +48,11 @@ export const SNAPSHOT_LIMITS = Object.freeze({
 export const newSyncCode = () => randomBytes(16).toString('hex');
 export const isValidSyncCode = (code) => CODE_RE.test(String(code || ''));
 
-export const emptySnapshot = () => ({ libraries: [], favorites: [], history: [], deletedHistory: [], progress: {}, days: [] });
+export const emptySnapshot = () => ({
+  libraries: [], favorites: [], history: [], deletedHistory: [],
+  deletedLibraries: [], deletedLessons: [], deletedFavorites: [],
+  progress: {}, days: [],
+});
 
 const isPlainObject = (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
 const jsonBytes = (v) => {
@@ -61,7 +69,11 @@ export function sanitizeSnapshot(raw) {
   if (!isPlainObject(raw)) return { ok: false, error: '同步数据必须是一个 JSON 对象' };
   const L = SNAPSHOT_LIMITS;
 
-  for (const [key, max] of [['libraries', L.libraries], ['favorites', L.favorites], ['history', L.history], ['deletedHistory', L.deletedHistory]]) {
+  for (const [key, max] of [
+    ['libraries', L.libraries], ['favorites', L.favorites], ['history', L.history],
+    ['deletedHistory', L.deletedHistory], ['deletedLibraries', L.deletedLibraries],
+    ['deletedLessons', L.deletedLessons], ['deletedFavorites', L.deletedFavorites],
+  ]) {
     const v = raw[key];
     if (v !== undefined && !Array.isArray(v)) return { ok: false, error: `${key} 必须是数组` };
     if (Array.isArray(v) && v.length > max) {
@@ -88,6 +100,12 @@ export function sanitizeSnapshot(raw) {
       }
       lessons.push({
         book: 'my',
+        // lid：一节课的**稳定标识**，必须原样带回客户端。
+        // 原来这里没保留它（只留了 title_cn/chinese 这些内容字段），于是云端往返一趟
+        // 就丢掉身份 —— 客户端只能退回"标题+中文"判重：设备 A 改了标题再同步，
+        // 设备 B 认不出这是同一节课，会增生一条新 lid 的副本；两台上同一节课变两条，
+        // 且 lessonKey 不一致，「同课二次练习对比」、打星、计时归属全部断链。
+        lid: boundedString(lesson.lid, L.lessonLidChars),
         lesson: Number(lesson.lesson) || 0,
         title_cn: boundedString(lesson.title_cn, L.lessonTitleChars),
         title_en: boundedString(lesson.title_en, L.lessonTitleChars),
@@ -114,15 +132,24 @@ export function sanitizeSnapshot(raw) {
   // 被丢弃的条数要能观测到：不静默吞掉（单条超限的是派生/缓存类数据，丢弃比整单拒绝更合理）
   const dropped = { favorites: favRaw.length - favorites.length, history: hisRaw.length - history.length };
 
-  // 墓碑（已删除的作业号）：只留**字符串**形状合法的去重值。
-  // 它不参与渲染，只是"别再并回来"的标记；客户端传来的永远是字符串，非字符串一律丢弃。
-  const deletedSet = new Set();
-  for (const id of Array.isArray(raw.deletedHistory) ? raw.deletedHistory : []) {
-    if (typeof id !== 'string') continue;
-    const s = boundedString(id, L.libraryIdChars + 1);
-    if (s && s.length <= L.libraryIdChars) deletedSet.add(s);
-  }
-  const deletedHistory = [...deletedSet];
+  // 墓碑：只留**字符串**形状合法的去重值。
+  // 它们不参与渲染，只是"别再并回来"的标记；客户端传来的永远是字符串，非字符串一律丢弃。
+  // 四类分别处理（历史作业号 / 课文库 id / 课文键 libId|lid / 收藏 id）—— 长度上限不同：
+  // 课文键是"库 id + | + 课文 lid"，比单个 id 长。
+  const collectTombstones = (arr, maxLen) => {
+    const set = new Set();
+    for (const id of Array.isArray(arr) ? arr : []) {
+      if (typeof id !== 'string') continue;
+      const s = boundedString(id, maxLen + 1);
+      if (s && s.length <= maxLen) set.add(s);
+    }
+    return [...set];
+  };
+  const deletedHistory = collectTombstones(raw.deletedHistory, L.libraryIdChars);
+  const deletedLibraries = collectTombstones(raw.deletedLibraries, L.libraryIdChars);
+  // 课文键 = libraryId(≤64) + '|' + lid(≤64)，留出余量
+  const deletedLessons = collectTombstones(raw.deletedLessons, L.libraryIdChars * 2 + 2);
+  const deletedFavorites = collectTombstones(raw.deletedFavorites, 200);
 
   // 逐课进度：对象（lessonKey → 计数/分数），只保留形状正确的数字字段。
   // 它决定"我完成了多少课"，客户端算好后同步过来；换设备登录同一同步码即可看到。
@@ -152,7 +179,7 @@ export function sanitizeSnapshot(raw) {
   }
   const days = [...daySet].sort().reverse().slice(0, L.days);
 
-  const data = { libraries, favorites, history, deletedHistory, progress, days };
+  const data = { libraries, favorites, history, deletedHistory, deletedLibraries, deletedLessons, deletedFavorites, progress, days };
   if (jsonBytes(data) > MAX_SNAPSHOT_BYTES) {
     return { ok: false, error: `同步数据过大（上限 ${Math.round(MAX_SNAPSHOT_BYTES / 1024 / 1024)}MB）` };
   }

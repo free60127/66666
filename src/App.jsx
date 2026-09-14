@@ -4,9 +4,12 @@ import { BookOpen, Camera, CheckCircle2, ChevronDown, ChevronRight, Cloud, Copy,
 // 改为 handleDocx 内动态 import，避免它被打进首屏主包。
 import { ensureLessonIds, mergeLibraries, saveLibraries } from './lessonLibrary.js'
 import { getStatus, loadSettings, matchLesson, saveSettings } from './api.js'
-import { mergeHistory } from './sync.js'
+import { DELETED_FAVORITES_LIMIT, DELETED_LIBRARIES_LIMIT, DELETED_LESSONS_LIMIT, applyLibraryTombstones, mergeDeleted, mergeHistory } from './sync.js'
 import { mergeFavorites, saveFavorites } from './favorites.js'
-import { safeGet, safeSet, saveDeletedHistory, saveHistory } from './storage.js'
+import {
+  lessonTombstoneKey, loadDeletedFavorites, loadDeletedLibraries, loadDeletedLessons,
+  safeGet, safeSet, saveDeletedFavorites, saveDeletedHistory, saveDeletedLibraries, saveDeletedLessons, saveHistory,
+} from './storage.js'
 import { saveProgress } from './lessonProgress.js'
 import { saveDays } from './studyStreak.js'
 import { useTimer } from './hooks/useTimer.js'
@@ -247,6 +250,38 @@ function App() {
 
   // matchedLessonRef 的同步挪到 useLessons 之后（matchedLesson 由它提供）
 
+  /* ---------- 删除墓碑（课文库 / 课文 / 收藏）----------
+   * 和历史墓碑（deletedHistory）同一套机制：本机删除后留个标记，同步合并时过滤掉，
+   * 并把标记一起推给云端，其它设备也不会再把它并回来。
+   * 没有它的话，「删除课文库」「清空收藏」这类操作会在下一次同步里被云端旧副本"复活"。
+   *
+   * 关于位置：它必须在 useLibraries / useFavorites **之前**定义（那两个 hook 要用它做回调），
+   * 所以这里用 myLibsRef 取"当前的库内容"，等 useLibraries 返回后再把 ref 指向最新值。 */
+  const myLibsRef = useRef([]);
+  const [deletedLibraries, setDeletedLibraries] = useState(loadDeletedLibraries);
+  const [deletedLessons, setDeletedLessons] = useState(loadDeletedLessons);
+  const [deletedFavorites, setDeletedFavorites] = useState(loadDeletedFavorites);
+  /** 记录一次删除（各删除入口通过 onDeleted 回调进来） */
+  const recordDeletion = useCallback(({ library, lesson, favorite, favorites: many } = {}) => {
+    if (library) {
+      setDeletedLibraries((prev) => { const next = [...new Set([...prev, library])]; saveDeletedLibraries(next); return next; });
+      // 删库等于库里所有课文一起没了：给每节课都留墓碑，否则单节课会在别的设备上"半复活"
+      const lib = myLibsRef.current.find((l) => l.id === library);
+      if (lib) {
+        const keys = lib.lessons.map((l) => lessonTombstoneKey(lib.id, l.lid)).filter((k) => !k.endsWith('|'));
+        if (keys.length) setDeletedLessons((prev) => { const next = [...new Set([...prev, ...keys])]; saveDeletedLessons(next); return next; });
+      }
+    }
+    if (lesson) {
+      const key = lessonTombstoneKey(lesson.libId, lesson.lid);
+      setDeletedLessons((prev) => { const next = [...new Set([...prev, key])]; saveDeletedLessons(next); return next; });
+    }
+    const favIds = [...(favorite ? [favorite] : []), ...(Array.isArray(many) ? many : [])];
+    if (favIds.length) {
+      setDeletedFavorites((prev) => { const next = [...new Set([...prev, ...favIds])]; saveDeletedFavorites(next); return next; });
+    }
+  }, []);
+
   // 自建课文库（hooks/useLibraries.js）：状态与增删改都在那里，这里只做适配
   const {
     myLibs, setMyLibs, myLibId, setMyLibId, libPickId, setLibPickId, newLibName, setNewLibName,
@@ -260,7 +295,9 @@ function App() {
     onLessonEdited: (after, before, titleCn) => onLessonEditedRef.current && onLessonEditedRef.current(after, before, titleCn),
     getSelectedLesson: () => matchedLessonRef.current,
     onSelectedLessonChanged: (fresh) => onSelectedLessonChangedRef.current && onSelectedLessonChangedRef.current(fresh),
+    onDeleted: recordDeletion,
   });
+  myLibsRef.current = myLibs; // 删库时要拿到库里最新的课文列表（见 recordDeletion）
 
   // lessonKey（依赖 matchedLesson/book/lessonId）与 useTimer 挪到 useLessons 之后
   // —— 那几个值由 useLessons 提供，写在前面会踩 TDZ。
@@ -278,6 +315,7 @@ function App() {
     setView, settings, polishLevel,
     isOpen: favOpen, // 收藏夹是否打开（决定要不要算筛选结果）
     openFavs: () => setFavOpen(true), closeFavs: () => setFavOpen(false),
+    onDeleted: recordDeletion,
   });
 
 
@@ -513,6 +551,12 @@ function App() {
       libraries: myLibs,
       favorites,
       history: historyList,
+      // 墓碑也导出：不带的话，换设备导入后"我删过哪些"就没有记忆了，
+      // 云端旧副本会把这些内容原样并回来
+      deletedHistory,
+      deletedLibraries,
+      deletedLessons,
+      deletedFavorites,
     };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -538,13 +582,21 @@ function App() {
 
       // 导入进来的课文可能来自"还没有稳定 id"的旧备份 —— 写入前统一补上，
       // 否则这些课文的「编辑 / 改序号」会因为找不到条目而毫无反应（实测踩过）
-      const { list: mergedLibs, libsAdded, lessonsAdded } = mergeLibraries(myLibs, libs);
+      // 备份里可能带着"我删过哪些"：先并墓碑，再拿它过滤导入内容 ——
+      // 否则用户在 A 设备删掉的课文，会随着一份旧备份在 B 设备上重新出现
+      const tombLibs = mergeDeleted(deletedLibraries, data?.deletedLibraries, DELETED_LIBRARIES_LIMIT);
+      const tombLessons = mergeDeleted(deletedLessons, data?.deletedLessons, DELETED_LESSONS_LIMIT);
+      const tombFavs = mergeDeleted(deletedFavorites, data?.deletedFavorites, DELETED_FAVORITES_LIMIT);
+      const rawLibs = applyLibraryTombstones(libs, tombLibs, tombLessons);
+      const rawFavs = favs.filter((f) => f && !new Set(tombFavs).has(f.id));
+
+      const { list: mergedLibs, libsAdded, lessonsAdded } = mergeLibraries(myLibs, rawLibs);
       const { list: nextLibs } = ensureLessonIds(mergedLibs);
       if (libsAdded || lessonsAdded) { setMyLibs(nextLibs); saveLibraries(nextLibs); }
 
       let favAdded = 0;
-      if (favs.length) {
-        const { merged, added } = mergeFavorites(favs, favorites);
+      if (rawFavs.length) {
+        const { merged, added } = mergeFavorites(rawFavs, favorites);
         favAdded = added;
         if (added) { setFavorites(merged); saveFavorites(merged); }
       }
@@ -553,6 +605,11 @@ function App() {
       const mergedHistory = mergeHistory(historyList, hist);
       const histAdded = Math.max(0, mergedHistory.length - historyList.length);
       if (histAdded) { setHistoryList(mergedHistory); saveHistory(mergedHistory); }
+
+      // 墓碑并回本机状态（导出/导入是"换设备"这条路，删过的记录必须继续算删过）
+      if (JSON.stringify(tombLibs) !== JSON.stringify(deletedLibraries)) { setDeletedLibraries(tombLibs); saveDeletedLibraries(tombLibs); }
+      if (JSON.stringify(tombLessons) !== JSON.stringify(deletedLessons)) { setDeletedLessons(tombLessons); saveDeletedLessons(tombLessons); }
+      if (JSON.stringify(tombFavs) !== JSON.stringify(deletedFavorites)) { setDeletedFavorites(tombFavs); saveDeletedFavorites(tombFavs); }
 
       setBackupTip(`导入完成：新增 ${libsAdded} 个课文库、${lessonsAdded} 篇课文、${favAdded} 条收藏、${histAdded} 条历史（同名课文自动去重）。`);
     } catch (e) {
@@ -574,6 +631,20 @@ function App() {
       setDeletedHistory(merged.deletedHistory);
       saveDeletedHistory(merged.deletedHistory);
       changed = true;
+    }
+    // 三类新增墓碑同样要写回：它们是"哪些已经删了"的唯一记忆，只并进来不存下来，
+    // 下一次推送就带不出去，别的设备照样会把删掉的记录并回来。
+    const tombstoneSync = [
+      ['deletedLibraries', merged.deletedLibraries, deletedLibraries, setDeletedLibraries, saveDeletedLibraries],
+      ['deletedLessons', merged.deletedLessons, deletedLessons, setDeletedLessons, saveDeletedLessons],
+      ['deletedFavorites', merged.deletedFavorites, deletedFavorites, setDeletedFavorites, saveDeletedFavorites],
+    ];
+    for (const [, incoming, current, setter, saver] of tombstoneSync) {
+      if (Array.isArray(incoming) && JSON.stringify(current) !== JSON.stringify(incoming)) {
+        setter(incoming);
+        saver(incoming);
+        changed = true;
+      }
     }
     // 逐课进度（跨设备）：合并规则见 lessonProgress.mergeProgress（计数取 max，不重复计数）
     if (merged.progress && JSON.stringify(lessonProgress) !== JSON.stringify(merged.progress)) {
@@ -598,7 +669,11 @@ function App() {
     codeInput, setCodeInput, syncLost, setSyncLost,
     runSync, startNewSync, useExistingCode, copySyncCode, stopSync,
   } = useCloudSync({
-    local: { libraries: myLibs, favorites, history: historyList, deletedHistory, progress: lessonProgress, days: studyDays },
+    local: {
+      libraries: myLibs, favorites, history: historyList, deletedHistory,
+      deletedLibraries, deletedLessons, deletedFavorites,
+      progress: lessonProgress, days: studyDays,
+    },
     applyMerged: applyMergedSnapshot,
     flash: (msg, ms) => flashTip(setToast, msg, ms),
   });
