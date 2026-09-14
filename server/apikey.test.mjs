@@ -25,7 +25,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const PORT = 8971;
 const MOCK_PORT = 8985;   // 故意离 PORT 远一点：第二/第三个实例用 PORT+1 / PORT+2
-const CLEAN = 'sk-d7a06c268f284b9e8454921231912dff';
+// ⚠️ 这里必须用**假** key。曾经图省事直接写了线上那把真 key，结果这个文件被推到公开仓库 ——
+// 凭证类的东西一律不许出现在测试里，哪怕只是用来断言 header 内容。
+const CLEAN = 'sk-test-fake-key-0123456789abcdef';
 const DIRTY = CLEAN + ' 必';           // 线上实测到的形态：干净 key + 空格 + "必"
 const DIRTY_TAB = ' ' + CLEAN + '\n';  // 另一种常见形态：首尾空白
 
@@ -50,8 +52,11 @@ console.log('=== API Key 归一化测试 ===\n');
   try {
     void new Headers({ Authorization: 'Bearer ' + DIRTY });
   } catch (e) { msg = e.message; }
+  // 报错位置 = 头里第一个非 Latin-1 字符的下标（"Bearer " + 干净 key + 空格 之后那个字）。
+  // 不要写死 43：那是真 key 的长度推出来的，一换测试 key 就失效。
+  const expectIdx = ('Bearer ' + DIRTY).length - 1;
   check('复现：脏 key 直接放进请求头会抛 ByteString 错（就是线上那句）',
-    /ByteString/.test(msg) && /index 43/.test(msg), msg.slice(0, 80));
+    /ByteString/.test(msg) && msg.includes('index ' + expectIdx), `期望 index ${expectIdx} · ${msg.slice(0, 70)}`);
 }
 
 /* ---------- 1. 脏 key 起服务：发出去必须是干净的，且任务能跑完 ---------- */
