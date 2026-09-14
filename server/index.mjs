@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { promises as dnsLookup } from 'node:dns';
 import { SYSTEM_PROMPT, buildUserMessage, MATERIAL_PROMPT, buildMaterialMessage, QUIZ_PROMPT, buildQuizMessage, AI_LEVEL_KEYS, DEFAULT_AI_LEVEL, normalizeLevel } from './prompt.mjs';
 import { recognizeImage } from './ocr.mjs';
 import { MAX_SNAPSHOT_BYTES, createSyncStore, emptySnapshot, isValidSyncCode, newSyncCode, sanitizeSnapshot } from './sync.mjs';
@@ -188,31 +189,91 @@ const envVisionKey = () => String(process.env.AI_VISION_API_KEY || '').trim();
 
 const sameEndpoint = (a, b) => String(a || '').replace(/\/+$/, '') === String(b || '').replace(/\/+$/, '');
 
-function isSafeBaseUrl(raw) {
+/* ---------- 私网判定 ----------
+ * 只做"字面主机名正则"是不够的，实测能绕过的两条路径：
+ *   ① IPv4 映射形式的 IPv6：http://[::ffff:127.0.0.1]:8188/ 与 http://[::ffff:a9fe:a9fe]/
+ *      （= 169.254.169.254 云元数据）。u.hostname 是 `[::ffff:7f00:1]`，
+ *      既不匹配 ^127\. 也不是 ::1，原来的正则全部漏过。
+ *   ② 域名解析到内网：localtest.me 之类"公网域名 → 127.0.0.1"，字面量判断永远看不出。
+ * 所以下面把 IP 分类独立出来，并在校验时补一次 DNS 解析。 */
+const looksLikeIp = (h) => /^\d{1,3}(\.\d{1,3}){3}$/.test(h) || h.includes(':');
+
+function isPrivateIp4(ip) {
+  const p = ip.split('.').map(Number);
+  if (p.length !== 4 || p.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) return true;
+  const [a, b] = p;
+  if (a === 0 || a === 10 || a === 127) return true;          // 本机 / 私有 / 未指定
+  if (a === 169 && b === 254) return true;                    // 链路本地（云元数据 169.254.169.254）
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  if (a === 192 && b === 168) return true;
+  if (a === 100 && b >= 64 && b <= 127) return true;          // CGNAT
+  if (a >= 224) return true;                                  // 组播 / 保留段
+  return false;
+}
+
+function isPrivateIp6(ip) {
+  if (ip === '::' || ip === '::1') return true;
+  if (/^f[cd]/.test(ip)) return true;                         // fc00::/7 唯一本地地址
+  if (/^fe[89ab]/.test(ip)) return true;                      // fe80::/10 链路本地
+  if (ip.startsWith('ff')) return true;                       // 组播
+  return false;
+}
+
+/** 判断一个 **IP 字面量** 是否属于不该被访客指定为出网目标的地址段 */
+function isPrivateIp(raw) {
+  const ip = String(raw || '').trim().toLowerCase().replace(/^\[|\]$/g, '');
+  if (!ip) return true;
+  // IPv4 映射 / 兼容写法：::ffff:127.0.0.1、::ffff:7f00:1（十六进制形式）、::127.0.0.1
+  const mapped = ip.match(/^::(?:ffff:)?(?:(\d{1,3}(?:\.\d{1,3}){3})|([0-9a-f]{1,4}):([0-9a-f]{1,4}))$/);
+  if (mapped) {
+    if (mapped[1]) return isPrivateIp4(mapped[1]);
+    const hi = parseInt(mapped[2], 16);
+    const lo = parseInt(mapped[3], 16);
+    return isPrivateIp4([(hi >> 8) & 255, hi & 255, (lo >> 8) & 255, lo & 255].join('.'));
+  }
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(ip)) return isPrivateIp4(ip);
+  if (ip.includes(':')) return isPrivateIp6(ip);
+  return true; // 既不是 v4 也不是 v6：调用方不该走到这里，保守判私网
+}
+
+/** 主机名本身就可疑（不查 DNS 也能判定） */
+function isPrivateName(host) {
+  const h = String(host || '').toLowerCase();
+  return !h || h === 'localhost' || h.endsWith('.localhost') || h.endsWith('.local') || h.endsWith('.internal');
+}
+
+/**
+ * 访客自带的 Base URL 是否允许出网。
+ * 域名会**真的解析一次**：任何一个解析结果落在内网就拒绝（挡住 localtest.me /
+ * DNS rebinding 这类"字面量看着是公网、连过去是内网"的路径）。解析失败同样拒绝 ——
+ * 连域名都解析不出来时，后续 fetch 也只会以更晦涩的方式失败。
+ */
+async function isSafeBaseUrl(raw) {
   let u;
   try { u = new URL(raw); } catch { return false; }
   if (u.protocol !== 'http:' && u.protocol !== 'https:') return false;
-  if (ALLOW_PRIVATE_BASE) return true;
+  if (ALLOW_PRIVATE_BASE) return true; // 自托管/测试显式放行内网
   const host = u.hostname.toLowerCase().replace(/^\[|\]$/g, '');
-  if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local') || host.endsWith('.internal')) return false;
-  if (/^(127\.|10\.|192\.168\.|169\.254\.|0\.)/.test(host)) return false;
-  if (/^172\.(1[6-9]|2\d|3[01])\./.test(host)) return false;
-  if (host === '::1' || /^(fc|fd|fe80)/.test(host)) return false;
-  return true;
+  if (isPrivateName(host)) return false;
+  if (looksLikeIp(host)) return !isPrivateIp(host);
+  try {
+    const addrs = await dnsLookup(host, { all: true });
+    return addrs.length > 0 && addrs.every((a) => !isPrivateIp(a.address));
+  } catch { return false; }
 }
 
 /**
  * 解析一次模型调用的接入点。
- * @returns {{baseUrl: string, apiKey: string} | {error: string}}
+ * @returns {Promise<{baseUrl: string, apiKey: string} | {error: string}>}
  */
-function resolveEndpoint({ bodyBase, bodyKey, fallbackBase, fallbackKey }) {
+async function resolveEndpoint({ bodyBase, bodyKey, fallbackBase, fallbackKey }) {
   const base = String(bodyBase || '').trim();
   const key = String(bodyKey || '').trim();
   if (!base || sameEndpoint(base, fallbackBase)) {
     return { baseUrl: fallbackBase, apiKey: key || (ALLOW_SERVER_KEY ? fallbackKey : '') };
   }
-  if (!isSafeBaseUrl(base)) {
-    return { error: '该 Base URL 不被允许（仅支持公网 http/https）。如需指向内网地址，请改在服务端 .env 里配置 AI_BASE_URL，或设 ALLOW_PRIVATE_BASE_URL=1' };
+  if (!(await isSafeBaseUrl(base))) {
+    return { error: '该 Base URL 不被允许（只接受公网可解析的 http/https 地址）。如需指向内网地址，请改在服务端 .env 里配置 AI_BASE_URL，或设 ALLOW_PRIVATE_BASE_URL=1' };
   }
   if (!key) {
     return { error: '使用自定义 Base URL 时，必须同时填写该接口的 API Key（服务端密钥不会发往自定义地址）' };
@@ -266,16 +327,43 @@ function recordClientError(entry) {
  * @param {string} bucketKey 可选的桶后缀：前端错误上报这类"不该和生成抢配额"的端点用独立桶
  * @param {number} max 该桶的上限（缺省用全局 RATE_MAX）
  */
+/* 桶表必须**有界**：原来的清理只写在"命中已存在的桶"这条分支里，
+   于是每次换一个来源 IP（IPv6 /64 内轮换、代理池都行）就永远走新桶分支，
+   一次清理都不触发 —— 实测 6 万个不同 IP 打过来，表涨到 6 万条且 70 秒后不回落；
+   而且清理是全表扫描（100 万桶时单次 43ms），挂在请求路径上会把事件循环卡住。 */
+/* env 解析注意：不能用 `Number(env) || 默认值` —— 0 是假值，会被悄悄换成默认值
+   （实测：MAX_QUEUED_JOBS=0 本意是"不许排队"，结果被解析成 50）。
+   统一走这里的 posInt()：只认正整数字符串，其余（含 0、空、NaN）一律回落默认值。 */
+const posInt = (raw, fallback) => {
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 && String(raw ?? '').trim() !== '' ? Math.floor(n) : fallback;
+};
+const RATE_BUCKET_MAX = Math.max(1, posInt(process.env.RATE_BUCKET_MAX, 20000));
+
+function sweepRateBuckets(now) {
+  for (const [k, v] of rateBuckets) if (now > v.resetAt) rateBuckets.delete(k);
+  // 清完还是超限（说明都是活跃桶）：按插入顺序淘汰最旧的，宁可少记几个 IP 也不能让内存无上限
+  if (rateBuckets.size > RATE_BUCKET_MAX) {
+    const over = rateBuckets.size - RATE_BUCKET_MAX;
+    let i = 0;
+    for (const k of rateBuckets.keys()) { if (i++ >= over) break; rateBuckets.delete(k); }
+  }
+}
+// 与请求路径解耦的兜底清扫：长期没人打接口时也能把内存还回去
+setInterval(() => sweepRateBuckets(Date.now()), 60_000).unref();
+
 function rateLimited(req, bucketKey = '', max = RATE_MAX) {
   const now = Date.now();
   const ip = clientIp(req) + (bucketKey ? '|' + bucketKey : '');
   const bucket = rateBuckets.get(ip);
   if (!bucket || now > bucket.resetAt) {
+    // 新桶也要参与有界性检查 —— 绕过的就是"只有命中旧桶才清理"这一点
+    if (rateBuckets.size >= RATE_BUCKET_MAX) sweepRateBuckets(now);
     rateBuckets.set(ip, { count: 1, resetAt: now + RATE_WINDOW_MS });
     return false;
   }
   bucket.count += 1;
-  if (rateBuckets.size > 5000) for (const [k, v] of rateBuckets) if (now > v.resetAt) rateBuckets.delete(k);
+  if (rateBuckets.size >= RATE_BUCKET_MAX) sweepRateBuckets(now);
   return bucket.count > max;
 }
 
@@ -401,10 +489,14 @@ function saveJob(job) {
  */
 function markJobFailed(jobId, e) {
   const message = (e && e.message) || '未知错误';
+  // userFacing：排队被拒这类文案本来就是写给用户看的，不该再套一层"服务端任务异常"
+  const text = e && e.userFacing
+    ? message
+    : '服务端任务异常：' + message + '（请重试；若反复出现请把这句话发给开发者）';
   const apply = (job) => {
     if (!job) return;
     job.status = 'error';
-    job.error = '服务端任务异常：' + message + '（请重试；若反复出现请把这句话发给开发者）';
+    job.error = text;
     job.updatedAt = Date.now();
     saveJob(job);
   };
@@ -432,12 +524,45 @@ function markJobFailed(jobId, e) {
  * 所有正在跑的 30-120 秒任务一起陪葬（用户看到「生成中」永远转圈，钱也白花了）。
  * 这里把三件事绑在一起：记日志（带任务名 + jobId）、把任务标为 error、绝不冒泡。
  */
+/* ---------- 并发闸门 ----------
+ * 限流（每分钟多少次）**不是**资源保护：它管不住"同时有多少个任务在跑"。
+ * OCR 单个请求 body 上限 20MB，一张 12MB 图片的 dataURL 约 16MB，会一直被闭包引用到识别结束；
+ * 实测 6 个并发 OCR 就能吃掉免费档 512MB 内存的一大半，30 个/分钟更不用说。
+ * 这里加一道最朴素的闸门：超过上限就排队，队列也满了直接 503 —— 而不是把进程拖到 OOM
+ * （OOM 会连累所有正在跑的任务一起死）。 */
+const MAX_INFLIGHT_JOBS = Math.max(1, posInt(process.env.MAX_INFLIGHT_JOBS, 4));
+const MAX_QUEUED_JOBS = posInt(process.env.MAX_QUEUED_JOBS, 50);
+let inflightJobs = 0;
+const jobQueue = [];
+
+/** 抢一个并发名额（满了就排队；队列满则直接拒绝）。名额在任务结束时**转交**给下一个排队者。 */
+async function acquireJobSlot() {
+  if (inflightJobs < MAX_INFLIGHT_JOBS) { inflightJobs += 1; return true; }
+  if (jobQueue.length >= MAX_QUEUED_JOBS) return false;
+  await new Promise((resolve) => jobQueue.push(resolve));
+  return true; // 名额由释放方转交，这里不再自增（否则会多算一个）
+}
+function releaseJobSlot() {
+  const next = jobQueue.shift();
+  if (next) next();               // 名额转交：计数保持不变
+  else inflightJobs -= 1;
+}
+
 function safeRun(name, jobId, fn) {
-  return Promise.resolve()
-    .then(fn)
-    .catch((e) => {
-      console.error('[job] ' + name + ' 异常:', jobId, (e && e.stack) || e);
-      return markJobFailed(jobId, e);
+  return acquireJobSlot()
+    .then((got) => {
+      if (!got) {
+        const busy = new Error('服务器正忙（同时在跑的任务已达上限），请过一会儿再试 —— 这次没有调用模型，不产生费用。');
+        busy.userFacing = true;
+        return markJobFailed(jobId, busy);
+      }
+      return Promise.resolve()
+        .then(fn)
+        .catch((e) => {
+          console.error('[job] ' + name + ' 异常:', jobId, (e && e.stack) || e);
+          return markJobFailed(jobId, e);
+        })
+        .finally(releaseJobSlot);
     });
 }
 
@@ -471,6 +596,11 @@ function renewJobTtl(job) {
   if (jobRenewedAt.size > 5000) jobRenewedAt.clear(); // 防无限增长：最坏是多写几次 KV，不影响正确性
   const last = jobRenewedAt.get(job.jobId) || 0;
   if (Date.now() - last < JOB_RENEW_MS) return;
+  // ⚠️ 这一行不能少：原来只有上面的 get、没有这里的 set，
+  // 于是 last 恒为 0，"每天最多续期一次"是死代码 —— 每次从 KV 读回老任务都会再写一次整条记录
+  // （写放大 + 白烧共享存储的命令数）。注意要在发起写入时记，而不是等它成功：
+  // 续期本身是尽力而为，失败也不该变成"每次都重试"。
+  jobRenewedAt.set(job.jobId, Date.now());
   Promise.resolve(kv.set(JOB_PREFIX + job.jobId, JSON.stringify(job), JOB_TTL_SEC))
     .catch(() => { /* 续期失败不影响本次读取；下次打开再试 */ });
 }
@@ -565,8 +695,7 @@ async function findJob(jobId) {
  * 「僵尸任务」判定。
  *
  * 任务现在能跨部署活下来了，但**它的执行不会跟着续跑** —— 后台的 runXxxJob 是进程内的
- * 异步函数，重启就没了。所以一个正在跑的任务如果服务端重启，它会永远停在 running，
- * 前端就一直转圈转到 10 分钟超时。
+ * 异步函数，重启就没了。所以一个正在跑的任务如果服务端重启，它会永远停在 running。
  *
  * 这里按时间兜底：超过阈值还没落定，就明确判为失败，让用户看到原因而不是干等。
  *
@@ -684,6 +813,10 @@ async function postChat({ url, headers, body, withFormat, timeoutMs = 120000 }) 
     r = await fetch(url, {
       method: 'POST', headers,
       signal: controller.signal,
+      // 不跟随重定向。跟随 = 把"刚才验证过是公网"的目标换成响应头里指定的任意地址：
+      // 攻击者用自己的公网域名通过校验，再回一个 307 Location: http://169.254.169.254/，
+      // undici 会带着 body 跟过去 —— 前面所有私网校验全部白做。
+      redirect: 'manual',
       body: JSON.stringify(withFormat ? Object.assign({}, body, { response_format: { type: 'json_object' } }) : body),
     });
   } catch (e) {
@@ -691,6 +824,10 @@ async function postChat({ url, headers, body, withFormat, timeoutMs = 120000 }) 
     throw new Error('无法连接模型接口: ' + e.message);
   } finally {
     clearTimeout(timer);
+  }
+  if (r.status >= 300 && r.status < 400) {
+    const loc = r.headers.get('location') || '(响应里没有 Location)';
+    throw new Error('模型接口返回了重定向（' + r.status + ' → ' + loc + '）。出于安全考虑不自动跟随，请把 Base URL 直接写成最终地址。');
   }
   return r;
 }
@@ -1140,7 +1277,10 @@ const server = http.createServer(async (req, res) => {
         // 分享链接（#job=xxx）的有效期与清理策略：保留多久、最多留多少条
         jobs: { store: kv.kind, durable: kvDurable, ttlDays: JOB_TTL_DAYS, max: JOB_MAX_COUNT, retained: Math.max(0, jobSeq - jobEvicted) },
         // 限流按什么算"一个客户端"：可信代理跳数配错会让限流失效（或被自己人误伤）
-        rateLimit: { perMin: RATE_MAX, trustProxyHops: TRUST_PROXY_HOPS, trustCfIp: TRUST_CF_IP },
+        // buckets：当前限流桶数（有界性的观测点 —— 被轮换 IP 打时它必须停在 RATE_BUCKET_MAX 附近）
+        rateLimit: { perMin: RATE_MAX, trustProxyHops: TRUST_PROXY_HOPS, trustCfIp: TRUST_CF_IP, buckets: rateBuckets.size, bucketMax: RATE_BUCKET_MAX },
+        // 并发闸门：同时在跑的模型任务数上限 / 排队上限（挡 OOM 用）
+        concurrency: { maxInflight: MAX_INFLIGHT_JOBS, maxQueued: MAX_QUEUED_JOBS },
       });
     }
     if (p === '/api/lessons' && req.method === 'GET') {
@@ -1188,7 +1328,7 @@ const server = http.createServer(async (req, res) => {
       const level = String(body.level || '中级');
       const style = String(body.style || '生活故事');
       const model = String(body.model || '').trim() || stat.model();
-      const ep = resolveEndpoint({ bodyBase: body.baseUrl, bodyKey: body.apiKey, fallbackBase: stat.baseUrl(), fallbackKey: envKey() });
+      const ep = await resolveEndpoint({ bodyBase: body.baseUrl, bodyKey: body.apiKey, fallbackBase: stat.baseUrl(), fallbackKey: envKey() });
       if (ep.error) return json(res, 400, { error: ep.error });
       const { baseUrl, apiKey } = ep;
       if (!apiKey) return json(res, 400, { error: '未配置 AI_API_KEY：请复制 .env.example 为 .env 并填写，或在设置面板填入 API Key' });
@@ -1220,12 +1360,12 @@ const server = http.createServer(async (req, res) => {
       if (!image) return json(res, 400, { error: '缺少图片（image 字段）' });
 
       const model = String(body.model || '').trim() || stat.model();
-      const ep = resolveEndpoint({ bodyBase: body.baseUrl, bodyKey: body.apiKey, fallbackBase: stat.baseUrl(), fallbackKey: envKey() });
+      const ep = await resolveEndpoint({ bodyBase: body.baseUrl, bodyKey: body.apiKey, fallbackBase: stat.baseUrl(), fallbackKey: envKey() });
       if (ep.error) return json(res, 400, { error: ep.error });
       const { baseUrl, apiKey } = ep;
       // 视觉模型优先级：请求参数 > AI_VISION_MODEL > DeepSeek 路由默认 deepseek-flash > 主模型
       const visionModel = String(body.visionModel || '').trim() || defaultVisionModel(baseUrl, model);
-      const visionEp = resolveEndpoint({
+      const visionEp = await resolveEndpoint({
         bodyBase: body.visionBaseUrl,
         bodyKey: body.visionApiKey || apiKey,
         fallbackBase: envVisionBase() || baseUrl,
@@ -1268,7 +1408,7 @@ const server = http.createServer(async (req, res) => {
       const count = Math.max(1, Math.min(50, Number(body.count) || 10));
       const level = normalizeLevel(body.level);
       const model = String(body.model || '').trim() || stat.model();
-      const ep = resolveEndpoint({ bodyBase: body.baseUrl, bodyKey: body.apiKey, fallbackBase: stat.baseUrl(), fallbackKey: envKey() });
+      const ep = await resolveEndpoint({ bodyBase: body.baseUrl, bodyKey: body.apiKey, fallbackBase: stat.baseUrl(), fallbackKey: envKey() });
       if (ep.error) return json(res, 400, { error: ep.error });
       const { baseUrl, apiKey } = ep;
       if (!apiKey) return json(res, 400, { error: '未配置 AI_API_KEY：请复制 .env.example 为 .env 并填写，或在设置面板填入 API Key' });
@@ -1302,7 +1442,7 @@ const server = http.createServer(async (req, res) => {
       const level = normalizeLevel(body.level);
 
       const model = String(body.model || '').trim() || stat.model();
-      const ep = resolveEndpoint({ bodyBase: body.baseUrl, bodyKey: body.apiKey, fallbackBase: stat.baseUrl(), fallbackKey: envKey() });
+      const ep = await resolveEndpoint({ bodyBase: body.baseUrl, bodyKey: body.apiKey, fallbackBase: stat.baseUrl(), fallbackKey: envKey() });
       if (ep.error) return json(res, 400, { error: ep.error });
       const { baseUrl, apiKey } = ep;
       if (!apiKey) return json(res, 400, { error: '未配置 AI_API_KEY：请复制 .env.example 为 .env 并填写，或在设置面板填入 API Key' });
