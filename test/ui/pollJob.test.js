@@ -61,6 +61,38 @@ describe('pollJob', () => {
     })).rejects.toThrow('超时了');
   });
 
+  it('页面被切到后台（手机锁屏）的时间不计入超时', async () => {
+    // 真机场景：点生成 → 锁屏 / 切微信十几分钟 → 回来。
+    // 浏览器在后台会冻结定时器：墙上时钟照走，但一次轮询都没发生。
+    // 用纯墙钟 deadline 的话，用户回来只看到「超时」，而服务端其实早跑完了；
+    // 更糟的是超时分支不进 onData，本机历史里连这条记录都没有 —— 等于白花一次钱。
+    //
+    // 关键设计：任务在**回到前台之后**才完成。否则它在超时前就结束了，这条测试
+    // 对旧实现也会通过（第一版就踩了这个坑，旧实现照样绿）。
+    let hidden = false;
+    let finish = false;
+    const spy = vi.spyOn(document, 'hidden', 'get').mockImplementation(() => hidden);
+    const fire = () => document.dispatchEvent(new Event('visibilitychange'));
+    const p = pollJob({
+      intervalMs: 5, timeoutMs: 120, maxFailures: 3, netError: '网络不稳定', timeoutError: '超时了',
+      jobId: 'j-hide',
+      fetchJob: async () => (finish ? { job: { status: 'done', data: { ok: 'after-hide' } } } : { job: { status: 'running' } }),
+    });
+    // 先立刻接住结果，避免旧实现提前 reject 变成 unhandled rejection
+    const settled = p.then((v) => ({ v }), (e) => ({ e }));
+
+    await new Promise((r) => setTimeout(r, 40));   // 消耗一部分前台时间
+    hidden = true; fire();
+    await new Promise((r) => setTimeout(r, 260));  // 后台停留 260ms：墙钟已 300ms > 120ms
+    hidden = false; fire();
+    finish = true;                                  // 回到前台之后才完成
+
+    const out = await settled;
+    expect(out.e).toBeUndefined();                  // 不该判超时
+    expect(out.v.data).toEqual({ ok: 'after-hide' });
+    spy.mockRestore();
+  });
+
   it('组件已卸载时返回 aborted，不再继续轮询', async () => {
     const fetchJob = vi.fn(async () => ({ job: { status: 'pending' } }));
     const r = await pollJob({ ...base, jobId: 'j7', fetchJob, isAlive: () => false });

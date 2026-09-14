@@ -10,6 +10,7 @@ import { createUpstashKv, createFileKv } from './kv.mjs';
 import { resolveClientIp, trustProxyHops, trustCloudflareHeader } from './client-ip.mjs';
 import { createAccounts } from './accounts.mjs';
 import { sanitizeOverall, sanitizeSentences } from './resultShape.mjs';
+import { staleMsFor } from './job-stale.mjs';
 import { sendMail } from './mailer.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -567,18 +568,20 @@ async function findJob(jobId) {
  * 异步函数，重启就没了。所以一个正在跑的任务如果服务端重启，它会永远停在 running，
  * 前端就一直转圈转到 10 分钟超时。
  *
- * 这里按时间兜底：超过既定超时还没落定，就明确判为失败，让用户看到原因而不是干等。
+ * 这里按时间兜底：超过阈值还没落定，就明确判为失败，让用户看到原因而不是干等。
+ *
+ * 阈值表在 job-stale.mjs（单独成文件是为了能被测试引用，见那里的说明）——
+ * 核心不变式：**服务端阈值必须小于前端各自的轮询上限**，否则用户先吃到"等待超时"，
+ * 服务端却还认为任务在跑，而且客户端放弃后任务还在继续调模型花钱。
  */
-const JOB_STALE_MS = 12 * 60 * 1000; // 前端轮询上限是 10 分钟，留 2 分钟余量
 function guardStale(job) {
   if (!job || (job.status !== 'running' && job.status !== 'pending')) return job;
   const ts = Number(job.updatedAt || job.createdAt || 0);
-  if (ts && Date.now() - ts > JOB_STALE_MS) {
+  if (ts && Date.now() - ts > staleMsFor(job.kind)) {
     job.status = 'error';
-    job.error = '生成过程中服务端重启了，这次任务没能完成。请重新提交一次（不会重复扣费到你的账号，但这次的模型调用已经产生）。';
+    job.error = '这次任务超时没完成（常见原因：服务端重启，或模型接口长时间无响应）。请重新提交一次。';
     job.updatedAt = Date.now();
-    job.updatedAt = Date.now();
-  saveJob(job);
+    saveJob(job);
   }
   return job;
 }

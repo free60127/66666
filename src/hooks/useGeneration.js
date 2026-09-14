@@ -287,9 +287,18 @@ export function useGeneration({
         timeoutMs: TIMEOUT_ANALYZE_MS,
         maxFailures: 10,
         netError: '网络不稳定，暂时无法获取生成结果，请重试',
-        timeoutError: '生成超时（超过10分钟），请重新提交',
+        timeoutError: '等待超时（已等 10 分钟）。任务可能还在后台跑：稍后刷新本页就能看到这次结果（任务号已记在地址栏），不必重新提交。',
         texts: { submit: '正在提交后台任务…', running: 'AI 正在后台生成（约1-2分钟）…', done: '生成完成' },
-        onJobId: (id2) => { jobId = id2; },
+        onJobId: (id2) => {
+          jobId = id2;
+          // 拿到任务号就立刻写进地址栏：这是"任务还在后台、但界面这边已经放弃"时的唯一入口
+          // （等待超时 / 手机锁屏太久 / 用户自己刷新）。
+          // 原来只有成功回调（onData）里才写，于是超时或中断后用户既没有历史记录、
+          // 也没有 #job=，只能重新提交 —— 再花一次模型调用的钱。
+          // 恢复路径见本文件底部的 #job= effect：已完成 → 直接出结果；
+          // 仍在跑 → 提示"仍在生成中，请稍后刷新查看"（不会静默丢单）。
+          window.history.replaceState(null, '', '#job=' + id2);
+        },
         onData: (data) => {
           // attemptTime：这次练习的时间戳。结果页要靠它判断"哪次才算上一次"
           // （从历史里点开旧作业时，比它更晚的练习不能算"上次"）。
