@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
-import { BookOpen, Camera, CheckCircle2, ChevronDown, ChevronRight, Cloud, Copy, Download, Flame, FolderPlus, History, ImagePlus, Library, LoaderCircle, PanelLeftClose, PanelLeftOpen, PenLine, Settings, Sparkles, Star, Timer, Upload, UserRound, WandSparkles, X } from 'lucide-react'
+import { BookOpen, Camera, CheckCircle2, ChevronDown, ChevronRight, Cloud, Copy, Download, Flame, FolderPlus, History, ImagePlus, Languages, Library, LoaderCircle, PanelLeftClose, PanelLeftOpen, PenLine, Settings, Sparkles, Star, Timer, Upload, UserRound, WandSparkles, X } from 'lucide-react'
 // mammoth（894 KB 源码）只在"上传 DOCX"这一个功能里用到，
 // 改为 handleDocx 内动态 import，避免它被打进首屏主包。
 import { ensureLessonIds, mergeLibraries, saveLibraries } from './lessonLibrary.js'
 import { getStatus, loadSettings, matchLesson, saveSettings } from './api.js'
 import { DELETED_FAVORITES_LIMIT, DELETED_LIBRARIES_LIMIT, DELETED_LESSONS_LIMIT, applyLibraryTombstones, mergeDeleted, mergeHistory } from './sync.js'
 import { mergeFavorites, saveFavorites } from './favorites.js'
+import { DIRECTION_KEY, DIRECTIONS, directionMeta, directionText, normalizeDirection } from './direction.js'
 import {
   lessonTombstoneKey, loadDeletedFavorites, loadDeletedLibraries, loadDeletedLessons,
   safeGet, safeSet, saveDeletedFavorites, saveDeletedHistory, saveDeletedLibraries, saveDeletedLessons, saveHistory,
@@ -43,7 +44,7 @@ const CONFIDENCE_LABEL = { high: '高置信度', medium: '中置信度', low: '�
 
 // OCR 图片预处理（fileToDataUrl / loadImageEl / prepareImage）挪到 src/ocrImage.js
 // OCR 的三个目标框（中文提示 / 英文初稿 / 英文原文）
-const OCR_LABEL = { chinese: '中文提示', english: '英文初稿', original: '英文原文' };
+// 摄像头弹窗标题用槽位名（方向不同时槽里装的语言不同，标题只是提示"往哪一栏填"）
 
 /** 作业指纹：判断"当前内容有没有被改过"（存进课文库 / 新建作业时用）。模块级 —— 它在 App 的
  *  多个回调里被提前引用，写成组件内的 const 会踩 TDZ（eslint no-use-before-define 会拦）。 */
@@ -96,6 +97,19 @@ const SITE_TAGLINE = '你的私人英语工坊';
 
 function App() {
   const [settings, setSettings] = useState(loadSettings());
+  /* ---------- 练习方向（汉译英 / 英译汉）----------
+   * 空字符串 = **还没选过**：这时进站先弹方向选择页（用户要求"进站后先选择"）。
+   * 选过之后就记住，之后想换用编辑器里的「练习方向」开关，不再每次拦人。 */
+  const [direction, setDirection] = useState(() => safeGet(DIRECTION_KEY, ''));
+  const [pickDirection, setPickDirection] = useState(false); // 手动重新打开方向选择页
+  const dir = normalizeDirection(direction);
+  const dt = directionText(dir);
+  const chooseDirection = useCallback((next) => {
+    const v = normalizeDirection(next);
+    setDirection(v);
+    safeSet(DIRECTION_KEY, v);
+    setPickDirection(false);
+  }, []);
   // closeCamera / materialBusy 声明在后面，用 ref 透传「当前」的那一份（避免 TDZ）
   const closeCameraRef = useRef(null);
   const matchedLessonRef = useRef(null);
@@ -188,7 +202,7 @@ function App() {
     englishCamRef, englishFileRef, originalCamRef, originalFileRef,
     handleOcrFiles, openCamera, closeCamera, snapPhoto,
   } = useOcr({
-    settings, aliveRef, camOpen, setCamOpen, setError,
+    settings, aliveRef, camOpen, setCamOpen, setError, direction: dir,
     setChinese, setDraft, setManualOriginal, closeCameraRef,
   });
   // 计时器（记录一篇课文做了多久）
@@ -339,6 +353,7 @@ function App() {
     lessonQuery, setLessonQuery, visibleLessons,
     selectLesson, handleBookChange, selectMyLesson, applyMatchedLesson,
   } = useLessons({
+    direction: dir,
     activeLib, myLibs, setMyLibId,
     setTitle, setChinese, setDraft, setGeneratedOriginal, setManualOriginal, setMaterialKeywords,
     setMatchConfidence, setMatchScore, setMode,
@@ -378,6 +393,7 @@ function App() {
     runGenerate, cancelGenerate, openHistoryModal, loadHistoryJob,
     shareResult, copyAll, loadDemo,
   } = useGeneration({
+    direction: dir,
     title, chinese, draft, manualOriginal, generatedOriginal,
     mode, book, lessonId, myLibId, matchedLesson, lessonKey,
     settings, polishLevel, runJob, busy, cancelProgress, elapsedMsNow,
@@ -443,7 +459,7 @@ function App() {
       chinese: chinese.trim(),
       english: currentOriginal.trim(),
     };
-    if (!entry.chinese) { setLibTip('中文提示还是空的：至少要有中文提示才能存成课文'); return false; }
+    if (!entry.chinese) { setLibTip(`${dt.sourceTitle}还是空的：至少要有${dt.sourceTitle}才能存成课文`); return false; }
     const r = saveToLibrary({ name: newLibName, pickId: libPickId, entry });
     if (!r.ok) { setLibTip(r.error); return false; }
     savedSnapshotRef.current = fingerprintOf(title, chinese, draft, manualOriginal);
@@ -811,6 +827,7 @@ function App() {
         lessonQuery={lessonQuery} onLessonQuery={setLessonQuery} activeLib={activeLib} lessons={lessons} visibleLessons={visibleLessons}
         mode={mode} lessonId={lessonId} onSelectLesson={selectLesson} onSelectMyLesson={selectMyLesson} onDeleteMyLesson={deleteMyLesson}
         onEditMyLesson={openLessonEdit} onRenumberLib={renumberMyLib}
+        books={status?.books || []} directionName={directionMeta(dir).name}
         onOpenSettings={openSettings} onOpenBackup={openBackup}
         lessonProgress={lessonProgress} studyDays={studyDays}
       />
@@ -851,8 +868,8 @@ function App() {
                   <span className="start-guide-title">三步开始</span>
                   <ol className="start-guide-steps">
                     <li>左边选一节课，或点「上传 DOCX 作业」导入自己的作业</li>
-                    <li>在「你的英文初稿」里写下你的回译</li>
-                    <li>点下面的「生成完整回译训练作业」，等 1-2 分钟出结果</li>
+                    <li>在「{dt.draftTitle}」里写下你的{dir === 'en2cn' ? '译文' : '回译'}</li>
+                    <li>点下面的「{dt.generateBtn}」，等 1-2 分钟出结果</li>
                   </ol>
                 </div>
                 <button type="button" className="ghost-btn start-guide-close" onClick={dismissGuide}>知道了</button>
@@ -864,7 +881,7 @@ function App() {
                 {parsing ? <LoaderCircle className="spin" size={16} /> : <Upload size={16} />}
                 {parsing ? '正在读取 DOCX…' : '上传 DOCX 作业'}
               </button>
-              <span className="upload-name">{fileName || '上传后自动读取标题、中文和英文初稿'}</span>
+              <span className="upload-name">{fileName || (dir === 'en2cn' ? '上传后自动读取标题、英文原文和中文译稿' : '上传后自动读取标题、中文和英文初稿')}</span>
               <button className="ghost-btn" onClick={() => { setMaterialOpen(true); setError(''); }} disabled={materialBusy}>
                 <Sparkles size={16} />AI 生成训练素材
               </button>
@@ -903,6 +920,19 @@ function App() {
               <button className={mode === 'lesson' ? 'active' : ''} onClick={() => setMode('lesson')}><BookOpen size={15} />课文模式</button>
               <button className={mode === 'free' ? 'active' : ''} onClick={() => setMode('free')}><PenLine size={15} />自由模式</button>
             </div>
+            {/* 练习方向：进站选过一次之后就在这儿随时切；换方向会把编辑区的三栏标签一起换掉 */}
+            <div className="mode-tabs dir-tabs" role="group" aria-label="练习方向">
+              {DIRECTIONS.map((d) => (
+                <button
+                  key={d}
+                  className={dir === d ? 'active' : ''}
+                  onClick={() => chooseDirection(d)}
+                  title={directionMeta(d).blurb}
+                >
+                  <Languages size={15} />{directionMeta(d).name}
+                </button>
+              ))}
+            </div>
             <div className="title-row">
               <div className="title-field"><label htmlFor="bt-title">作业标题</label><input id="bt-title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="例如：第 2 册 lesson 11" /></div>
               <div className={'timer-box' + (timer.running ? ' running' : '')}>
@@ -922,19 +952,19 @@ function App() {
                 onDrop={(e) => { e.preventDefault(); setDragOver(null); handleOcrFiles('chinese', e.dataTransfer && e.dataTransfer.files); }}
               >
                 <div className="panel-head">
-                  <h2>中文提示</h2>
+                  <h2>{dt.sourceTitle}</h2>
                   <div className="panel-tools">
-                    <button className="ghost-btn sm" onClick={() => openCamera('chinese')} disabled={Boolean(ocrBusy)} title="调用摄像头拍照并识别中文">
+                    <button className="ghost-btn sm" onClick={() => openCamera('chinese')} disabled={Boolean(ocrBusy)} title={dt.sourceOcrTitle}>
                       {ocrBusy === 'chinese' ? <LoaderCircle className="spin" size={14} /> : <Camera size={14} />}拍照
                     </button>
-                    <button className="ghost-btn sm" onClick={() => chineseFileRef.current?.click()} disabled={Boolean(ocrBusy)} title="从相册 / 文件选择图片并识别中文">
+                    <button className="ghost-btn sm" onClick={() => chineseFileRef.current?.click()} disabled={Boolean(ocrBusy)} title={dt.sourceOcrTitle}>
                       <ImagePlus size={14} />导入图片
                     </button>
                   </div>
                 </div>
-                <textarea className="big-textarea" value={chinese} onChange={(e) => setChinese(e.target.value)} placeholder="上传 DOCX 后自动填入；也可拍照、导入图片，或把图片直接拖到这里识别（印刷体 / 手写体均可）" />
+                <textarea className="big-textarea" value={chinese} onChange={(e) => setChinese(e.target.value)} placeholder={dt.sourcePlaceholder} />
                 <div className={'ocr-note' + (String(ocrNotes.chinese || '').startsWith('识别失败') ? ' err' : '')}>
-                  {ocrNotes.chinese || '支持：拍照 / 导入图片 / 电脑端拖入图片；识别后可先核对再生成'}
+                  {ocrNotes.chinese || dt.sourceNote}
                 </div>
                 <input ref={chineseCamRef} type="file" accept="image/*" capture="environment" hidden onChange={(e) => { const f = Array.from(e.target.files || []); e.target.value = ''; handleOcrFiles('chinese', f); }} />
                 <input ref={chineseFileRef} type="file" accept="image/*" multiple hidden onChange={(e) => { const f = Array.from(e.target.files || []); e.target.value = ''; handleOcrFiles('chinese', f); }} />
@@ -946,17 +976,17 @@ function App() {
                 onDrop={(e) => { e.preventDefault(); setDragOver(null); handleOcrFiles('english', e.dataTransfer && e.dataTransfer.files); }}
               >
                 <div className="panel-head">
-                  <h2>你的英文初稿</h2>
+                  <h2>{dt.draftTitle}</h2>
                   <div className="panel-tools">
-                    <button className="ghost-btn sm" onClick={() => openCamera('english')} disabled={Boolean(ocrBusy)} title="调用摄像头拍照并识别英文">
+                    <button className="ghost-btn sm" onClick={() => openCamera('english')} disabled={Boolean(ocrBusy)} title={dt.draftOcrTitle}>
                       {ocrBusy === 'english' ? <LoaderCircle className="spin" size={14} /> : <Camera size={14} />}拍照
                     </button>
-                    <button className="ghost-btn sm" onClick={() => englishFileRef.current?.click()} disabled={Boolean(ocrBusy)} title="从相册 / 文件选择图片并识别英文">
+                    <button className="ghost-btn sm" onClick={() => englishFileRef.current?.click()} disabled={Boolean(ocrBusy)} title={dt.draftOcrTitle}>
                       <ImagePlus size={14} />导入图片
                     </button>
                   </div>
                 </div>
-                <textarea className="big-textarea" value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="上传 DOCX 后自动填入；也可拍照作文纸、导入图片，或把图片直接拖到这里识别英文（印刷体 / 手写体均可）" />
+                <textarea className="big-textarea" value={draft} onChange={(e) => setDraft(e.target.value)} placeholder={dt.draftPlaceholder} />
                 <div className={'ocr-note' + (String(ocrNotes.english || '').startsWith('识别失败') ? ' err' : '')}>
                   {ocrNotes.english || '支持：拍照 / 导入图片 / 电脑端拖入图片；手写体建议把「识别模式」切到「手写体优先」'}
                 </div>
@@ -974,20 +1004,20 @@ function App() {
               <div className="fold-head">
                 <button className="fold-toggle" onClick={() => setOriginalOpen((v) => !v)} aria-expanded={originalOpen} aria-controls="bt-original">
                   {originalOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-                  <span className="fold-title">英文原文（标准答案）</span>
+                  <span className="fold-title">{dt.referenceTitle}</span>
                 </button>
                 <span className="muted small fold-note">
                   {manualOriginal.trim()
                     ? `已填 ${manualOriginal.trim().split(/\s+/).filter(Boolean).length} 词，结果里会逐句对照`
                     : currentOriginal.trim()
                       ? `已自动带入 ${currentOriginal.trim().split(/\s+/).filter(Boolean).length} 词（留空就用这一份）`
-                      : '可选；不填的话结果里只有 AI 修正版，没有原文对照'}
+                      : `可选；不填的话结果里只有 ${dt.sectionAi}，没有${dt.sectionReference}对照`}
                 </span>
                 <div className="panel-tools">
-                  <button className="ghost-btn sm" onClick={() => openCamera('original')} disabled={Boolean(ocrBusy)} title="调用摄像头拍课文，识别成英文原文">
+                  <button className="ghost-btn sm" onClick={() => openCamera('original')} disabled={Boolean(ocrBusy)} title={dt.referenceOcrTitle}>
                     {ocrBusy === 'original' ? <LoaderCircle className="spin" size={14} /> : <Camera size={14} />}拍照
                   </button>
-                  <button className="ghost-btn sm" onClick={() => originalFileRef.current?.click()} disabled={Boolean(ocrBusy)} title="从相册 / 文件选择图片，识别成英文原文">
+                  <button className="ghost-btn sm" onClick={() => originalFileRef.current?.click()} disabled={Boolean(ocrBusy)} title={dt.referenceOcrTitle}>
                     <ImagePlus size={14} />导入图片
                   </button>
                 </div>
@@ -1031,10 +1061,10 @@ function App() {
             <div className="actions-bar">
               <button className="primary-btn big" onClick={() => runGenerate()} disabled={busy || parsing}>
                 {busy ? <LoaderCircle className="spin" size={17} /> : <WandSparkles size={17} />}
-                {busy ? 'AI 正在后台生成（约1-2分钟）…' : '生成完整回译训练作业'}
+                {busy ? 'AI 正在后台生成（约1-2分钟）…' : dt.generateBtn}
               </button>
               {!hasAiKey && <button className="ghost-btn" onClick={loadDemo}><Sparkles size={15} />离线示例</button>}
-              <span className="muted actions-hint">{busy ? '已提交后台任务，请保持页面打开，完成后自动展示' : '生成顺序：标题 → 中文 → 原稿 → AI 修正版 → 原文 → 逐句解析'}</span>
+              <span className="muted actions-hint">{busy ? '已提交后台任务，请保持页面打开，完成后自动展示' : dt.generateHint}</span>
             </div>
             {busy && (
               <div className="progress-box">
@@ -1081,10 +1111,57 @@ function App() {
         )}
       </main>
 
+      {/* ---------- 练习方向选择（进站第一屏）----------
+          用户要求"进站后先选择英译汉 / 汉译英"。只在**没选过**时出现一次，
+          选完记住；之后想换用编辑器里的「练习方向」开关，不再每次拦人。 */}
+      {(pickDirection || !direction) && (
+        <div className="modal-mask dir-mask">
+          <div className="modal dir-modal" role="dialog" aria-modal="true" aria-label="选择练习方向">
+            <div className="dir-head">
+              <div className="brand-mark">回</div>
+              <div>
+                <h2>今天想练哪个方向？</h2>
+                <p className="muted small">两个方向共用同一套课文库与批改逻辑，随时可以切换。</p>
+              </div>
+            </div>
+            <div className="dir-cards">
+              {DIRECTIONS.map((d) => {
+                const m = directionMeta(d);
+                return (
+                  <button key={d} type="button" className="dir-card" onClick={() => chooseDirection(d)}>
+                    <span className="dir-card-top">
+                      <span className="dir-badge">{m.short}</span>
+                      <strong>{m.name}</strong>
+                    </span>
+                    <span className="dir-tagline">{m.tagline}</span>
+                    <span className="dir-blurb">{m.blurb}</span>
+                    <span className="dir-sample">
+                      <span className="dir-sample-lang">{m.sampleFromLang}</span>
+                      <span className="dir-sample-text">{m.sampleFrom}</span>
+                    </span>
+                    <span className="dir-arrow">↓</span>
+                    <span className="dir-sample">
+                      <span className="dir-sample-lang out">{m.sampleToLang}</span>
+                      <span className="dir-sample-text">{m.sampleTo}</span>
+                    </span>
+                    <span className="dir-flow">{m.flow.join(' → ')}</span>
+                  </button>
+                );
+              })}
+            </div>
+            {direction ? (
+              <div className="modal-actions">
+                <button className="ghost-btn" onClick={() => setPickDirection(false)}>取消</button>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      )}
+
       {camOpen && (
         <div className="modal-mask" onClick={closeCamera}>
           <div className="modal cam-modal" ref={(el) => { modalRefs.current.cam = el; }} role="dialog" aria-modal="true" aria-label="拍照识别" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-head"><h2>拍照识别 · {OCR_LABEL[camSide] || '英文初稿'}</h2><button className="icon-btn" onClick={closeCamera} aria-label="关闭"><X size={16} /></button></div>
+            <div className="modal-head"><h2>拍照识别 · {camSide === 'chinese' ? dt.sourceTitle : camSide === 'original' ? dt.referenceTitle : dt.draftTitle}</h2><button className="icon-btn" onClick={closeCamera} aria-label="关闭"><X size={16} /></button></div>
             <video ref={camVideoRef} className="cam-video" playsInline muted autoPlay />
             {camError ? <p className="muted small cam-err">{camError}</p> : null}
             <p className="muted small">把纸张放平、光线充足、尽量让文字填满画面；手写体建议先把「识别模式」设为「手写体优先」。</p>

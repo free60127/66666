@@ -15,13 +15,14 @@ function Sidebar({
   onNewJob, myLibId, book, onBookChange, myLibs, onOpenLibModal, onSelectLib, onDeleteLib,
   lessonQuery, onLessonQuery, activeLib, lessons, visibleLessons,
   mode, lessonId, onSelectLesson, onSelectMyLesson, onDeleteMyLesson, onEditMyLesson, onRenumberLib,
-  onOpenSettings, onOpenBackup, lessonProgress, studyDays,
+  onOpenSettings, onOpenBackup, lessonProgress, studyDays, books, directionName,
 }) {
   // 每节课的 lessonKey 必须与生成时用的完全一致（App 里的 lessonKey 也是这个格式），
   // 否则会出现"明明练过却不打星"。自建库用稳定 id（lid），所以改标题/改序号都不会丢进度。
   const keyOf = (l) => (activeLib
     ? `lesson:my-${activeLib.id}-${l.lid || l.lesson}`
     : `lesson:${l.book}-${l.lesson}`);
+  const currentBookMeta = (books || []).find((b) => b.book === book) || null;
   const done = doneSet(lessonProgress);
   const scopeStats = summarize(lessonProgress, visibleLessons.map(keyOf));
   const streak = summarizeStreak(studyDays);
@@ -32,11 +33,26 @@ function Sidebar({
       <aside className={'sidebar' + (sidebarOpen ? '' : ' collapsed')}>
         <button className="sidebar-close" onClick={onToggle} aria-label="收起侧栏"><X size={18} /></button>
         <div className="brand"><div className="brand-mark">回</div><div><strong>回译本</strong><span>BACK-TRANSLATE STUDIO</span></div></div>
-        <button className="primary-btn" onClick={() => onNewJob(true)}><Plus size={16} />新建回译作业</button>
+        <button className="primary-btn" onClick={() => onNewJob(true)}><Plus size={16} />新建{directionName === '英译汉' ? '翻译' : '回译'}作业</button>
         <div className="side-section">
           <div className="side-title">课文库</div>
+          {/* 内置库：1-4 是新概念册次，5-9 是考试向的库（四级/六级/英语一/英语二/专八）。
+              列表来自服务端 /api/status 的 books（带中文名与课数），**没有语料也照样显示**，
+              只是标成灰色并在悬停时说明该放哪个文件 —— 空着比藏起来更容易让人以为坏了。 */}
           <div className="book-tabs">
-            {[1, 2, 3, 4].map((n) => <button key={n} className={!myLibId && book === n ? 'active' : ''} onClick={() => onBookChange(n)}>第 {n} 册</button>)}
+            {(books && books.length ? books : [1, 2, 3, 4].map((n) => ({ book: n, label: `第 ${n} 册`, lessons: null })))
+              .map((b) => (
+                <button
+                  key={b.book}
+                  className={(!myLibId && book === b.book ? 'active' : '') + (b.lessons === 0 ? ' empty' : '')}
+                  onClick={() => onBookChange(b.book)}
+                  title={b.lessons === 0
+                    ? `${b.label}：还没有语料。把文件放到 public/corpus/${b.file || ''} 即可（格式见 README）`
+                    : `${b.label}${b.lessons != null ? ` · ${b.lessons} 课` : ''}`}
+                >
+                  {b.label}
+                </button>
+              ))}
           </div>
 
           <div className="my-libs">
@@ -107,7 +123,12 @@ function Sidebar({
               <div className="muted">
                 {lessonQuery
                   ? `没有匹配「${lessonQuery}」的课文`
-                  : (activeLib ? '这个库还是空的：把当前作业存进来即可' : '正在加载语料…')}
+                  : (activeLib
+                    ? '这个库还是空的：把当前作业存进来即可'
+                    : (currentBookMeta && currentBookMeta.lessons === 0
+                      // 已知这个内置库是空的：直接告诉使用者该放哪个文件（比"正在加载语料…"有用得多）
+                      ? `${currentBookMeta.label}还没有语料：把语料文件放到 public/corpus/${currentBookMeta.file || ''} 即可（格式见 README 的「语料」一节）`
+                      : '正在加载语料…'))}
               </div>
             )}
             {visibleLessons.map((l) => {

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { analyze, deleteAnalyzeJob, getAnalyzeJob } from '../api.js'
 import { DEMO_LESSON_18 } from '../demo.js'
 import { formatDuration } from '../format.js'
+import { normalizeDirection } from '../direction.js'
 import { hasMorphology, morphologyText } from '../favorites.js'
 import {
   DELETED_HISTORY_MAX, loadDeletedHistory, loadHistory, loadResultCache,
@@ -56,10 +57,13 @@ export function useGeneration({
   title, chinese, draft, manualOriginal, generatedOriginal,
   mode, book, lessonId, myLibId, matchedLesson, lessonKey,
   settings, polishLevel, runJob, busy, cancelProgress, elapsedMsNow,
-  genTokenRef, aliveRef,
+  genTokenRef, aliveRef, direction,
   setView, setError, setHistoryOpen,
   flashTip, setToast, runGenerateRef,
 }) {
+  // 方向走 ref：runGenerate 只在提交那一刻需要它，放进依赖会让"切方向"重建整个提交函数
+  const directionRef = useRef(direction);
+  directionRef.current = direction;
   const [result, setResult] = useState(null);
   const [currentJobId, setCurrentJobId] = useState('');
   const [historyList, setHistoryList] = useState(loadHistory);
@@ -257,10 +261,12 @@ export function useGeneration({
 
   const runGenerate = async (overrideLessonId) => {
     const id = overrideLessonId ?? lessonId;
+    const dir = normalizeDirection(directionRef.current);
     const cn = chinese.trim();
     const df = draft.trim();
-    if (!cn) { setError('请先上传包含中文提示的 DOCX，或填入中文提示'); return; }
-    if (!df) { setError('请先上传包含英文初稿的 DOCX，或填入英文初稿'); return; }
+    // 提示语跟着方向走：英译汉时源栏装的是英文原文、初稿栏是中文译稿
+    if (!cn) { setError(dir === 'en2cn' ? '请先填入要翻译的英文原文（或上传含英文的 DOCX）' : '请先上传包含中文提示的 DOCX，或填入中文提示'); return; }
+    if (!df) { setError(dir === 'en2cn' ? '请先写下你的中文翻译' : '请先上传包含英文初稿的 DOCX，或填入英文初稿'); return; }
     setError('');
     cancelGenRef.current = false; // 新的生成开始，清掉上一次的取消标记
     const myToken = (genTokenRef.current += 1);
@@ -273,6 +279,7 @@ export function useGeneration({
         submit: async () => {
           const resp = await analyze({
           title: title.trim(), chinese: cn, draft: df,
+          direction: dir,   // 服务端据此选 prompt；结果里也会带回来，供结果页决定标签
           book: mode === 'lesson' && !myLibId ? book : undefined,
           lessonId: mode === 'lesson' && !myLibId ? id : undefined,
           original: currentOriginal || undefined,

@@ -9,7 +9,8 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getLesson, getLessons, wakeUp } from '../api.js';
-import { safeGet, safeSet } from '../storage.js';
+import { safeGet, safeSet } from '../storage.js'
+import { normalizeDirection } from '../direction.js';
 import { DEMO_LESSONS } from '../demo.js';
 import { lessonLabel } from '../lessonLabel.js';
 
@@ -27,14 +28,18 @@ export function useLessons({
   activeLib, myLibs, setMyLibId,
   setTitle, setChinese, setDraft, setGeneratedOriginal, setManualOriginal, setMaterialKeywords,
   setMatchConfidence, setMatchScore, setMode,
-  runGenerateRef, refreshStatus, setError, markSavedSnapshot, setBackendWaking, genTokenRef,
+  runGenerateRef, refreshStatus, setError, markSavedSnapshot, setBackendWaking, genTokenRef, direction,
 }) {
   // selectLesson 的 ref 版：首屏拉课表的 effect 里要用它（声明必须在那个 effect 之前，否则 TDZ）
   const selectLessonRef = useRef(null);
+  // 方向也走 ref：selectLesson / selectMyLesson 的依赖数组已经很长，
+  // 把 direction 直接塞进去会让"切方向"重建它们，并连带触发首屏自动选课的 effect。
+  const directionRef = useRef(direction);
+  directionRef.current = direction;
   const [lessons, setLessons] = useState([]);
   const [book, setBook] = useState(() => {
     const b = Number(safeGet('bt-book', ''));
-    return [1, 2, 3, 4].includes(b) ? b : 2;
+    return Number.isInteger(b) && b >= 1 && b <= 9 ? b : 2;
   });
   const [lessonId, setLessonId] = useState(() => {
     const n = Number(safeGet('bt-lesson', ''));
@@ -110,12 +115,14 @@ export function useLessons({
       const lesson = await getLesson(nextBook, nextLesson);
       if (reqId !== lessonReqRef.current) return; // 已被更晚的选择取代，丢弃这次结果
       setTitle(lessonLabel(lesson));
-      setChinese(lesson.chinese || '');
+      // 四个槽的角色随方向翻转（见 src/direction.js）：
+      //   汉译英：源栏=中文，标准答案=英文原文
+      //   英译汉：源栏=英文原文（要翻译的题目），标准答案=参考译文（中文）
+      const dir = normalizeDirection(directionRef.current);
+      setChinese((dir === 'en2cn' ? lesson.english : lesson.chinese) || '');
       setDraft('');
       setGeneratedOriginal('');
-      // 语料里每一课都带英文原文（348 课全有），直接把标准答案填进「英文原文」栏，
-      // 用户可以看到/对照，不再是一个空框。
-      setManualOriginal(lesson.english || '');
+      setManualOriginal((dir === 'en2cn' ? lesson.chinese : lesson.english) || '');
       setMaterialKeywords([]);
       setMatchedLesson(lesson);
       // 注意：内置课文不写 savedSnapshot —— 它还没进过课文库，用户随时可能想存进去
@@ -155,10 +162,11 @@ export function useLessons({
     setMatchConfidence('manual');
     setMatchScore(null);
     setTitle(lesson.title_cn || lessonLabel(lesson)); // 自建课文直接用标题，不带 Lesson 编号
-    setChinese(lesson.chinese || '');
+    const dir = normalizeDirection(directionRef.current);
+    setChinese((dir === 'en2cn' ? lesson.english : lesson.chinese) || '');
     setDraft('');
     setGeneratedOriginal('');
-    setManualOriginal(lesson.english || '');
+    setManualOriginal((dir === 'en2cn' ? lesson.chinese : lesson.english) || '');
     setMaterialKeywords([]);
     setError('');
     if (markSavedSnapshot) markSavedSnapshot(lesson);
@@ -169,7 +177,8 @@ export function useLessons({
     if (!matchedLesson) return;
     setMode('lesson');
     setTitle(lessonLabel(matchedLesson));
-    setManualOriginal(matchedLesson.english || ''); // 把这一课的英文原文带进「英文原文」栏
+    // 标准答案栏：汉译英放英文原文，英译汉放参考译文（中文）
+    setManualOriginal((normalizeDirection(directionRef.current) === 'en2cn' ? matchedLesson.chinese : matchedLesson.english) || '');
     setMatchConfidence('manual');
     setMatchScore(null);
     safeSet('bt-book', String(matchedLesson.book));

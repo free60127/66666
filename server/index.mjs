@@ -4,7 +4,7 @@ import path from 'node:path';
 import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { promises as dnsLookup } from 'node:dns';
-import { SYSTEM_PROMPT, buildUserMessage, MATERIAL_PROMPT, buildMaterialMessage, QUIZ_PROMPT, buildQuizMessage, AI_LEVEL_KEYS, DEFAULT_AI_LEVEL, normalizeLevel } from './prompt.mjs';
+import { SYSTEM_PROMPT, buildUserMessage, EN2CN_SYSTEM_PROMPT, buildEn2CnUserMessage, MATERIAL_PROMPT, buildMaterialMessage, QUIZ_PROMPT, buildQuizMessage, AI_LEVEL_KEYS, DEFAULT_AI_LEVEL, normalizeLevel } from './prompt.mjs';
 import { recognizeImage } from './ocr.mjs';
 import { MAX_SNAPSHOT_BYTES, createSyncStore, emptySnapshot, isValidSyncCode, newSyncCode, sanitizeSnapshot } from './sync.mjs';
 import { createUpstashKv, createFileKv } from './kv.mjs';
@@ -12,6 +12,8 @@ import { resolveClientIp, trustProxyHops, trustCloudflareHeader } from './client
 import { createAccounts } from './accounts.mjs';
 import { sanitizeOverall, sanitizeSentences } from './resultShape.mjs';
 import { staleMsFor } from './job-stale.mjs';
+// 方向常量与前端共用一份（src/direction.js 是纯常量模块，不碰 DOM）
+import { normalizeDirection } from '../src/direction.js';
 import { sendMail } from './mailer.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -76,34 +78,49 @@ function normalizeLesson(raw, book, source) {
     source,
   };
 }
+/* ---------- 内置库 ----------
+ * 1-4 是新概念册次（语料受版权保护，.gitignore 已排除，由使用者自备）；
+ * 5-9 是考试向的库（四级 / 六级 / 英语（一）/ 英语（二）/ 专八）。
+ * 后五个库仓库里带的是**我们自己写的原创示例**（sample-*.json，已做 gitignore 反排除），
+ * 只为了让新方向开箱可用；真题语料自行按同样结构放进 public/corpus/ 即可自动加载。
+ *
+ * label 会随 /api/status 的 books 下发给前端做侧栏标签 —— 语料有无都能显示出来。 */
 const BOOK_META = {
-  1: { source: '第 1 册语料', file: 'new-concept-1-full.json' },
-  2: { source: '第 2 册语料', file: 'new-concept-2-full.json' },
-  3: { source: '第 3 册语料', file: 'new-concept-3.json' },
-  4: { source: '第 4 册语料', file: 'new-concept-4.json' },
+  1: { label: '第 1 册', source: '第 1 册语料', file: 'new-concept-1-full.json' },
+  2: { label: '第 2 册', source: '第 2 册语料', file: 'new-concept-2-full.json' },
+  3: { label: '第 3 册', source: '第 3 册语料', file: 'new-concept-3.json' },
+  4: { label: '第 4 册', source: '第 4 册语料', file: 'new-concept-4.json' },
+  5: { label: '四级', source: '四级语料', file: 'cet4.json' },
+  6: { label: '六级', source: '六级语料', file: 'cet6.json' },
+  7: { label: '英语（一）', source: '英语（一）语料', file: 'english-1.json' },
+  8: { label: '英语（二）', source: '英语（二）语料', file: 'english-2.json' },
+  9: { label: '专八', source: '专八语料', file: 'tem8.json' },
 };
-const isValidBook = (n) => [1, 2, 3, 4].includes(Number(n));
+const BOOK_IDS = Object.keys(BOOK_META).map(Number);
+const isValidBook = (n) => BOOK_IDS.includes(Number(n));
+/** 每个库推荐的润色等级（前端切库时可以据此给个默认值；用户仍可自己改） */
+const BOOK_LEVEL_HINT = { 1: '小初', 2: '高考英语', 3: '四六级', 4: '考研/专四', 5: '四六级', 6: '四六级', 7: '考研/专四', 8: '考研/专四', 9: '专八' };
 function loadBook(book) {
   const meta = BOOK_META[Number(book)];
-  if (!meta) return { book: Number(book), source: '', lessons: [] };
+  if (!meta) return { book: Number(book), label: '', source: '', lessons: [] };
   const source = meta.source;
   const full = path.join(ROOT, 'public', 'corpus', meta.file);
   if (fs.existsSync(full)) {
     try {
       const raw = JSON.parse(fs.readFileSync(full, 'utf8'));
-      return { book, source: raw.source || source, lessons: (raw.lessons || []).map((l) => normalizeLesson(l, book, raw.source || source)).sort((a, b) => a.lesson - b.lesson) };
+      return { book, label: meta.label, source: raw.source || source, lessons: (raw.lessons || []).map((l) => normalizeLesson(l, book, raw.source || source)).sort((a, b) => a.lesson - b.lesson) };
     } catch (e) { console.error('corpus parse failed:', full, e); }
   }
   // 语料文件缺失时返回空列表（前端会退回「自由模式」）。
   // 原先还有一段 test/agent_out 的遗留回退目录，已随测试产物清理掉。
-  return { book, source, lessons: [] };
+  return { book, label: meta.label, source, lessons: [] };
 }
 function getCorpora() {
-  if (!corpora) corpora = new Map([1, 2, 3, 4].map((b) => [b, loadBook(b)]));
+  if (!corpora) corpora = new Map(BOOK_IDS.map((b) => [b, loadBook(b)]));
   return corpora;
 }
 function getCorpus(book = 2) {
-  return getCorpora().get(Number(book)) || { book: Number(book), lessons: [], source: '' };
+  return getCorpora().get(Number(book)) || { book: Number(book), label: '', lessons: [], source: '' };
 }
 function allLessons(book = null) {
   if (book) return getCorpus(book).lessons;
@@ -910,7 +927,7 @@ async function callLLM({ baseUrl, model, apiKey, messages }) {
 }
 
 /* ---------- 异步分析任务 ---------- */
-async function runAnalyzeJob(jobId, { title, chinese, draft, original, lesson, lessonNo, baseUrl, model, apiKey, level }) {
+async function runAnalyzeJob(jobId, { title, chinese, draft, original, lesson, lessonNo, baseUrl, model, apiKey, level, direction }) {
   const job = await findJob(jobId);
   if (!job) return;
   job.status = 'running';
@@ -918,10 +935,19 @@ async function runAnalyzeJob(jobId, { title, chinese, draft, original, lesson, l
   job.updatedAt = Date.now();
   saveJob(job);
   try {
-    const messages = [
-      { role: 'system', content: SYSTEM_PROMPT },
-      { role: 'user', content: buildUserMessage({ title, chinese, draft, original, level }) },
-    ];
+    // 两个方向共用同一套 JSON 字段（见 src/direction.js 的说明），只是 prompt 不同：
+    // 汉译英把 chinese 当"中文提示"、original 当"英文原文"；
+    // 英译汉把 chinese 当"英文原文"、original 当"参考译文"。
+    const dir = normalizeDirection(direction);
+    const messages = dir === 'en2cn'
+      ? [
+        { role: 'system', content: EN2CN_SYSTEM_PROMPT },
+        { role: 'user', content: buildEn2CnUserMessage({ title, source: chinese, draft, reference: original, level }) },
+      ]
+      : [
+        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'user', content: buildUserMessage({ title, chinese, draft, original, level }) },
+      ];
     const raw = await callLLM({ baseUrl, model, apiKey, messages });
     let parsed;
     try {
@@ -936,6 +962,7 @@ async function runAnalyzeJob(jobId, { title, chinese, draft, original, lesson, l
       console.warn(`[analyze] 丢弃 ${cleanedSentences.dropped} 条无意义 findings（from 与 to 相同/缺失或重复）`);
     }
     job.data = {
+      direction: dir,
       title: parsed.title || title,
       chinese: parsed.chinese || chinese,
       draft: parsed.draft || draft,
@@ -1305,7 +1332,12 @@ const server = http.createServer(async (req, res) => {
         aiLevels: AI_LEVEL_KEYS,
         defaultAiLevel: DEFAULT_AI_LEVEL,
         corpusLessons: allLessons().length,
-        books: [...getCorpora().values()].map((c) => ({ book: c.book, lessons: c.lessons.length, source: c.source })),
+        books: [...getCorpora().values()].map((c) => ({
+          book: c.book, label: c.label, lessons: c.lessons.length, source: c.source,
+          levelHint: BOOK_LEVEL_HINT[c.book] || '',
+          // 期望的语料文件名：库是空的时候前端据此提示"把语料放到 public/corpus/xxx.json"
+          file: (BOOK_META[c.book] || {}).file || '',
+        })),
         sync: { store: syncStore.kind, durable: syncDurable, hosted: HOSTED },
         accounts: { enabled: accountsOn, durable: kvDurable },
         // 分享链接（#job=xxx）的有效期与清理策略：保留多久、最多留多少条
@@ -1324,7 +1356,7 @@ const server = http.createServer(async (req, res) => {
       let book = null;
       if (rawBook !== null && rawBook.trim() !== '') {
         const n = Number(rawBook);
-        if (!isValidBook(n)) return json(res, 400, { error: 'book 必须是 1-4 的整数（不传则返回全部课次）' });
+        if (!isValidBook(n)) return json(res, 400, { error: `book 必须是 ${BOOK_IDS[0]}-${BOOK_IDS[BOOK_IDS.length - 1]} 的整数（不传则返回全部课次）` });
         book = n;
       }
       const lessons = allLessons(book).map((l) => ({
@@ -1333,10 +1365,11 @@ const server = http.createServer(async (req, res) => {
       }));
       return json(res, 200, { book, lessons });
     }
-    const lessonMatch = p.match(/^\/api\/lessons\/(?:(1|2|3|4)\/)?(\d+)$/);
+    const lessonMatch = p.match(/^\/api\/lessons\/(?:(\d{1,2})\/)?(\d+)$/);
     if (lessonMatch && req.method === 'GET') {
       const book = Number(lessonMatch[1] || 2);
       const n = Number(lessonMatch[2]);
+      if (!isValidBook(book)) return json(res, 400, { error: 'book 不合法' });
       const l = findLesson(book, n);
       if (!l) return json(res, 404, { error: 'lesson not found' });
       return json(res, 200, l);
@@ -1468,6 +1501,8 @@ const server = http.createServer(async (req, res) => {
       const draft = String(body.draft || '').trim();
       if (!chinese || !draft) return json(res, 400, { error: '缺少中文提示或英文初稿' });
 
+      // 练习方向：汉译英（默认）/ 英译汉。脏值静默回落默认方向，与 level 的处理一致。
+      const direction = normalizeDirection(body.direction);
       const userOriginal = String(body.original || '').trim();
       const lessonNo = body.lessonId != null ? Number(body.lessonId) : null;
       const lesson = userOriginal ? null : resolveLesson({ book: body.book, lessonId: lessonNo, title: body.title, chinese });
@@ -1490,7 +1525,7 @@ const server = http.createServer(async (req, res) => {
       // 立即返回任务号，后台再调用模型；手机端/弱网不会因长时间占用请求而卡死
       safeRun('analyze', jobId, () => runAnalyzeJob(jobId, {
         title, chinese, draft, original: lesson ? lesson.english : userOriginal,
-        lesson, lessonNo, baseUrl, model, apiKey, level,
+        lesson, lessonNo, baseUrl, model, apiKey, level, direction,
       }));
       return json(res, 200, { ok: true, jobId, status: 'pending', deleteToken });
     }

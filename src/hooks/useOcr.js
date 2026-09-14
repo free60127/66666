@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { getOcrJob, ocr } from '../api.js'
 import { POLL_OCR_MS, TIMEOUT_OCR_MS } from '../constants.js'
 import { prepareImage } from '../ocrImage.js'
+import { directionText, slotLanguage } from '../direction.js'
 import { submitAndPoll } from './pollJob.js'
 
 /**
@@ -26,6 +27,8 @@ import { submitAndPoll } from './pollJob.js'
  * @param {object} o.closeCameraRef 供 useModals 在 Esc 关闭时调用（由本 hook 回填）
  */
 export function useOcr({
+  /** 练习方向：决定"哪一栏是哪种语言"（英译汉时源栏是英文、初稿是中文） */
+  direction,
   settings, aliveRef, camOpen, setCamOpen, setError,
   setChinese, setDraft, setManualOriginal, closeCameraRef,
 }) {
@@ -48,13 +51,17 @@ export function useOcr({
     const list = Array.from(files || []).filter((f) => f && /^image\//i.test(f.type || ''));
     if (!list.length) { setError('请选择图片文件（JPG / PNG / WEBP 等）'); return; }
     if (ocrBusy) return;
-    // 三个目标框共用一条识别链路：服务端只认 chinese / english 两种语言，
-    // 「英文原文」框用 english 识别、但结果落到 manualOriginal。
+    // 三个目标框共用一条识别链路：服务端只认 chinese / english 两种语言。
+    // 注意 side 说的是**槽位**（chinese=源栏 / english=初稿栏 / original=标准答案栏），
+    // 而**语言**由练习方向决定：英译汉时源栏装的是英文、初稿栏装的是中文。
+    // 认错语言的后果很直接：模型会按"逐字转写英文"去处理一张中文手写稿。
+    const lang = slotLanguage(direction, side);
+    const dt = directionText(direction);
     const target = side === 'chinese'
-      ? { lang: 'chinese', apply: setChinese, done: '已填入中文提示' }
+      ? { lang, apply: setChinese, done: dt.sourceOcrDone }
       : side === 'original'
-        ? { lang: 'english', apply: setManualOriginal, done: '已追加到英文原文' }
-        : { lang: 'english', apply: setDraft, done: '已追加到英文初稿' };
+        ? { lang, apply: setManualOriginal, done: dt.referenceOcrDone }
+        : { lang, apply: setDraft, done: dt.draftOcrDone };
     setError('');
     setOcrBusy(side);
     setOcrNotes((n) => ({ ...n, [side]: '正在准备图片…' }));

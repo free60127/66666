@@ -45,9 +45,14 @@ textarea, input { font: inherit; }
 .sidebar .ghost-btn { background: transparent; border-color: #3a4f5e; color: #b9cad6; width: 100%; justify-content: center; }
 .side-section { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .side-title { font-size: 11px; letter-spacing: .12em; color: #7f99aa; padding: 8px 6px; }
-.book-tabs { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 5px; margin: 0 4px 8px; }
-.book-tabs button { border: 1px solid #3a4f5e; border-radius: 7px; color: #a9bdc9; padding: 6px 4px; font-size: 12px; }
+/* 内置库：从 4 册扩到 9 个（多了四级/六级/英语一/英语二/专八），
+   固定 4 列会让「英语（一）」这种长名字换行、格子高矮不齐，所以改成自适应列宽。 */
+.book-tabs { display: grid; grid-template-columns: repeat(auto-fit, minmax(64px, 1fr)); gap: 5px; margin: 0 4px 8px; }
+.book-tabs button { border: 1px solid #3a4f5e; border-radius: 7px; color: #a9bdc9; padding: 6px 4px; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .book-tabs button.active { background: #2d81d7; border-color: #2d81d7; color: #fff; }
+/* 还没有语料的库：灰一点 + 虚线边，一眼看出"这里还没内容"而不是"坏了" */
+.book-tabs button.empty { border-style: dashed; color: #6f8b9c; }
+.book-tabs button.empty.active { color: #fff; }
 .lesson-list { overflow-y: auto; display: flex; flex-direction: column; gap: 3px; }
 .lesson-item { display: flex; align-items: center; gap: 8px; padding: 7px 8px; border-radius: 8px; color: #c7d6df; text-align: left; width: 100%; }
 .lesson-item:hover { background: rgba(255,255,255,.06); }
@@ -838,3 +843,41 @@ mark.hl { background: #ffe3e3; color: inherit; padding: 0 2px; border-radius: 2p
 .streak-row strong { font-size: 12.5px; }
 .streak-flame { display: inline-flex; align-items: center; }
 .streak-sub { margin-left: auto; font-size: 11px; color: #7f99aa; }
+
+/* ---------- 练习方向（进站选择页 + 编辑器开关） ----------
+   视觉沿用既有那套：同样的圆角、同样的 --line/--brand/--muted 变量，
+   和「AI 设置」等弹窗放在一起看不出是后加的。 */
+.dir-tabs { margin-left: 8px; }
+.dir-tabs button { padding: 8px 14px; }
+.dir-mask { z-index: 60; }
+.dir-modal { width: 720px; max-width: calc(100vw - 32px); }
+.dir-head { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 16px; }
+.dir-head h2 { margin: 0 0 4px; font-size: 19px; }
+.dir-head p { margin: 0; }
+.dir-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.dir-card {
+  display: flex; flex-direction: column; gap: 7px; text-align: left;
+  border: 1px solid var(--line); border-radius: 14px; padding: 16px;
+  background: #fbfcfd; transition: border-color .15s, box-shadow .15s, transform .15s;
+}
+.dir-card:hover { border-color: var(--brand); box-shadow: 0 6px 18px rgba(31, 111, 235, .12); transform: translateY(-1px); }
+.dir-card-top { display: flex; align-items: center; gap: 8px; }
+.dir-card-top strong { font-size: 17px; }
+.dir-badge {
+  font-size: 11px; font-weight: 700; letter-spacing: .04em;
+  background: #e8f0fe; color: var(--brand); border-radius: 999px; padding: 3px 9px;
+}
+.dir-tagline { font-size: 13px; font-weight: 600; color: var(--text); }
+.dir-blurb { font-size: 12.5px; color: var(--muted); line-height: 1.7; }
+.dir-sample { display: flex; align-items: baseline; gap: 8px; background: #fff; border: 1px solid var(--line); border-radius: 9px; padding: 7px 10px; }
+.dir-sample-lang { font-size: 10px; font-weight: 700; letter-spacing: .06em; color: #9a6f3a; background: #f6efe6; border-radius: 5px; padding: 2px 6px; flex: none; }
+.dir-sample-lang.out { color: var(--teal); background: #e7f5f2; }
+.dir-sample-text { font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
+.dir-arrow { text-align: center; color: var(--muted); font-size: 12px; line-height: 1; }
+.dir-flow { margin-top: auto; font-size: 11.5px; color: var(--muted); letter-spacing: .01em; }
+
+@media screen and (max-width: 900px) {
+  .dir-cards { grid-template-columns: 1fr; }
+  .dir-modal { width: calc(100vw - 24px); }
+  .dir-tabs { margin-left: 0; }
+}
