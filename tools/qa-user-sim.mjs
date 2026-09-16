@@ -138,12 +138,31 @@ async function boot(page) {
   await page.waitForSelector('.editor, .result', { timeout: 30000 });
 }
 /** 填内容并生成，返回是否等到结果页 */
+/**
+ * 拿到一个结果页。
+ *
+ * ⚠️ 指向真站（BASE=…）时**绝不能真的调模型** —— 那花的是站长的钱，
+ * 而且真模型一次批改常常超过 60 秒。所以 LIVE 模式改走「离线示例」
+ * （loadDemo：不走网络，直接进结果页），流程与断言完全一致。
+ */
 async function generate(page, { chinese, draft, title } = {}) {
+  if (LIVE) throw new Error('LIVE 模式不应调用生成（会花站长的钱）');
   if (title !== undefined) await page.fill('.title-field input', title);
   await page.fill('.big-textarea >> nth=0', chinese ?? '我在一家乡村小酒店吃过午饭后，就找我的提包。');
   await page.fill('.big-textarea >> nth=1', draft ?? 'I was searching my bag after having lunch at a little village bar.');
   await page.click('.primary-btn.big');
   await page.waitForSelector('.result', { timeout: 60000 });
+}
+
+/**
+ * 等课表真的加载出来再搜索：真站冷启动要 30-60 秒，提前输入会搜到空列表。
+ *
+ * 用 state:'attached' 而不是默认的 visible —— 手机上侧栏是 `.collapsed{display:none}`，
+ * 课表其实已经加载好了（96 个 .lesson-item 都在 DOM 里），只是"不可见"，
+ * 等 visible 会一直等到超时（实测 90 秒后报错，日志里还写着"resolved to 96 elements"）。
+ */
+async function waitLessonList(page) {
+  await page.waitForSelector('.lesson-item', { state: 'attached', timeout: 90000 });
 }
 
 /* ==================================================================
@@ -168,6 +187,7 @@ async function desktopJourney() {
   ok('[桌面] 首屏无横向溢出', first.overflow <= 1, `超出 ${first.overflow}px`);
 
   // 搜索课文 → 打开
+  await waitLessonList(page);
   await page.fill('.lesson-search input', '18');
   await sleep(300);
   const hits = await page.locator('.lesson-item').count();
@@ -188,6 +208,15 @@ async function desktopJourney() {
   ok('[桌面] 选课不带出初稿（留白给用户写）', filled.draft === '', filled.draft ? `初稿被自动填了 ${filled.draft.length} 字` : '');
   ok('[桌面] 内置课文能匹配到原文', filled.matched || Boolean(filled.original) || /已自动带入/.test(filled.foldNote),
     filled.matched ? '出现匹配横幅' : `fold 提示="${filled.foldNote.slice(0, 40)}"`);
+
+  if (LIVE) {
+    // 真站上「离线示例」按钮只在没配 Key 时才渲染，而生成要花站长的钱 ——
+    // 真站只跑不花钱的部分（首屏 / 布局 / 搜索选课），结果页相关的检查由本机 mock 覆盖。
+    note('LIVE 模式：只跑不花钱的检查；结果页/生成相关断言请用本机 mock 跑（node tools/qa-user-sim.mjs）');
+    ok('[桌面·真站] 全程零 JS 报错', errs.length === 0, errs.slice(0, 3).join(' | '));
+    await ctx.close();
+    return;
+  }
 
   // 生成（初稿要自己写：选课只给中文与原文）
   await page.fill('.big-textarea >> nth=1', 'I was searching my bag after having lunch at a little village bar.');
@@ -316,7 +345,8 @@ async function mobileJourney() {
     `scrollWidth=${firstOver.doc}/${W}` + (firstOver.bad.length ? ' 越界元素: ' + firstOver.bad.map((b) => `${b.cls}(${b.left}→${b.right})`).join(', ') : ''));
 
   // 侧栏：开 → 选课 → 自动收起
-  await openSidebar(page);
+  await openSidebar(page);          // 手机上侧栏默认收起，得先展开才看得到课表
+  await waitLessonList(page);
   const sidebarOpen = await page.evaluate(() => document.querySelector('.sidebar').getBoundingClientRect().width > 0);
   ok('[手机] 侧栏能展开（浮层）', sidebarOpen, '');
   await page.fill('.lesson-search input', '5');
@@ -328,6 +358,13 @@ async function mobileJourney() {
     return !(s.getBoundingClientRect().width > 0 && getComputedStyle(s).position === 'fixed');
   });
   ok('[手机] 选完课侧栏自动收起（不挡内容）', closedAfterPick, closedAfterPick ? '' : '侧栏仍覆盖屏幕');
+
+  if (LIVE) {
+    note('LIVE 模式：手机端只跑布局/触屏检查（不生成，不花钱）');
+    ok('[手机·真站] 全程零 JS 报错', errs.length === 0, errs.slice(0, 3).join(' | '));
+    await ctx.close();
+    return;
+  }
 
   // 生成
   await generate(page);
