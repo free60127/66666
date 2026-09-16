@@ -24,3 +24,17 @@ export function formatDuration(ms) {
   const pad = (n) => String(n).padStart(2, '0');
   return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
 }
+
+/**
+ * 文件名用的「本地」日期戳 YYYY-MM-DD。
+ *
+ * 为什么不能用 `new Date().toISOString().slice(0, 10)`：那是 **UTC** 日期。
+ * 东八区用户在当地 00:00–08:00 之间导出的备份，文件名会写成**前一天**
+ * （实测：本机 2026-09-17 06:27 导出，文件名却是 …-2026-09-16.json）。
+ * 天天导出、按文件名归档的人会被这一天之差弄乱顺序。
+ */
+export function dayStamp(ts = Date.now()) {
+  const d = new Date(ts);
+  const p = (n) => String(n).padStart(2, '0');
+  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+}

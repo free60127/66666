@@ -13,6 +13,7 @@ import {
   saveDeletedLibraries, saveDeletedLessons, saveHistory,
 } from './storage.js'
 import { saveProgress } from './lessonProgress.js'
+import { dayStamp } from './format.js'
 import { saveDays } from './studyStreak.js'
 import { useTimer } from './hooks/useTimer.js'
 import { useCloudSync } from './hooks/useCloudSync.js'
@@ -379,6 +380,16 @@ function App() {
   setMatchedLessonRef.current = setMatchedLesson;
   matchedLessonRef.current = matchedLesson; // 供 useLibraries 读「当前正在练的课」
 
+  /* ---------- 侧栏选课 = 用户手势，必须把视图切回编辑器 ----------
+   * 实测 bug：在「结果页 / 自测题页」直接从侧栏点另一课，侧栏高亮变了、编辑区内容也换了，
+   * 但屏幕**仍停在结果页** —— 用户看到的是"点了没反应"，只能自己想到去点顶栏的「编辑器」。
+   * 修法放在这一层（而不是 useLessons 内部）：首屏自动选课也走 selectLesson，
+   * 那种情况绝不能抢视图 —— 否则用 #job=xxx 分享链接打开时，
+   * 迟到几秒的自动选课会把刚恢复出来的结果页顶掉。 */
+  const pickLesson = useCallback((b, l) => { setView('editor'); selectLesson(b, l); }, [selectLesson]);
+  const pickMyLesson = useCallback((libId, l) => { setView('editor'); selectMyLesson(libId, l); }, [selectMyLesson]);
+  const pickBook = useCallback((b) => { setView('editor'); handleBookChange(b); }, [handleBookChange]);
+
   // 自建课文的 key 用**稳定 id**（lid）而不是序号：序号用户随时会改，
   // 而 key 决定了「同一课的两次练习对比」和计时归属 —— 用序号的话一改就断链。
   const lessonKey = mode !== 'lesson' ? 'free'
@@ -713,7 +724,7 @@ function App() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'retranslate-backup-' + new Date().toISOString().slice(0, 10) + '.json';
+    a.download = 'retranslate-backup-' + dayStamp() + '.json';
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -957,10 +968,10 @@ function App() {
     <div className="app">
       <Sidebar
         sidebarOpen={sidebarOpen} onToggle={toggleSidebar} onCloseOnMobile={closeSidebarOnMobile}
-        onNewJob={startNewJob} myLibId={myLibId} book={book} onBookChange={handleBookChange}
+        onNewJob={startNewJob} myLibId={myLibId} book={book} onBookChange={pickBook}
         myLibs={myLibs} onOpenLibModal={openLibModal} onSelectLib={selectMyLib} onDeleteLib={deleteLibrary}
         lessonQuery={lessonQuery} onLessonQuery={setLessonQuery} activeLib={activeLib} lessons={lessons} visibleLessons={visibleLessons}
-        mode={mode} lessonId={lessonId} onSelectLesson={selectLesson} onSelectMyLesson={selectMyLesson} onDeleteMyLesson={deleteMyLesson}
+        mode={mode} lessonId={lessonId} onSelectLesson={pickLesson} onSelectMyLesson={pickMyLesson} onDeleteMyLesson={deleteMyLesson}
         onEditMyLesson={openLessonEdit} onRenumberLib={renumberMyLib}
         books={status?.books || []} directionName={directionMeta(dir).name}
         onOpenSettings={openSettings} onOpenBackup={openBackup}

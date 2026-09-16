@@ -10,6 +10,7 @@ import { dueFavorites, favoritesToText, filterFavorites, loadFavorites, mergeFav
 import { buildLocalQuiz, favoritesToQuizPoints, quizToText } from '../quiz.js';
 import { POLL_QUIZ_MS, TIMEOUT_QUIZ_MS } from '../constants.js';;
 import { quiz as quizApi, getQuizJob } from '../api.js';
+import { dayStamp } from '../format.js';
 import { useJobRunner } from './useJobRunner.js';
 
 /**
@@ -112,7 +113,7 @@ export function useFavorites({ flash, setView, settings, polishLevel, isOpen, op
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'retranslate-favorites-' + new Date().toISOString().slice(0, 10) + '.json';
+    a.download = 'retranslate-favorites-' + dayStamp() + '.json';
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
