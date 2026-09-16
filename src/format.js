@@ -9,6 +9,12 @@ export function formatTime(ts) {
   try { return new Date(ts).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }); } catch { return ''; }
 }
 
+/** 只到"日"的日期（复习排期按自然日翻篇，显示到分钟会让人以为要等到那个时刻） */
+export function formatDay(ts) {
+  if (!ts) return '';
+  try { return new Date(ts).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' }); } catch { return ''; }
+}
+
 /** 时长：不足 1 小时用 MM:SS，超过用 H:MM:SS（练习用时 / 对比差值都用它） */
 export function formatDuration(ms) {
   const total = Math.max(0, Math.floor((Number(ms) || 0) / 1000));

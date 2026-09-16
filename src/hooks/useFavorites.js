@@ -66,7 +66,8 @@ export function useFavorites({ flash, setView, settings, polishLevel, isOpen, op
     flash(setFavTip, '已清空收藏', 2500);
   };
   /* ---------- 间隔重复复习（SM-2） ---------- */
-  // 今天到期的收藏（due <= now）。排期字段在收藏里，所以同步码一同步，两台设备的进度就是一份。
+  // 今天到期的收藏（按**日期**比：到期日 ≤ 今天，每天 00:00 自然翻篇）。
+  // 排期字段在收藏里，所以同步码一同步，两台设备的进度就是一份。
   const favDue = useMemo(() => dueFavorites(favorites), [favorites]);
   const favDueCount = favDue.length;
 

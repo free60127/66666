@@ -1,7 +1,7 @@
 /**
  * 间隔重复复习面板（收藏夹里的一张一张过）。
  */import React from 'react';
-import { formatTime } from '../../format.js';
+import { formatDay, formatTime } from '../../format.js';
 import { sm2Review, nextDueAt, dueLabel, FAV_KIND_LABEL, FAV_GRADES } from '../../favorites.js';
 import { CheckCircle2 } from 'lucide-react';
 
@@ -20,7 +20,9 @@ function FavReviewPanelImpl({ session, items, onReveal, onGrade, onSkip, onExit 
         <p className="muted small">
           本次复习 {session.reviewed} 条 · 忘了 {session.tally.forgot} · 一般 {session.tally.normal} · 简单 {session.tally.easy}
         </p>
-        <p className="muted small">{next ? '下一次到期：' + formatTime(next) + '（' + dueLabel({ due: next }) + '）' : '这些收藏都已排到以后，暂时没有到期项。'}</p>
+        {/* 只说"哪一天"、不说几点：排期按**自然日**翻篇（到期日 ≤ 今天就算到期），
+            显示成"9/16 21:00"会让人以为要等到晚上九点，其实次日 00:00 就在队列里了。 */}
+        <p className="muted small">{next ? '下一次复习：' + dueLabel({ due: next }) + '（' + formatDay(next) + ' 00:00 起）' : '这些收藏都已排到以后，暂时没有到期项。'}</p>
         <div className="fav-review-actions">
           <button className="primary-btn" onClick={onExit}>回到收藏列表</button>
         </div>

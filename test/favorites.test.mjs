@@ -8,7 +8,7 @@
  */
 import {
   FAV_EASE_MIN, FAV_EASE_MAX, FAV_INTERVAL_MAX,
-  dueFavorites, dueLabel, dueOf, mergeFavoriteItem, mergeFavorites,
+  dayKey, dueFavorites, dueLabel, dueOf, isDueOn, mergeFavoriteItem, mergeFavorites,
   newSchedule, nextDueAt, sm2Review, withSchedule,
 } from '../src/favorites.js';
 
@@ -106,8 +106,47 @@ console.log('=== 收藏夹 / 间隔重复测试 ===\n');
   check('下一次到期：全到期 → null', nextDueAt([{ id: 'a', title: 'a', due: T0 - DAY }], T0) === null);
 
   check('到期文案：已到期 = 待复习', dueLabel({ due: T0 - DAY }, T0) === '待复习');
-  check('到期文案：1 天内 = 明天', dueLabel({ due: T0 + DAY / 2 }, T0) === '明天');
   check('到期文案：3 天后', dueLabel({ due: T0 + 3 * DAY }, T0) === '3 天后');
+}
+
+/* ---------- 4b. 到期判定按"日期"而不是"滚动 24 小时" ----------
+ * 用户的直觉是"新的一天就该刷新"：晚上 21:00 复习完、间隔 1 天，
+ * 原来的 `due <= now` 会把到期时间算成**明天 21:00** —— 第二天早上一个待复习都没有，
+ * 得干等到晚上 21:00。改成比日期：到期日 ≤ 今天，00:00 自然翻篇。
+ * 这几个用例就是照着"真实时钟"构造的（这里用本地时区的具体时刻，不看 T0）。 */
+{
+  const at = (y, mo, d, h, mi = 0) => new Date(y, mo - 1, d, h, mi, 0, 0).getTime();
+
+  // 晚上 21:00 复习完「一般」，间隔 1 天 → 到期时间是次日 21:00
+  // （注意 SM-2 的表：normal 在 reps=0 时给 1 天，reps=1 时给 3 天 —— 这里要的是 1 天）
+  const night = at(2026, 9, 15, 21, 0);
+  const next = sm2Review({ ...newSchedule(night), interval: 0, reps: 0 }, 'normal', night);
+  check('晚上复习后到期时间是"次日同一时刻"（时间戳不变）',
+    dayKey(next.due) === '2026-09-16', dayKey(next.due));
+
+  check('次日 00:05 就该出现在待复习里（原来要等到 21:00）',
+    dueFavorites([{ id: 'x', ...next }], at(2026, 9, 16, 0, 5)).length === 1);
+  check('当天 23:55 还不该出现', dueFavorites([{ id: 'x', ...next }], at(2026, 9, 15, 23, 55)).length === 0);
+  check('次日 00:05 的文案是"待复习"（不是"明天"）', dueLabel({ ...next }, at(2026, 9, 16, 0, 5)) === '待复习');
+
+  // 反过来：白天复习、当天就能翻篇
+  const morning = at(2026, 9, 15, 9, 0);
+  const s2 = sm2Review({ ...newSchedule(morning), interval: 0, reps: 0 }, 'normal', morning);
+  check('上午复习 → 次日 00:01 进队列', dueFavorites([{ id: 'y', ...s2 }], at(2026, 9, 16, 0, 1)).length === 1);
+  check('同一自然日内不算到期', dueFavorites([{ id: 'y', ...s2 }], at(2026, 9, 15, 23, 59)).length === 0);
+
+  // 文案按自然日算，不是按小时数
+  check('"今天 23:00 → 明天 23:00" 是明天，不是"2 天后"',
+    dueLabel({ due: at(2026, 9, 16, 23, 0) }, at(2026, 9, 15, 23, 0)) === '明天');
+  check('隔两天 → 2 天后', dueLabel({ due: at(2026, 9, 17, 9, 0) }, at(2026, 9, 15, 9, 0)) === '2 天后');
+
+  // "下一次到期"不能把今天已到期的算进去（否则和队列自相矛盾）
+  const list = [{ id: 'a', due: at(2026, 9, 16, 21, 0) }, { id: 'b', due: at(2026, 9, 18, 9, 0) }];
+  check('今天到期的项不参与"下一次到期"',
+    nextDueAt(list, at(2026, 9, 16, 0, 5)) === at(2026, 9, 18, 9, 0), String(nextDueAt(list, at(2026, 9, 16, 0, 5))));
+
+  check('isDueOn：无 due 视为立刻可复习', isDueOn(0) === true && isDueOn(undefined) === true);
+  check('isDueOn：未来日期不算', isDueOn(at(2026, 9, 17, 9, 0), at(2026, 9, 15, 9, 0)) === false);
 }
 
 /* ---------- 5. 合并收藏（含跨设备复习进度） ---------- */

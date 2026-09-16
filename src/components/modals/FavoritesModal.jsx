@@ -1,6 +1,6 @@
 import React from 'react';
 import { ClipboardCopy, Download, Flame, LoaderCircle, Trash2, Upload, WandSparkles, X } from 'lucide-react';
-import { FAV_KIND_LABEL, dueLabel, dueOf } from '../../favorites.js';
+import { FAV_KIND_LABEL, dueLabel, dueOf, isDueOn } from '../../favorites.js';
 import { formatTime } from '../../format.js';
 import { LEVEL_LABEL } from '../../constants.js';
 import { FavReviewPanel } from '../ResultSheet/Review.jsx';
@@ -56,7 +56,7 @@ function FavoritesModal({
                   ) : (
                     <div className="fav-list">
                       {visibleFavorites.map((x) => {
-                        const due = dueOf(x) <= Date.now();
+                        const due = isDueOn(dueOf(x));
                         return (
                           <div className={'fav-item' + (due ? ' due' : '')} key={x.id}>
                             <div className="fav-item-head">

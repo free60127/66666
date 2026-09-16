@@ -21,6 +21,36 @@ export const FAV_INTERVAL_MAX = 365; // 天：再熟也别排到一年以后，�
 export const FAV_SCHEDULE_FIELDS = ['ease', 'interval', 'due', 'reps', 'lastReviewed', 'lastGrade'];
 const DAY = 86400000;
 
+/* ---------- 日期口径 ----------
+ * 「今天该复习哪些」按**日期**比，而不是按精确时间戳 —— 每天 00:00 自然翻篇。
+ *
+ * 为什么改：原来是 `due <= now`（滚动 24 小时）。晚上 21:00 复习完、间隔 1 天，
+ * 到期时间就是**明天 21:00** —— 于是第二天早上打开 App 一个待复习都没有，
+ * 得干等到晚上 21:00 才冒出来。用户的直觉是"新的一天就该刷新"，不是"等满 24 小时"。
+ *
+ * 精确的 due 时间戳仍然保留：排序（拖最久的先复习）、"下次到期"文案还用它，
+ * 只是**判定是否到期**时只看日期。姊妹项目「单词本」用的是同一套口径。
+ */
+export function dayKey(ts) {
+  const d = new Date(num(ts, 0));
+  const p = (n) => String(n).padStart(2, '0');
+  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+}
+
+/** 今天是否该复习：到期日 ≤ 今天都算（没有 due 的老收藏按"立刻可复习"处理） */
+export function isDueOn(due, now = Date.now()) {
+  const d = num(due, 0);
+  if (!d) return true;
+  return d <= now || dayKey(d) <= dayKey(now);
+}
+
+/** 相差几个"自然日"（按日期算，不是按小时数）—— 文案用，跨夏令时也不会错 */
+function dayGap(from, to) {
+  const a = new Date(dayKey(from) + 'T00:00:00');
+  const b = new Date(dayKey(to) + 'T00:00:00');
+  return Math.round((b - a) / DAY);
+}
+
 function num(v, fallback = 0) {
   const n = Number(v);
   return Number.isFinite(n) ? n : fallback;
@@ -94,26 +124,35 @@ export function dueOf(item) {
 /** 今天到期待复习的收藏（按到期时间从早到晚 —— 拖得最久的先复习） */
 export function dueFavorites(list, now = Date.now()) {
   return (Array.isArray(list) ? list : [])
-    .filter((x) => x && x.id && dueOf(x) <= now)
+    .filter((x) => x && x.id && isDueOn(dueOf(x), now))
     .sort((a, b) => dueOf(a) - dueOf(b));
 }
 
-/** 下一次到期时间（没有未来到期项 → null） */
+/**
+ * 下一次到期时间（没有"今天之后才到期"的项 → null）。
+ * 与 isDueOn 同一套口径：**今天已到期的都不算**，否则会出现
+ * "提示明天到期、可它今天 00:00 就已经在队列里了"这种自相矛盾的显示。
+ */
 export function nextDueAt(list, now = Date.now()) {
   let best = Infinity;
   for (const x of (Array.isArray(list) ? list : [])) {
     if (!x || !x.id) continue;
     const d = dueOf(x);
-    if (d > now && d < best) best = d;
+    if (!isDueOn(d, now) && d < best) best = d;
   }
   return Number.isFinite(best) ? best : null;
 }
 
-/** 到期状态文案：给收藏列表条目用 */
+/**
+ * 到期状态文案：给收藏列表条目用。
+ * 与 isDueOn 同口径 —— 今天 00:00 起就已经在队列里的，不能显示成"明天"。
+ * 天数也按**自然日**算：原来用 `ceil((due-now)/DAY)`，今天 23:00 到明天 23:00
+ * 会被算成"2 天后"（其实是明天）。
+ */
 export function dueLabel(item, now = Date.now()) {
   const due = dueOf(item);
-  if (!due || due <= now) return '待复习';
-  const days = Math.ceil((due - now) / DAY);
+  if (isDueOn(due, now)) return '待复习';
+  const days = dayGap(now, due);
   return days <= 1 ? '明天' : days + ' 天后';
 }
 
