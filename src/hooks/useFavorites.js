@@ -188,6 +188,58 @@ export function useFavorites({ flash, setView, settings, polishLevel, isOpen, op
       }
     }
   };
+  /**
+   * 错误训练出题：与自测题**同一条链路**（提交 → 轮询 → 试卷页），
+   * 只有两点不同：mode='drill'（服务端换提示词）、入参是错题清单而不是收藏。
+   *
+   * 为什么不放在 App 里另接一遍：runQuizJob / setQuizData / setView('quiz') / 本地兜底
+   * 这一整套都在这里，复制出去必然与自测题漂移（改一处忘一处）。
+   *
+   * @param {object} o
+   * @param {string[]} o.points   错题要点清单
+   * @param {string} [o.materials] 用户上传的课时材料（仅作选词素材）
+   * @param {Function} [o.fallback] AI 失败时的本地兜底（返回一份 quiz）
+   * @param {Function} [o.onReady] 题目就绪时回调（调用方用来关自己的弹窗）
+   * @returns {Promise<{ok:boolean, error?:string, local?:boolean}>}
+   */
+  const generateDrill = async ({ points, materials, count, fallback, onReady }) => {
+    const pts = Array.isArray(points) ? points : [];
+    if (!pts.length && !materials) return { ok: false, error: '没有可用的错题或材料' };
+    const n = Math.max(1, Math.min(50, Number(count) || 10));
+    const finish = (data, local, error) => {
+      setQuizData(data);
+      setQuizShowAnswers(false);
+      if (onReady) onReady();
+      setView('quiz');
+      return { ok: true, local, error };
+    };
+    try {
+      await runQuizJob({
+        submit: () => quizApi({
+          mode: 'drill', points: pts, materials: materials || '', count: n, level: polishLevel,
+          baseUrl: settings.baseUrl, model: settings.model, apiKey: settings.apiKey,
+        }),
+        fetchJob: getQuizJob,
+        intervalMs: POLL_QUIZ_MS,
+        timeoutMs: TIMEOUT_QUIZ_MS,
+        maxFailures: 8,
+        netError: '网络不稳定，暂时无法获取题目',
+        timeoutError: '出题超时或题目为空，请重试',
+        onData: (data) => {
+          if (!data || !Array.isArray(data.questions) || !data.questions.length) throw new Error('题目为空，请重试');
+          finish(data, false, '');
+        },
+      });
+      return { ok: true };
+    } catch (e) {
+      // 兜底：手上已经有**真错题**，把它们变成改错题比让用户重试一次网络更踏实
+      const local = typeof fallback === 'function' ? fallback() : null;
+      if (local && Array.isArray(local.questions) && local.questions.length) {
+        return finish(local, true, e.message);
+      }
+      return { ok: false, error: e.message || '未知错误' };
+    }
+  };
   const copyQuiz = async () => {
     if (!quizData) return;
     try {
@@ -203,6 +255,6 @@ export function useFavorites({ flash, setView, settings, polishLevel, isOpen, op
     favReview, setFavReview, favDue, favDueCount, visibleFavorites, favHandlers, favFileRef,
     quizData, quizCount, setQuizCount, quizShowAnswers, setQuizShowAnswers, quizTip, setQuizTip, quizBusy,
     toggleFavorite, removeFavorite, clearFavorites, exportFavorites, importFavorites, copyFavorites,
-    startReview, gradeFavReview, skipFavReview, generateQuiz, copyQuiz,
+    startReview, gradeFavReview, skipFavReview, generateQuiz, generateDrill, copyQuiz,
   };
 }

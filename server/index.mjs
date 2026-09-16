@@ -4,7 +4,7 @@ import path from 'node:path';
 import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { promises as dnsLookup } from 'node:dns';
-import { SYSTEM_PROMPT, buildUserMessage, EN2CN_SYSTEM_PROMPT, buildEn2CnUserMessage, MATERIAL_PROMPT, buildMaterialMessage, QUIZ_PROMPT, buildQuizMessage, AI_LEVEL_KEYS, DEFAULT_AI_LEVEL, normalizeLevel } from './prompt.mjs';
+import { SYSTEM_PROMPT, buildUserMessage, EN2CN_SYSTEM_PROMPT, buildEn2CnUserMessage, MATERIAL_PROMPT, buildMaterialMessage, QUIZ_PROMPT, buildQuizMessage, DRILL_PROMPT, buildDrillMessage, AI_LEVEL_KEYS, DEFAULT_AI_LEVEL, normalizeLevel } from './prompt.mjs';
 import { recognizeImage } from './ocr.mjs';
 import { MAX_SNAPSHOT_BYTES, createSyncStore, emptySnapshot, isValidSyncCode, newSyncCode, sanitizeSnapshot } from './sync.mjs';
 import { createUpstashKv, createFileKv } from './kv.mjs';
@@ -1071,7 +1071,7 @@ async function runOcrJob(jobId, { image, side, mode, vision }) {
 }
 
 /* ---------- 自测题任务（根据收藏知识点出题） ---------- */
-async function runQuizJob(jobId, { points, count, level, baseUrl, model, apiKey }) {
+async function runQuizJob(jobId, { points, count, level, baseUrl, model, apiKey, drill = false, materials = '' }) {
   const job = await findJob(jobId);
   if (!job) return;
   job.status = 'running';
@@ -1079,10 +1079,16 @@ async function runQuizJob(jobId, { points, count, level, baseUrl, model, apiKey 
   job.updatedAt = Date.now();
   saveJob(job);
   try {
-    const messages = [
-      { role: 'system', content: QUIZ_PROMPT },
-      { role: 'user', content: buildQuizMessage({ points, count, level }) },
-    ];
+    // 错误训练与自测题共用这个任务（限流/僵尸判定/结果清洗都一样），只有提示词不同
+    const messages = drill
+      ? [
+        { role: 'system', content: DRILL_PROMPT },
+        { role: 'user', content: buildDrillMessage({ points, count, level, materials }) },
+      ]
+      : [
+        { role: 'system', content: QUIZ_PROMPT },
+        { role: 'user', content: buildQuizMessage({ points, count, level }) },
+      ];
     const raw = await callLLM({ baseUrl, model, apiKey, messages });
     let parsed;
     try {
@@ -1472,9 +1478,13 @@ const server = http.createServer(async (req, res) => {
         .map((x) => String(x || '').trim())
         .filter(Boolean)
         .slice(0, 60);
-      if (!points.length) return json(res, 400, { error: '请先收藏一些知识点，再生成自测题' });
+      // mode=drill：错误训练。走**同一条任务链路**（提交→轮询→试卷页），只换提示词与标题 ——
+      // 另起一个端点只会把限流/僵尸任务/结果清洗这些已经验证过的东西再抄一遍。
+      const drill = String(body.mode || '') === 'drill';
+      if (!points.length) return json(res, 400, { error: drill ? '选中的课时里没有找到错题' : '请先收藏一些知识点，再生成自测题' });
       const count = Math.max(1, Math.min(50, Number(body.count) || 10));
       const level = normalizeLevel(body.level);
+      const materials = drill ? String(body.materials || '').slice(0, MAX_SMALL_BYTES / 2) : '';
       const model = String(body.model || '').trim() || stat.model();
       const ep = await resolveEndpoint({ bodyBase: body.baseUrl, bodyKey: body.apiKey, fallbackBase: stat.baseUrl(), fallbackKey: envKey() });
       if (ep.error) return json(res, 400, { error: ep.error });
@@ -1482,9 +1492,9 @@ const server = http.createServer(async (req, res) => {
       if (!apiKey) return json(res, 400, { error: '未配置 AI_API_KEY：请复制 .env.example 为 .env 并填写，或在设置面板填入 API Key' });
 
       const jobId = randomUUID();
-      saveJob({ jobId, kind: 'quiz', title: '自测题 · ' + count + ' 题', status: 'pending', createdAt: Date.now(), data: null, error: null });
+      saveJob({ jobId, kind: 'quiz', title: (drill ? '错误训练 · ' : '自测题 · ') + count + ' 题', status: 'pending', createdAt: Date.now(), data: null, error: null });
       registerJob(jobId);
-      safeRun('quiz', jobId, () => runQuizJob(jobId, { points, count, level, baseUrl, model, apiKey }));
+      safeRun('quiz', jobId, () => runQuizJob(jobId, { points, count, level, baseUrl, model, apiKey, drill, materials }));
       return json(res, 200, { ok: true, jobId, status: 'pending' });
     }
     const quizMatch = p.match(/^\/api\/quiz\/([A-Za-z0-9-]{8,64})$/);

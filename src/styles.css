@@ -881,3 +881,47 @@ mark.hl { background: #ffe3e3; color: inherit; padding: 0 2px; border-radius: 2p
   .dir-modal { width: calc(100vw - 24px); }
   .dir-tabs { margin-left: 0; }
 }
+
+/* ---------- 错误训练入口（连续天数 与 本册进度 之间） ----------
+   它是"从错题出发"的第三条学习路径（前两条：按课文练、按收藏复习），
+   所以要在一列灰底侧栏里**看得出来是个能点的东西**，而不是又一个统计块。 */
+.drill-entry {
+  display: flex; align-items: center; gap: 7px; width: 100%;
+  margin: 2px 4px 8px; padding: 8px 10px; border-radius: 9px;
+  background: rgba(255, 255, 255, .06); border: 1px solid rgba(255, 255, 255, .12);
+  color: #dbe9f5; font-size: 12.5px; text-align: left;
+}
+.drill-entry:hover { background: rgba(255, 255, 255, .12); border-color: rgba(255, 255, 255, .22); color: #fff; }
+.drill-entry.has { border-color: rgba(240, 201, 138, .45); }
+.drill-entry.has i {
+  margin-left: auto; font-style: normal; font-weight: 700; font-size: 11.5px;
+  background: rgba(240, 201, 138, .18); color: #f0c98a; border-radius: 999px; padding: 1px 8px;
+}
+.drill-entry em { margin-left: auto; font-style: normal; font-size: 11px; color: #7f99aa; }
+
+/* ---------- 错误训练弹窗 ---------- */
+.drill-modal { width: 620px; }
+.drill-toolbar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 4px 0 8px; }
+.drill-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; max-height: 44vh; overflow-y: auto; }
+.drill-row { display: flex; align-items: center; gap: 8px; padding: 7px 9px; border: 1px solid var(--line); border-radius: 9px; }
+.drill-row.on { border-color: #bcd8ff; background: #f5f9ff; }
+.drill-pick { display: flex; align-items: center; gap: 7px; flex: 1; min-width: 0; cursor: pointer; }
+.drill-name { font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.drill-count { font-size: 12px; color: #8a5a00; flex: none; }
+.drill-count.ok { color: var(--teal); }
+.drill-cats { display: flex; gap: 4px; flex: none; flex-wrap: wrap; }
+.drill-cat { font-style: normal; font-size: 11px; color: var(--muted); background: #f2f5f8; border-radius: 5px; padding: 1px 6px; }
+.drill-times { flex: none; }
+.drill-missing { margin-top: 10px; }
+.drill-missing summary { cursor: pointer; font-size: 12.5px; color: var(--muted); }
+.drill-missing .drill-list { max-height: 26vh; margin-top: 8px; }
+.drill-empty { display: flex; gap: 10px; padding: 12px 14px; border: 1px solid #f0dca8; background: #fffaf0; border-radius: 10px; }
+.drill-empty p { margin: 4px 0 0; }
+.drill-count-pick { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); margin-right: auto; }
+.error-tip { color: #8a5a00; }
+
+@media (max-width: 720px) {
+  .drill-modal { width: calc(100vw - 24px); }
+  .drill-row { flex-wrap: wrap; }
+  .drill-cats { width: 100%; }
+}

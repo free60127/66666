@@ -1,7 +1,8 @@
 import React from 'react';
-import { Download, Flame, FolderPlus, Library, ListOrdered, PenLine, Plus, Settings, Star, Trash2, X } from 'lucide-react';
+import { Download, Flame, FolderPlus, Library, ListOrdered, PenLine, Plus, Settings, Star, Target, Trash2, X } from 'lucide-react';
 import { doneSet, progressOf, summarize } from '../lessonProgress.js';
 import { summarizeStreak } from '../studyStreak.js';
+import { lessonKeyOf } from '../lessonLabel.js';
 
 /**
  * 左侧栏：课文库（内置 4 册 + 我的课文库）+ 搜课 + 课文列表 + 底部设置/备份入口。
@@ -16,12 +17,11 @@ function Sidebar({
   lessonQuery, onLessonQuery, activeLib, lessons, visibleLessons,
   mode, lessonId, onSelectLesson, onSelectMyLesson, onDeleteMyLesson, onEditMyLesson, onRenumberLib,
   onOpenSettings, onOpenBackup, lessonProgress, studyDays, books, directionName,
+  drillReady, onOpenDrill,
 }) {
-  // 每节课的 lessonKey 必须与生成时用的完全一致（App 里的 lessonKey 也是这个格式），
-  // 否则会出现"明明练过却不打星"。自建库用稳定 id（lid），所以改标题/改序号都不会丢进度。
-  const keyOf = (l) => (activeLib
-    ? `lesson:my-${activeLib.id}-${l.lid || l.lesson}`
-    : `lesson:${l.book}-${l.lesson}`);
+  // lessonKey 统一走 lessonLabel.lessonKeyOf —— 与生成/进度/错误训练用的是同一份实现，
+  // 各写一份只要漂移一处（自建库用 lid 还是序号），就会出现"练过却不打星"或"错题归错课"。
+  const keyOf = (l) => lessonKeyOf(l, activeLib);
   const currentBookMeta = (books || []).find((b) => b.book === book) || null;
   const done = doneSet(lessonProgress);
   const scopeStats = summarize(lessonProgress, visibleLessons.map(keyOf));
@@ -104,6 +104,20 @@ function Sidebar({
                 ? <><strong>连续 {streak.current} 天</strong><span className="streak-sub">{streak.todayDone ? '今天已完成' : '今天还没练'}</span></>
                 : <><strong>连续中断</strong><span className="streak-sub">最长 {streak.longest} 天 · 练一课即可重启</span></>}
             </div>
+          ) : null}
+
+          {/* 错误训练：放在"连续天数"和"本册进度"之间 —— 上面是激励（我坚持了多久），
+              下面是进度（我做了多少），中间正好是"我错在哪、怎么补"。
+              按钮上的数字是**这个课文库里可训练的错题数**，一眼看出点进去有没有东西。 */}
+          {onOpenDrill ? (
+            <button className={'drill-entry' + (drillReady ? ' has' : '')} onClick={onOpenDrill}
+              title={drillReady
+                ? `用你练过的课里实际犯过的错出题（${drillReady} 处可训练）`
+                : '用你练过的课里实际犯过的错出针对性练习'}>
+              <Target size={14} />
+              <span>错误训练</span>
+              {drillReady ? <i>{drillReady}</i> : <em>暂无错题</em>}
+            </button>
           ) : null}
 
           {scopeStats.total > 0 ? (

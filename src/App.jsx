@@ -1,15 +1,16 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { BookOpen, Camera, CheckCircle2, ChevronDown, ChevronRight, Cloud, Copy, Download, Flame, FolderPlus, History, ImagePlus, Languages, Library, LoaderCircle, PanelLeftClose, PanelLeftOpen, PenLine, Settings, Sparkles, Star, Timer, Upload, UserRound, WandSparkles, X } from 'lucide-react'
 // mammoth（894 KB 源码）只在"上传 DOCX"这一个功能里用到，
 // 改为 handleDocx 内动态 import，避免它被打进首屏主包。
 import { ensureLessonIds, mergeLibraries, saveLibraries } from './lessonLibrary.js'
-import { getStatus, loadSettings, matchLesson, saveSettings } from './api.js'
+import { getOcrJob, getStatus, loadSettings, matchLesson, ocr, saveSettings } from './api.js'
 import { DELETED_FAVORITES_LIMIT, DELETED_LIBRARIES_LIMIT, DELETED_LESSONS_LIMIT, applyLibraryTombstones, mergeDeleted, mergeHistory } from './sync.js'
 import { mergeFavorites, saveFavorites } from './favorites.js'
 import { DIRECTION_KEY, DIRECTIONS, directionMeta, directionText, normalizeDirection } from './direction.js'
 import {
   lessonTombstoneKey, loadDeletedFavorites, loadDeletedLibraries, loadDeletedLessons,
-  safeGet, safeSet, saveDeletedFavorites, saveDeletedHistory, saveDeletedLibraries, saveDeletedLessons, saveHistory,
+  loadResultCache, safeGet, safeSet, saveDeletedFavorites, saveDeletedHistory,
+  saveDeletedLibraries, saveDeletedLessons, saveHistory,
 } from './storage.js'
 import { saveProgress } from './lessonProgress.js'
 import { saveDays } from './studyStreak.js'
@@ -20,16 +21,22 @@ import { useJobRunner } from './hooks/useJobRunner.js'
 import { useModals } from './hooks/useModals.js'
 import { useLibraries } from './hooks/useLibraries.js'
 import { useEditor } from './hooks/useEditor.js'
-import { lessonLabel } from './lessonLabel.js';
-import { useLessons } from './hooks/useLessons.js';
+import { lessonKeyOf, lessonLabel } from './lessonLabel.js'
+import { buildLocalDrill, collectDrills, drillsToPoints, materialsToText } from './drill.js'
+import { extractPdfText } from './pdfText.js'
+import { prepareImage } from './ocrImage.js'
+import { useLessons } from './hooks/useLessons.js'
 import { useFavorites } from './hooks/useFavorites.js'
 import { useGeneration } from './hooks/useGeneration.js'
 import { useOcr } from './hooks/useOcr.js'
+import { submitAndPoll } from './hooks/pollJob.js'
+import { POLL_OCR_MS, TIMEOUT_OCR_MS } from './constants.js'
 import ElapsedDisplay from './components/ElapsedDisplay.jsx'
 import { ResultSheet } from './components/ResultSheet/index.jsx'
 import { QuizSheet } from './components/ResultSheet/Quiz.jsx'
 import Sidebar from './components/Sidebar.jsx'
 import FavoritesModal from './components/modals/FavoritesModal.jsx'
+import ErrorDrillModal from './components/modals/ErrorDrillModal.jsx'
 import HistoryModal from './components/modals/HistoryModal.jsx'
 import BackToTop from './components/BackToTop.jsx'
 import LessonEditModal from './components/modals/LessonEditModal.jsx'
@@ -323,7 +330,7 @@ function App() {
     favReview, setFavReview, favDueCount, visibleFavorites, favHandlers, favFileRef,
     quizData, quizCount, setQuizCount, quizShowAnswers, setQuizShowAnswers, quizTip, quizBusy,
     removeFavorite, clearFavorites, exportFavorites, importFavorites, copyFavorites,
-    startReview, gradeFavReview, skipFavReview, generateQuiz, copyQuiz,
+    startReview, gradeFavReview, skipFavReview, generateQuiz, generateDrill, copyQuiz,
   } = useFavorites({
     flash: (setter, msg, ms) => flashTip(setter, msg, ms),
     setView, settings, polishLevel,
@@ -523,6 +530,115 @@ function App() {
   const historyModalRef = useCallback((el) => { modalRefs.current.history = el; }, [modalRefs]);
   const lessonEditModalRef = useCallback((el) => { modalRefs.current.lessonEdit = el; }, [modalRefs]);
   const closeFavorites = useCallback(() => { setFavOpen(false); setFavReview(null); }, [setFavOpen, setFavReview]);
+
+  /* ---------- 错误训练 ----------
+   * 第三条学习路径（前两条：按课文练、按收藏复习）：从**自己实际犯过的错**出发出题。
+   * 数据来自三处 —— 逐课进度（练过没有）、历史（哪几次作业属于哪一课）、结果缓存（错在哪）。
+   * 三者的读取与容错都在 src/drill.js 里（纯函数，有单测）。 */
+  const [drillOpen, setDrillOpen] = useState(false);
+  const [drillSelected, setDrillSelected] = useState(() => new Set());
+  const [drillMaterials, setDrillMaterials] = useState([]);
+  const [drillBusy, setDrillBusy] = useState(false);
+  const [drillTip, setDrillTip] = useState('');
+  const [drillCount, setDrillCount] = useState(10);
+
+  const drillRows = useMemo(() => collectDrills({
+    lessons: visibleLessons,
+    keyOf: (l) => lessonKeyOf(l, activeLib),
+    progress: lessonProgress,
+    history: historyList,
+    loadResult: loadResultCache,
+  }), [visibleLessons, activeLib, lessonProgress, historyList]);
+  // 徽章只数**错误**（可提升不算错，混进去会让数字虚高、也让"错误训练"这个名字名不副实）
+  const drillReady = useMemo(() => drillRows.reduce((n, r) => n + r.errors.length, 0), [drillRows]);
+
+  /** 打开时**默认勾好错得最多的几课** —— 一进来就是可用状态，想改再改 */
+  const openDrill = useCallback(() => {
+    setDrillTip('');
+    setDrillOpen(true);
+    setDrillSelected((cur) => (cur && cur.size
+      ? cur
+      : new Set(drillRows.filter((r) => r.errors.length).slice(0, 5).map((r) => r.key))));
+  }, [drillRows]);
+
+  /** 上传该课材料：PDF 抠文字层；图片走已有的视觉识别 */
+  const uploadDrillMaterial = useCallback(async (row, file) => {
+    if (!row || !file) return;
+    setDrillTip('正在读取「' + row.name + '」…');
+    try {
+      const isPdf = /pdf/i.test(file.type || '') || /\.pdf$/i.test(file.name || '');
+      let text = '';
+      if (isPdf) {
+        const r = await extractPdfText(await file.arrayBuffer());
+        text = r.text;
+        // 扫描件没有文字层：说实话并给替代方案，而不是塞一份空材料进去
+        // 阈值别定太高：一句课文（20 字左右）就足以当出题素材了 ——
+        // 定到 40 会把正常的短材料误判成"扫描件"（实测被自己的阈值挡过一次）
+        if (text.replace(/\s/g, '').length < 20) {
+          setDrillTip('这个 PDF 没有文字层（多半是扫描件）—— 请用手机拍照或截图后按图片上传，那条路走视觉识别。');
+          return;
+        }
+      } else {
+        const image = await prepareImage(file, ocrMode);
+        const out = await submitAndPoll({
+          submit: () => ocr({
+            image, side: 'english', mode: ocrMode,
+            baseUrl: settings.baseUrl, model: settings.model, apiKey: settings.apiKey,
+            visionModel: settings.visionModel,
+          }),
+          fetchJob: getOcrJob,
+          intervalMs: POLL_OCR_MS,
+          timeoutMs: TIMEOUT_OCR_MS,
+          maxFailures: 8,
+          netError: '网络不稳定，暂时无法识别，请重试',
+          timeoutError: '识别超时，请换更清晰的照片',
+          isAlive: () => aliveRef.current,
+        });
+        if (out.aborted) return;
+        text = (out.data && out.data.text) || '';
+        if (!text) { setDrillTip('没能从这张图里识别出文字，请换一张更清晰的'); return; }
+      }
+      setDrillMaterials((list) => [...list.filter((m) => m.key !== row.key), { key: row.key, name: row.name, text }]);
+      setDrillTip('已读取「' + row.name + '」' + text.length + ' 字，会作为出题素材');
+    } catch (e) {
+      setDrillTip('读取失败：' + (e.message || '未知错误'));
+    }
+  }, [ocrMode, settings, aliveRef]);
+
+  const flashTipRef = useRef(flashTip);
+  flashTipRef.current = flashTip;
+
+  /**
+   * 出题：交给 useFavorites.generateDrill（与自测题同一条链路、同一份兜底逻辑）。
+   * 这里只负责"把选中的课压成要点 + 关掉自己的弹窗 + 把失败原因留在弹窗里"。
+   */
+  const startDrill = useCallback(async () => {
+    const chosen = drillRows.filter((r) => drillSelected.has(r.key));
+    const points = drillsToPoints(chosen);
+    const materials = materialsToText(drillMaterials);
+    if (!points.length && !materials) { setDrillTip('选中的课里没有错题，也没上传材料'); return; }
+    setDrillBusy(true);
+    setDrillTip('正在按你的错题出题…');
+    try {
+      const r = await generateDrill({
+        points, materials, count: drillCount,
+        fallback: () => buildLocalDrill(chosen, drillCount),
+        onReady: () => setDrillOpen(false),
+      });
+      if (r.ok) {
+        setDrillTip('');
+        if (r.local) flashTipRef.current(setToast, 'AI 出题失败（' + (r.error || '未知错误') + '），已用你的错题本地生成改错题', 4500);
+      } else {
+        setDrillTip('出题失败：' + (r.error || '未知错误'));
+      }
+    } finally {
+      setDrillBusy(false);
+    }
+    // flashTip 不是 useCallback（身份每次都变），放进依赖会让 startDrill 每次都重建 ——
+    // 它只是"弹一句提示"，用 ref 取最新实现即可
+  }, [drillRows, drillSelected, drillMaterials, drillCount, generateDrill]);
+
+
   const closeHistory = useCallback(() => setHistoryOpen(false), [setHistoryOpen]);
   const closeLessonEdit = useCallback(() => setLessonEdit(null), [setLessonEdit]);
 
@@ -850,6 +966,7 @@ function App() {
         books={status?.books || []} directionName={directionMeta(dir).name}
         onOpenSettings={openSettings} onOpenBackup={openBackup}
         lessonProgress={lessonProgress} studyDays={studyDays}
+        drillReady={drillReady} onOpenDrill={openDrill}
       />
 
       <main className="main">
@@ -1335,6 +1452,27 @@ function App() {
       />
 
       <HistoryModal open={historyOpen} onClose={closeHistory} modalRef={historyModalRef} items={historyList} onOpen={loadHistoryJob} onDelete={removeFromHistory} />
+
+      {drillOpen ? (
+        <ErrorDrillModal
+          rows={drillRows}
+          selected={drillSelected}
+          onToggle={(key) => setDrillSelected((cur) => {
+            const next = new Set(cur);
+            if (next.has(key)) next.delete(key); else next.add(key);
+            return next;
+          })}
+          onSelectTop={() => setDrillSelected(new Set(drillRows.filter((r) => r.errors.length).slice(0, 5).map((r) => r.key)))}
+          onSelectAll={() => setDrillSelected(new Set(drillRows.filter((r) => r.errors.length || r.improves.length).map((r) => r.key)))}
+          onClear={() => setDrillSelected(new Set())}
+          materials={drillMaterials}
+          onUploadMaterial={uploadDrillMaterial}
+          onRemoveMaterial={(key) => setDrillMaterials((l) => l.filter((m) => m.key !== key))}
+          busy={drillBusy} tip={drillTip} count={drillCount} onCount={setDrillCount}
+          hasKey={hasAiKey}
+          onStart={startDrill}
+          onClose={() => { setDrillOpen(false); setDrillTip(''); }} />
+      ) : null}
 
       <FavoritesModal
         open={favOpen} onClose={closeFavorites} modalRef={favModalRef}
