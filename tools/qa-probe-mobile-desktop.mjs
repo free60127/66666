@@ -144,42 +144,23 @@ async function runDevice(label, ctxOpts) {
   // 于是 scrollWidth === innerWidth 永远成立 —— 这个检查会假通过。
   const DEVICE_W = ctxOpts.viewport?.width || 0;
 
-  /* ---- 1b. 进站第一屏：练习方向选择页（新访客看到的第一个界面） ---- */
+  /* ---- 1b. 新访客首屏：直接进编辑器（方向选择页已删） ----
+     原来第一次访问会弹一页"今天想练哪个方向"，用户明确说删掉。
+     这里改成守住"**没有任何遮罩挡着首屏**"—— 这仍然是最贵的回归：
+     一旦进站弹了什么东西，后面所有点击都会被拦掉。 */
   {
-    // 每个设备上下文都是全新的 → localStorage 里没有 bt-direction →
-    // 这一次加载就是**新访客的真实首屏**，不用清存储再刷新（addInitScript 反而会把它写回来）
-    const appeared = await page.locator('.dir-modal').waitFor({ timeout: 15000 }).then(() => true).catch(() => false);
-    ok(`[${label}] 新访客进站弹出「练习方向」选择页`, appeared);
-    if (appeared) {
-      const geo = await page.evaluate(() => {
-        const modal = document.querySelector('.dir-modal');
-        const cards = [...document.querySelectorAll('.dir-card')];
-        const r = modal.getBoundingClientRect();
-        const cr = cards.map((c) => c.getBoundingClientRect());
-        return {
-          modalW: Math.round(r.width), modalH: Math.round(r.height),
-          vw: window.innerWidth, vh: window.innerHeight,
-          overflowX: document.documentElement.scrollWidth > window.innerWidth + 1,
-          cards: cr.map((x) => [Math.round(x.width), Math.round(x.height)]),
-          names: cards.map((c) => c.querySelector('strong').textContent.trim()),
-          belowFold: cr.some((x) => x.bottom > window.innerHeight + 1),
-        };
-      });
-      ok(`[${label}] 方向页不撑宽 / 不溢出屏幕`, !geo.overflowX && geo.modalW <= geo.vw,
-        `弹窗 ${geo.modalW}×${geo.modalH}，视口 ${geo.vw}×${geo.vh}`);
-      ok(`[${label}] 两张方向卡片都是可点的整块（≥44px 高）`,
-        geo.cards.length === 2 && geo.cards.every(([, h]) => h >= 44),
-        geo.cards.map(([w, h]) => `${w}×${h}`).join(' / '));
-      if (isMobile) {
-        ok(`[${label}] 手机上两张卡片在首屏内（不用滚动就能选）`, !geo.belowFold,
-          geo.cards.map(([, h]) => h).join(' / ') + ` 视口高 ${geo.vh}`);
-      }
-      // 选完之后遮罩要真的消失，否则后面所有点击都会被挡（这是最贵的回归）
-      await page.locator('.dir-card', { hasText: '汉译英' }).click();
-      await sleep(350);
-      ok(`[${label}] 选完方向遮罩消失（不再挡点击）`,
-        (await page.locator('.dir-modal').count()) === 0 && !(await page.$('.modal-mask')));
-    }
+    const blocking = await page.evaluate(() => {
+      const masks = [...document.querySelectorAll('.modal-mask')].filter((m) => m.getBoundingClientRect().width > 0);
+      const editor = document.querySelector('.editor');
+      return {
+        masks: masks.length,
+        editorVisible: Boolean(editor && editor.getBoundingClientRect().height > 0),
+        active: [...document.querySelectorAll('.dir-tabs button')].find((b) => b.classList.contains('active'))?.textContent.trim() || '',
+      };
+    });
+    ok(`[${label}] 新访客进站不弹任何遮罩`, blocking.masks === 0, `遮罩 ${blocking.masks} 个`);
+    ok(`[${label}] 直接可用的编辑器 + 方向默认汉译英`, blocking.editorVisible && blocking.active === '汉译英',
+      `编辑器可见=${blocking.editorVisible} 方向=${blocking.active || '(无)'}`);
   }
 
   /* ---- 1. 横向溢出 ---- */

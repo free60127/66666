@@ -73,8 +73,7 @@ await ctx.addInitScript(() => {
   localStorage.setItem('bt-result-jobB', JSON.stringify(mk(findings2)));
   localStorage.setItem('bt-book', '2');
   localStorage.setItem('bt-lesson', '1');
-  // 进站先选方向：不预置的话会弹方向选择页，盖住整个侧栏（点什么都点不到）。
-  // 与 tools/e2e-b6b7.mjs 同一套做法 —— 方向选择页本身由 e2e-direction.mjs 专门覆盖。
+  // 明确钉住方向（默认就是汉译英；方向选择页已删，进站不再拦人）
   localStorage.setItem('bt-direction', 'cn2en');
 });
 const page = await ctx.newPage();

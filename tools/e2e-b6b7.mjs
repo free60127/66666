@@ -88,10 +88,8 @@ await new Promise((r) => mock.listen(9877, '127.0.0.1', r));
 const browser = await chromium.launch();
 /**
  * 预置练习方向。
- * 新版本进站会先弹「练习方向选择页」（汉译英 / 英译汉），而它是**全屏遮罩**，
- * 不选就会挡住后面所有点击。这个脚本关心的是生成/对比/同步那几条链路，
- * 方向选择页本身由 tools/e2e-direction.mjs 专门覆盖 —— 这里直接把选择结果写进
- * localStorage，等价于"用户已经选过汉译英"。
+ * 方向选择页已经删掉（进站直接进编辑器，默认汉译英），这里只是明确把方向钉成汉译英，
+ * 免得受上一次运行的残留值影响。方向本身由 tools/e2e-direction.mjs 专门覆盖。
  */
 const seedDirection = (ctx) => ctx.addInitScript(() => {
   try { localStorage.setItem('bt-direction', 'cn2en'); } catch { /* 无痕等场景忽略 */ }
@@ -386,7 +384,9 @@ try {
      * 500ms 就不够，断言读到旧值 → **偶发假失败**（同一份代码 6 次挂 3 次）。
      * 改成轮询到条件成立；超时则返回当前值，让断言报出真实差异而不是干等。
      */
-    const waitLib = async (pred, timeout = 6000) => {
+    // 6 秒在这台机器上偏紧：构建/其它 e2e 并行跑时，"保存 → 列表重渲染"偶尔会超过它，
+    // 于是断言拿到的是旧列表 → 偶发失败（实测踩过一次，排查方向会被带偏）。
+    const waitLib = async (pred, timeout = 15000) => {
       const t0 = Date.now();
       for (;;) {
         const cur = await lib();

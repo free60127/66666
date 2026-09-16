@@ -68,18 +68,16 @@ try {
   await page.waitForSelector('.status-chip', { timeout: 45000 });
   ok('页面渲染出主界面（未白屏）', true, BASE);
 
-  // 新访客的第一屏是「练习方向」（汉译英 / 英译汉）—— 真站就该真的有这一步。
-  // 注意：这一步**必须**成功，否则那张全屏遮罩会挡住后面所有点击（本脚本正是这样挂过一次）。
+  // 新访客的第一屏**不能有任何遮罩**（方向选择页已删）：一旦弹了东西，
+  // 后面所有点击都会被拦掉，而且表现是"页面卡住"而不是报错 —— 本脚本正是这样挂过一次。
   {
-    const appeared = await page.locator('.dir-modal').waitFor({ timeout: 15000 }).then(() => true).catch(() => false);
-    ok('首次访问出现「练习方向」选择页', appeared);
-    if (appeared) {
-      const cards = await page.locator('.dir-card strong').allInnerTexts();
-      ok('两个方向都给出（汉译英 / 英译汉）', cards.join() === '汉译英,英译汉', cards.join('/'));
-      await page.locator('.dir-card', { hasText: '汉译英' }).click();
-      await sleep(300);
-      ok('选择后遮罩消失（不再挡点击）', (await page.locator('.dir-modal').count()) === 0);
-    }
+    const first = await page.evaluate(() => ({
+      masks: [...document.querySelectorAll('.modal-mask')].filter((m) => m.getBoundingClientRect().width > 0).length,
+      editor: Boolean(document.querySelector('.editor')),
+      dir: [...document.querySelectorAll('.dir-tabs button')].find((b) => b.classList.contains('active'))?.textContent.trim() || '',
+    }));
+    ok('新访客进站无遮罩、直接可用', first.masks === 0 && first.editor, `遮罩 ${first.masks} 个 · 编辑器 ${first.editor}`);
+    ok('默认练习方向是汉译英', first.dir === '汉译英', first.dir || '(无)');
   }
 
   // 首屏资源不能 404（VITE_BASE 配错时这里会挂）
@@ -139,9 +137,8 @@ try {
       await fp.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 60000 });
       await fp.waitForSelector('.status-chip', { timeout: 45000 });
       await fp.waitForFunction(() => /AI 已配置/.test(document.querySelector('.status-chip')?.textContent || ''), null, { timeout: 90000 });
-      // 全新访客：先过「练习方向」这一屏（这次选英译汉，顺带验证另一个方向也能正常开局）
-      await fp.waitForSelector('.dir-modal', { timeout: 20000 }).catch(() => {});
-      await fp.locator('.dir-card', { hasText: '英译汉' }).click().catch(() => {});
+      // 全新访客直接进编辑器（方向选择页已删）；这里顺手切到英译汉，验证另一个方向也能正常开局
+      await fp.locator('.dir-tabs button', { hasText: '英译汉' }).click({ timeout: 20000 }).catch(() => {});
       await sleep(300);
       await fp.waitForSelector('.lesson-item', { timeout: 60000 }).catch(() => {});
       const lessons = await fp.evaluate(() => document.querySelectorAll('.lesson-item').length);

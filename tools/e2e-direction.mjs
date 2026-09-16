@@ -62,18 +62,18 @@ page.on('dialog', (d) => d.accept());
 await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'domcontentloaded' });
 await page.waitForSelector('.status-chip');
 
-/* ---------- 1. 进站先选方向 ---------- */
-await page.waitForSelector('.dir-modal', { timeout: 15000 }).catch(() => {});
-const picker = await page.evaluate(() => {
-  const m = document.querySelector('.dir-modal');
-  if (!m) return null;
-  return { cards: [...m.querySelectorAll('.dir-card')].map((c) => c.querySelector('strong').textContent.trim()), title: m.querySelector('h2').textContent.trim() };
-});
-ok('进站弹出方向选择页', Boolean(picker), picker ? `${picker.title} · 卡片 ${picker.cards.join('/')}` : '没出现');
-ok('两个方向都可选（汉译英 / 英译汉）', Boolean(picker) && picker.cards.join() === '汉译英,英译汉', picker ? picker.cards.join() : '');
+/* ---------- 1. 进站不再拦人：直接进编辑器，默认汉译英 ----------
+   （原来第一次访问会弹一页"今天想练哪个方向"，用户明确说这页可以删了。） */
+const pickerGone = await page.evaluate(() => ({
+  picker: Boolean(document.querySelector('.dir-modal')),
+  active: [...document.querySelectorAll('.dir-tabs button')].find((b) => b.classList.contains('active'))?.textContent.trim() || '',
+  stored: localStorage.getItem('bt-direction'),
+}));
+ok('进站不再弹方向选择页', !pickerGone.picker, pickerGone.picker ? '仍然弹了' : '直接进编辑器');
+ok('默认方向是汉译英', pickerGone.active === '汉译英', pickerGone.active || '(没有选中项)');
 
-/* ---------- 2. 选"英译汉"后编辑器标签整体翻转 ---------- */
-await page.locator('.dir-card', { hasText: '英译汉' }).click();
+/* ---------- 2. 切到"英译汉"后编辑器标签整体翻转 ---------- */
+await page.locator('.dir-tabs button', { hasText: '英译汉' }).click();
 await sleep(400);
 const editorText = await page.evaluate(() => ({
   panels: [...document.querySelectorAll('.panel-head h2')].map((h) => h.textContent.trim()),
@@ -181,7 +181,8 @@ const afterReload = await page.evaluate(() => ({
   active: [...document.querySelectorAll('.dir-tabs button')].find((b) => b.classList.contains('active'))?.textContent.trim(),
   saved: localStorage.getItem('bt-direction'),
 }));
-ok('选过之后刷新不再弹选择页', !afterReload.picker && afterReload.saved === 'cn2en', `bt-direction=${afterReload.saved} 弹窗=${afterReload.picker}`);
+ok('刷新后也不会弹选择页', !afterReload.picker, afterReload.picker ? '弹了' : '没有');
+ok('方向选择被记住（bt-direction）', afterReload.saved === 'cn2en', `bt-direction=${afterReload.saved}`);
 ok('刷新后仍停在所选方向', afterReload.active === '汉译英', afterReload.active || '');
 
 /* ---------- 7. 9 个内置库都在侧栏 ---------- */

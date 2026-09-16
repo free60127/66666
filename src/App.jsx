@@ -105,17 +105,16 @@ const SITE_TAGLINE = '你的私人英语工坊';
 function App() {
   const [settings, setSettings] = useState(loadSettings());
   /* ---------- 练习方向（汉译英 / 英译汉）----------
-   * 空字符串 = **还没选过**：这时进站先弹方向选择页（用户要求"进站后先选择"）。
-   * 选过之后就记住，之后想换用编辑器里的「练习方向」开关，不再每次拦人。 */
-  const [direction, setDirection] = useState(() => safeGet(DIRECTION_KEY, ''));
-  const [pickDirection, setPickDirection] = useState(false); // 手动重新打开方向选择页
+   * 缺省就是汉译英（normalizeDirection 会把空值/脏值兜到默认），**进站不再拦人**：
+   * 原来第一次访问要弹一页"今天想练哪个方向"，用户明确说这页可以删了 ——
+   * 想换方向用编辑器里的「练习方向」开关，一个按钮的事，没必要当门神。 */
+  const [direction, setDirection] = useState(() => normalizeDirection(safeGet(DIRECTION_KEY, '')));
   const dir = normalizeDirection(direction);
   const dt = directionText(dir);
   const chooseDirection = useCallback((next) => {
     const v = normalizeDirection(next);
     setDirection(v);
     safeSet(DIRECTION_KEY, v);
-    setPickDirection(false);
   }, []);
   // closeCamera / materialBusy 声明在后面，用 ref 透传「当前」的那一份（避免 TDZ）
   const closeCameraRef = useRef(null);
@@ -1247,53 +1246,6 @@ function App() {
           </section>
         )}
       </main>
-
-      {/* ---------- 练习方向选择（进站第一屏）----------
-          用户要求"进站后先选择英译汉 / 汉译英"。只在**没选过**时出现一次，
-          选完记住；之后想换用编辑器里的「练习方向」开关，不再每次拦人。 */}
-      {(pickDirection || !direction) && (
-        <div className="modal-mask dir-mask">
-          <div className="modal dir-modal" role="dialog" aria-modal="true" aria-label="选择练习方向">
-            <div className="dir-head">
-              <div className="brand-mark">回</div>
-              <div>
-                <h2>今天想练哪个方向？</h2>
-                <p className="muted small">两个方向共用同一套课文库与批改逻辑，随时可以切换。</p>
-              </div>
-            </div>
-            <div className="dir-cards">
-              {DIRECTIONS.map((d) => {
-                const m = directionMeta(d);
-                return (
-                  <button key={d} type="button" className="dir-card" onClick={() => chooseDirection(d)}>
-                    <span className="dir-card-top">
-                      <span className="dir-badge">{m.short}</span>
-                      <strong>{m.name}</strong>
-                    </span>
-                    <span className="dir-tagline">{m.tagline}</span>
-                    <span className="dir-blurb">{m.blurb}</span>
-                    <span className="dir-sample">
-                      <span className="dir-sample-lang">{m.sampleFromLang}</span>
-                      <span className="dir-sample-text">{m.sampleFrom}</span>
-                    </span>
-                    <span className="dir-arrow">↓</span>
-                    <span className="dir-sample">
-                      <span className="dir-sample-lang out">{m.sampleToLang}</span>
-                      <span className="dir-sample-text">{m.sampleTo}</span>
-                    </span>
-                    <span className="dir-flow">{m.flow.join(' → ')}</span>
-                  </button>
-                );
-              })}
-            </div>
-            {direction ? (
-              <div className="modal-actions">
-                <button className="ghost-btn" onClick={() => setPickDirection(false)}>取消</button>
-              </div>
-            ) : null}
-          </div>
-        </div>
-      )}
 
       {camOpen && (
         <div className="modal-mask" onClick={closeCamera}>
