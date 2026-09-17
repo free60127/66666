@@ -22,8 +22,14 @@ function LessonEditModal({ open, lesson, onClose, onSave, onDelete, modalRef }) 
   //   · 自动化测试在这一帧读到空标题 → 断言失败（tools/e2e-b6b7.mjs 里偶发复现过）
   //   · 更糟的是用户手快先输入，随后 effect 再用课文原值把输入覆盖掉 —— 表现为"改了没生效"
   // 不能靠 useState 初值兜住：本组件是常驻挂载的（关闭时只是 return null），初值只在首次挂载时生效。
+  //
+  // ⚠️ key 只认**这一节课的身份**（lid，退回序号），**不要带标题内容**。
+  // 带内容时，只要父组件那边这节课的 title_cn 变了一次（改名落盘、同步合并、补 lid…），
+  // 填充就会重跑一遍，把用户**正在输入**的三个框整体覆盖回旧值 ——
+  // 现场实测（tools/e2e-b6b7.mjs 诊断③）：序号那个 1 被拼进了标题、序号却还是 2。
+  // 那是"改了没生效"最典型的形态，而它只在特定时序下出现，看代码几乎看不出来。
   const fillKey = open && lesson
-    ? `${lesson.lid || ''}|${lesson.lesson || ''}|${lesson.title_cn || ''}|${lesson.title_en || ''}`
+    ? `${lesson.lid || ''}|${lesson.lesson || ''}`
     : null;
   const [filledFor, setFilledFor] = useState(null);
   if (fillKey !== filledFor) {
@@ -35,20 +41,18 @@ function LessonEditModal({ open, lesson, onClose, onSave, onDelete, modalRef }) 
     }
   }
 
-  // 聚焦放 effect（要在 DOM 提交后才能 focus），但**每次打开只聚焦一次**。
+  // 聚焦：**只在"从关到开"的那一刻做一次**，之后绝不再动焦点。
   //
-  // 为什么不能直接依赖 [open, lesson]：`lesson` 是父组件从 myLibs 里查出来的**对象引用**，
-  // 只要父组件在这期间把库对象重建了一次（保存、同步合并、加 lid …），依赖就变，
-  // effect 重跑 → 40ms 后再把焦点抢回标题框。用户正在改「序号」时被抢走焦点，
-  // 接下来敲的字就落进标题里 —— 自动化测试里复现过一次：落盘的标题变成
-  // 「人工智能（改过标题）1」，序号那个 1 被拼进了标题（tools/e2e-b6b7.mjs 的诊断③）。
-  // 这与 useModals 里修过的"焦点被抢走、中文输入法被打断"是同一类问题。
-  const focusedForRef = useRef(null);
+  // 为什么守卫要用 wasOpen 而不是 lesson：`lesson` 是父组件从 myLibs 里查出来的对象，
+  // 它一变 effect 就重跑，40ms 后再把焦点抢回标题框 —— 用户正在改「序号」时被抢走焦点，
+  // 接下来敲的字就落进标题里（实测复现：落盘标题变成「人工智能（改过标题）1」）。
+  // 这与 useModals 里修过的"焦点被抢走、中文输入法被打断"是同一类问题：
+  // 只要存在"组件重渲染就把焦点送回第一个框"的路径，用户的数据迟早会被写错地方。
+  const wasOpenRef = useRef(false);
   useEffect(() => {
-    if (!open || !lesson) { focusedForRef.current = null; return undefined; }
-    const key = lesson.lid || String(lesson.lesson || '');
-    if (focusedForRef.current === key) return undefined;  // 这次打开已经聚焦过了
-    focusedForRef.current = key;
+    if (!open) { wasOpenRef.current = false; return undefined; }
+    if (!lesson || wasOpenRef.current) return undefined;   // 这次打开已经聚焦过了
+    wasOpenRef.current = true;
     const t = setTimeout(() => firstRef.current?.focus(), 40);
     return () => clearTimeout(t);
   }, [open, lesson]);

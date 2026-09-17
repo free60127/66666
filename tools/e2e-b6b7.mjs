@@ -440,16 +440,27 @@ try {
       editBefore.title.trim().length > 0 && editBefore.no === '2' && editBefore.saveDisabled === false,
       JSON.stringify(editBefore));
 
-    await L.fill('[aria-label="编辑课文"] input >> nth=0', '人工智能（改过标题）');
-    await L.fill('[aria-label="编辑课文"] input[type="number"]', '1');
+    // ⚠️ 每个框都**先点一下再填**，不要直接 fill。
+    // 直接 fill 时偶发（约 1/3）出现：序号那一次 fill 没拿到焦点，
+    // 于是 "1" 被追加进了**还持有焦点的标题框** —— 落盘标题变成「人工智能（改过标题）1」、
+    // 而序号仍是 2（诊断③的现场：{text:'人工智能（改过标题）1', focused:true}, {number:'2'}）。
+    // 真实用户永远是"先点框、再打字"，所以这里也照做：既更贴近真人，也让焦点确定下来。
+    const editTitle = L.locator('[aria-label="编辑课文"] input').nth(0);
+    const editNo = L.locator('[aria-label="编辑课文"] input[type="number"]');
+    await editTitle.click();
+    await editTitle.fill('人工智能（改过标题）');
+    await editNo.click();
+    await editNo.fill('1');
     // 诊断③：保存**之前**把三个输入框的实际值记下来。
-    // 这条是为一类偶发失败加的：落盘的标题有时会变成「人工智能（改过标题）1」——
-    // 序号那个 1 被拼进了标题里。只看到结果无法判断是"填错了框"还是"保存时取错了 state"，
-    // 把这一刻的现场留下来，下次一眼就能定位。
+    // 上面那个"值跑到别的框里"的问题只看到结果无法定位，把现场留下来。
     const editAfter = await L.evaluate(() => {
       const inputs = [...document.querySelectorAll('[aria-label="编辑课文"] input')];
       return inputs.map((i) => ({ t: i.type || 'text', v: i.value, focused: document.activeElement === i }));
     });
+    // 先确认"两个框都真的收到了"，否则下面的落盘断言失败会指向错误的方向
+    ok('编辑表单：两个输入框都确实收到了本次输入',
+      editAfter[0] && editAfter[0].v === '人工智能（改过标题）' && editAfter[2] && editAfter[2].v === '1',
+      JSON.stringify(editAfter));
     await L.click('[aria-label="编辑课文"] >> text=保存');
     // 诊断②：保存后弹窗应关闭；没关说明保存没生效（按钮灰着 / 被拦下）
     const saveClosed = await L.waitForSelector('[aria-label="编辑课文"]', { state: 'detached', timeout: 5000 })
