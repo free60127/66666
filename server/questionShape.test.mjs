@@ -8,7 +8,7 @@
  *
  * 跑法：node server/questionShape.test.mjs
  */
-import { blankInChinese, isIncompleteQuestion, sanitizeQuestions, sourceSentence } from './questionShape.mjs';
+import { blankInChinese, isIncompleteQuestion, sanitizeGrades, sanitizeQuestions, sourceSentence } from './questionShape.mjs';
 
 const results = [];
 const check = (name, ok, detail = '') => {
@@ -78,6 +78,25 @@ const check = (name, ok, detail = '') => {
     && isIncompleteQuestion({ question: 'q', answer: '' })
     && isIncompleteQuestion(null));
   check('题干与答案都有就算完整', isIncompleteQuestion({ question: 'q', answer: 'a' }) === false);
+}
+
+/* ---------- sanitizeGrades：批改结果的形状清洗 ---------- */
+{
+  const g = (index, verdict, comment = 'c', better = 'b') => ({ index, verdict, comment, better });
+  const out = sanitizeGrades({ grades: [
+    g(0, 'right'), g(1, '基本正确但有点小问题'), g(1, 'wrong'),   // 重复题号：只留第一条
+    g(9, 'right'),                                              // 越界：丢掉
+    g(-1, 'right'),                                             // 负数：丢掉
+    g('2', 'close'),                                            // 字符串题号：认
+    g(3, 'wrong', 'x'.repeat(2000)),                            // 超长点评：截断
+    null, 'nope',
+  ] }, 4);
+  check('批改：只保留合法题号（越界/负数/重复都丢掉，其余按题号排序）', out.length === 4 && out.map((x) => x.index).join(',') === '0,1,2,3', JSON.stringify(out.map((x) => x.index)));
+  check('批改：字符串题号能认', out.some((x) => x.index === 2));
+  check('批改：verdict 只留三档（模型写成一句话时退回 close）', out.find((x) => x.index === 1).verdict === 'close');
+  check('批改：点评截断，不把上万字灌进界面', out.find((x) => x.index === 3).comment.length === 800);
+  check('批改：坏输入不炸', sanitizeGrades(null, 3).length === 0 && sanitizeGrades({ grades: [] }, 0).length === 0);
+  check('批改：不漏判时按题号排序', sanitizeGrades({ grades: [g(2, 'right'), g(0, 'wrong')] }, 3).map((x) => x.index).join(',') === '0,2');
 }
 
 const fail = results.filter((r) => !r.ok).length;

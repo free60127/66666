@@ -494,12 +494,19 @@ mark.hl { background: #ffe3e3; color: inherit; padding: 0 2px; border-radius: 2p
 .fav-card .fav-title { font-size: 17px; }
 .fav-review-grades { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .grade-btn { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 9px 6px; border: 1px solid var(--line); border-radius: 10px; background: #fff; color: var(--text); }
+.grade-btn strong { display: inline-flex; align-items: center; gap: 6px; }
 .grade-btn span { font-size: 11.5px; color: var(--muted); }
 .grade-btn:hover { border-color: var(--brand); }
 .grade-btn.forgot:hover { border-color: var(--red); background: #fdf3f2; }
 .grade-btn.easy:hover { border-color: var(--green); background: #f1faf4; }
 .fav-review-actions { display: flex; gap: 8px; justify-content: flex-end; }
 .fav-review-done { display: flex; align-items: center; gap: 8px; color: var(--green); font-size: 15px; }
+/* 快捷键提示（空格翻面 / 1 2 3 评分）：不写出来的话没人会去试，写了又怕吵，
+   所以做成"键帽"样式贴在按钮上，字号比正文还小一号。 */
+.fav-review kbd { font: inherit; font-size: 10.5px; line-height: 1; padding: 2px 5px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; background: #f7f9fb; color: var(--muted); }
+.primary-btn kbd { border-color: rgba(255, 255, 255, .45); background: rgba(255, 255, 255, .18); color: #fff; }
+/* 触屏（手机/平板）没有物理键盘，键帽提示纯属噪音 */
+@media (hover: none) and (pointer: coarse) { .fav-review kbd { display: none; } }
 
 /* 拍照 / 图片识别（OCR） */
 .ocr-mode-wrap { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); }
@@ -619,12 +626,81 @@ mark.hl { background: #ffe3e3; color: inherit; padding: 0 2px; border-radius: 2p
 .quiz-answer-line { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .quiz-exp { color: #176b62; margin-top: 3px; }
 
+/* ---------- 自测卷：屏幕上做题 + 批改 ----------
+   这套交互的三条讲究：
+   1) 选项是**按钮**（不是 li），点下去立刻出对错 —— 触屏和键盘都能用；
+   2) 判定结果紧跟在题目下面（学生看的是"这道题"，不是卷末的答案区）；
+   3) 底部批改条 sticky 常驻：几十道题的卷子不该为了点一次「批改」滚到底。 */
+.quiz-options.interactive { list-style: none; padding: 0; margin: 8px 0 0; display: flex; flex-direction: column; gap: 6px; }
+.quiz-opt { display: flex; align-items: flex-start; gap: 9px; width: 100%; text-align: left; padding: 8px 11px; border: 1px solid var(--line); border-radius: 9px; background: #fff; color: var(--text); font: inherit; font-size: 13.5px; line-height: 1.6; cursor: pointer; }
+.quiz-opt:hover:not(:disabled) { border-color: var(--brand); background: #f5f9ff; }
+.quiz-opt:disabled { cursor: default; }
+.quiz-opt-key { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 6px; background: #eef2f7; color: var(--muted); font-size: 11.5px; font-weight: 700; }
+.quiz-opt-text { flex: 1; }
+.quiz-opt.picked .quiz-opt-key { background: var(--brand); color: #fff; }
+.quiz-opt.right { border-color: #9bd8b4; background: #f1faf4; }
+.quiz-opt.right .quiz-opt-key { background: var(--green); color: #fff; }
+.quiz-opt.wrong { border-color: #f0b4ae; background: #fdf3f2; }
+.quiz-opt.wrong .quiz-opt-key { background: var(--red); color: #fff; }
+.quiz-opt.close { border-color: #f0c98a; background: #fffaf0; }
+.quiz-opt.close .quiz-opt-key { background: var(--gold); color: #fff; }
+/* 判完把标准答案那项也标出来 —— 学生要的是"对的是哪个"，不只是"我错了" */
+.quiz-opt.is-answer { border-color: #9bd8b4; background: #f1faf4; }
+.quiz-opt:disabled.is-answer .quiz-opt-key { background: var(--green); color: #fff; }
+
+.quiz-input-row { display: flex; align-items: flex-start; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+.quiz-input { flex: 1; min-width: 220px; width: auto; border: 1px solid var(--line); border-radius: 9px; padding: 8px 10px; font: inherit; font-size: 13.5px; line-height: 1.6; color: var(--text); background: #fff; resize: vertical; }
+.quiz-input:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 3px rgba(31, 111, 235, .12); }
+.quiz-input-hint { font-size: 11.5px; color: var(--muted); align-self: center; }
+
+.quiz-mark { font-size: 11.5px; font-weight: 700; border-radius: 5px; padding: 2px 8px; }
+.quiz-mark.right { background: #e7f7ee; color: #1a7f4b; }
+.quiz-mark.close { background: #fff3d6; color: var(--gold); }
+.quiz-mark.wrong { background: #fdecec; color: var(--red); }
+.quiz-retry { margin-left: auto; border: 0; background: none; color: var(--muted); font-size: 11.5px; cursor: pointer; text-decoration: underline; padding: 0; }
+.quiz-retry:hover { color: var(--brand); }
+
+.quiz-verdict { margin-top: 9px; border-radius: 9px; padding: 9px 11px; font-size: 13px; line-height: 1.75; background: #f6f8fa; border-left: 3px solid var(--line); }
+.quiz-verdict.right { background: #f1faf4; border-left-color: var(--green); }
+.quiz-verdict.close { background: #fffaf0; border-left-color: var(--gold); }
+.quiz-verdict.wrong { background: #fdf3f2; border-left-color: var(--red); }
+.quiz-verdict.pending { background: #f5f9ff; border-left-color: var(--brand); }
+.quiz-verdict-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 3px; }
+.quiz-verdict-tag { font-weight: 700; }
+.quiz-verdict.right .quiz-verdict-tag { color: #1a7f4b; }
+.quiz-verdict.close .quiz-verdict-tag { color: var(--gold); }
+.quiz-verdict.wrong .quiz-verdict-tag { color: var(--red); }
+.quiz-verdict.pending .quiz-verdict-tag { color: var(--brand); }
+.quiz-verdict-by { font-size: 11.5px; color: var(--muted); }
+.quiz-verdict-comment { margin: 2px 0; }
+.quiz-verdict-better, .quiz-verdict-answer { margin-top: 3px; }
+.quiz-verdict .quiz-exp { color: inherit; opacity: .85; margin-top: 3px; }
+.quiz-self-judge { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 8px; font-size: 12.5px; color: var(--muted); }
+
+/* 底部批改条：常驻在结果区底部（.result 是滚动容器），不为了点一次批改滚到底 */
+.quiz-grade-dock { position: sticky; bottom: 0; z-index: 5; margin-top: 12px; }
+.quiz-grade-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 13px; border: 1px solid var(--line); border-radius: 12px; background: rgba(255, 255, 255, .96); box-shadow: 0 -2px 14px rgba(20, 40, 70, .08); backdrop-filter: blur(4px); }
+.quiz-grade-stat { flex: 1; min-width: 200px; font-size: 13px; color: var(--muted); }
+.quiz-grade-stat strong { color: var(--text); }
+.quiz-score { margin-left: 8px; font-weight: 600; }
+.quiz-score.ok { color: #1a7f4b; }
+.quiz-score.mid { color: var(--gold); }
+.quiz-score.bad { color: var(--red); }
+.quiz-score.pending { color: var(--brand); }
+.quiz-grade-running { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--brand); }
+.quiz-grade-tip { margin-bottom: 8px; padding: 8px 11px; border-radius: 9px; background: #fff8e6; border: 1px solid #f0dca8; color: #8a5a00; font-size: 12.5px; line-height: 1.7; }
+
 @media print {
   .fav-star, .fav-tip, .fav-modal { display: none !important; }
   /* 导出自测 PDF 时，答案与解析统一印在最后（即使屏幕上隐藏着） */
   .quiz-answers, .quiz-answers.hidden { display: block !important; break-before: auto; page-break-before: auto; }
   .quiz-item, .quiz-answer-item { break-inside: avoid; page-break-inside: avoid; }
   .quiz-list { padding-left: 0 !important; }
+  /* 打印出来的是"纸质卷子"：交互控件与屏幕上的批改痕迹都不印 */
+  .quiz-grade-dock, .quiz-verdict, .quiz-input-row .ghost-btn, .quiz-input-hint { display: none !important; }
+  .quiz-opt { border: 0; padding: 2px 0; background: none !important; }
+  .quiz-opt-key { background: none; color: var(--text); }
+  .quiz-input { border: 0; border-bottom: 1px solid #aaa; border-radius: 0; padding: 4px 0; }
 }
 
 /* iOS Safari 在聚焦 font-size < 16px 的表单控件时会自动放大整个页面。
@@ -730,6 +806,13 @@ mark.hl { background: #ffe3e3; color: inherit; padding: 0 2px; border-radius: 2p
   /* 手机上那行说明文字会把按钮挤窄，收到按钮下面单独一行 */
   .actions-hint { width: 100%; font-size: 11.5px; line-height: 1.5; }
   .progress-foot { gap: 8px; }
+
+  /* 自测卷的批改条：手机上让"已批改 N 题 对 x 接近 y 错 z"独占一行，
+     两个按钮在下一行各占一半 —— 默认的换行会把「批改」挤到第三行去。 */
+  .quiz-grade-bar { gap: 8px; padding: 8px 10px; }
+  .quiz-grade-stat { flex: 1 1 100%; min-width: 0; font-size: 12.5px; }
+  .quiz-grade-bar .ghost-btn, .quiz-grade-bar .primary-btn { flex: 1; justify-content: center; min-height: 40px; }
+  .quiz-grade-running { flex: 1 1 100%; }
 }
 .sync-lost { margin: 4px 0 8px; font-size: 12.5px; line-height: 1.75; color: #8a5a00; background: #fff8e6; border: 1px solid #f0dca8; border-radius: 8px; padding: 9px 11px; }
 .side-footer { display: flex; gap: 6px; }

@@ -1,5 +1,5 @@
 /**
- * /api/quiz（自测题 + 错误训练）的入口校验与题量上限测试。
+ * /api/quiz（自测题 + 错误训练 + 批改）的入口校验与题量上限测试。
  *
  * 为什么值得单开一个文件：题量上限是**前后端各写一份**的数字
  * （src/constants.js 的 MAX_DRILL_COUNT 与 server/index.mjs 的同名常量），
@@ -16,8 +16,8 @@ import path from 'node:path';
 import os from 'node:os';
 import http from 'node:http';
 import { spawn } from 'node:child_process';
-import { MAX_DRILL_COUNT as SERVER_MAX } from './limits.mjs';
-import { MAX_DRILL_COUNT as FRONT_MAX } from '../src/constants.js';
+import { MAX_DRILL_COUNT as SERVER_MAX, MAX_GRADE_ITEMS as SERVER_GRADE_MAX } from './limits.mjs';
+import { MAX_DRILL_COUNT as FRONT_MAX, MAX_GRADE_ITEMS as FRONT_GRADE_MAX } from '../src/constants.js';
 
 const results = [];
 const check = (name, ok, detail = '') => {
@@ -45,10 +45,21 @@ const mock = http.createServer((req, res) => {
     seen.system = String(sys?.content || '');
     seen.user = String(usr?.content || '');
     seen.calls += 1;
-    // 刻意**不给 title**：这样验的是服务端的兜底标题（模型漏字段时用户看到的那句话）
-    const questions = [1, 2, 3].map((i) => ({ type: '改错', question: 'Q' + i, options: [], answer: 'A' + i, explanation: 'E', source: 'S' }));
+    const isGrade = /批改/.test(seen.system);
+    let payloadOut;
+    if (isGrade) {
+      // 批改：按题号回，故意掺一个**越界题号**（999）和一个**非法档位**（"基本正确"）——
+      // 服务端必须把越界的丢掉、把非法档位归到 close，否则界面上会出现"第 999 题"这种鬼话
+      const idx = [...seen.user.matchAll(/【第 (\d+) 题/g)].map((m) => Number(m[1]));
+      const grades = idx.map((i, k) => ({ index: i, verdict: k === 0 ? 'wrong' : '基本正确', comment: 'C' + i, better: 'B' + i }));
+      grades.push({ index: 999, verdict: 'right', comment: '越界题号', better: '' });
+      payloadOut = { grades };
+    } else {
+      // 刻意**不给 title**：这样验的是服务端的兜底标题（模型漏字段时用户看到的那句话）
+      payloadOut = { questions: [1, 2, 3].map((i) => ({ type: '改错', question: 'Q' + i, options: [], answer: 'A' + i, explanation: 'E', source: 'S' })) };
+    }
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ questions }) } }] }));
+    res.end(JSON.stringify({ choices: [{ message: { content: JSON.stringify(payloadOut) } }] }));
   });
 });
 await new Promise((r) => mock.listen(MOCK_PORT, '127.0.0.1', r));
@@ -142,6 +153,37 @@ try {
     check('自测题任务完成', job.status === 'done', job.status);
     check('自测题的兜底标题与错误训练区分开（不能都叫"收藏知识点自测"）',
       /自测/.test(job.data?.title || ''), job.data?.title || '(空)');
+  }
+
+  /* ---------- 5.5 mode=grade：批改自测卷 ---------- */
+  {
+    check('前端 MAX_GRADE_ITEMS 与服务端一致',
+      SERVER_GRADE_MAX === FRONT_GRADE_MAX, `前端 ${FRONT_GRADE_MAX} / 服务端 ${SERVER_GRADE_MAX}`);
+
+    const empty = await post({ mode: 'grade', items: [] });
+    check('没有题目时批改返回 400 且提示可操作', empty.status === 400 && /批改/.test(empty.body.error || ''), `${empty.status} ${empty.body.error || ''}`);
+
+    // 客户端送的是"这一批里第几题"（位置），服务端不认客户端题号 —— 所以这里故意送两个
+    // 卷子上的真实题号（0 和 3），验的是**服务端按位置重排**，回来的 index 是 0/1
+    const items = [
+      { index: 0, type: '翻译', question: '把这句话译成英文：「他绝望地向他的伙伴挥手。」', options: [], answer: 'He waved desperately to his companion.', explanation: 'desperately 是副词', userAnswer: 'He waved desperate to his companion.' },
+      { index: 3, type: '造句', question: '用 swing round 造一个句子', options: [], answer: 'He swung the boat round.', explanation: 'swing 的过去式是 swung', userAnswer: 'He swing the boat round.' },
+    ];
+    const r = await post({ mode: 'grade', items, level: '四六级' });
+    check('批改请求被受理（有任务号）', r.status === 200 && !!r.body.jobId, JSON.stringify(r.body).slice(0, 80));
+    const job = await waitJob(r.body.jobId);
+    check('批改走的是 GRADE 提示词', /批改/.test(seen.system) && /index/.test(seen.system), seen.system.slice(0, 30));
+    check('学生的作答真的进了提示词（不是只发题干）', seen.user.includes('He waved desperate to his companion.'), '');
+    check('标准答案也进了提示词（模型要按它判）', seen.user.includes('He waved desperately to his companion.'), '');
+    check('批改任务正常完成且返回 grades', job.status === 'done' && Array.isArray(job.data?.grades), job.status + ' ' + (job.error || ''));
+    const grades = job.data?.grades || [];
+    check('越界题号被丢掉（不会出现第 999 题）', grades.every((g) => g.index < items.length), JSON.stringify(grades.map((g) => g.index)));
+    check('题号按批次位置重排（服务端不认客户端题号）', grades.map((g) => g.index).join(',') === '0,1', JSON.stringify(grades.map((g) => g.index)));
+    check('非法档位归到 close', grades.find((g) => g.index === 1)?.verdict === 'close', JSON.stringify(grades.find((g) => g.index === 1)));
+    check('合法档位原样保留', grades.find((g) => g.index === 0)?.verdict === 'wrong', JSON.stringify(grades.find((g) => g.index === 0)));
+    check('点评与更好的表达都带回来了', grades.find((g) => g.index === 0)?.comment === 'C0' && grades.find((g) => g.index === 0)?.better === 'B0', JSON.stringify(grades[0]));
+    check('批改任务的数据里只有 grades、不会混进 questions（前端据此区分两种模式）',
+      Array.isArray(job.data?.grades) && job.data?.questions === undefined, JSON.stringify(Object.keys(job.data || {})));
   }
 
   /* ---------- 5. 题量缺省 / 非法 ---------- */

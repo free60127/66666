@@ -90,7 +90,9 @@ export const ocr = (payload) => api('/api/ocr', { method: 'POST', body: JSON.str
 export const getOcrJob = (jobId) => api('/api/ocr/' + jobId, {}, TIMEOUT.fast);
 // 音标兜底查询（模型没返回 phonetic 时用）
 export const getPhonetic = (word) => api('/api/phonetic?word=' + encodeURIComponent(word));
-// 收藏知识点自测题：提交 → 轮询结果
+// 收藏知识点自测题：提交 → 轮询结果。
+// 同一个端点三种模式：出题（默认）/ mode:'drill'（错误训练）/ mode:'grade'（批改自测卷）——
+// 批改复用同一条任务链路，所以轮询用的还是 getQuizJob。
 export const quiz = (payload) => api('/api/quiz', { method: 'POST', body: JSON.stringify(payload ?? {}) });
 export const getQuizJob = (jobId) => api('/api/quiz/' + jobId, {}, TIMEOUT.fast);
 

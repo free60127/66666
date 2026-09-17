@@ -379,6 +379,53 @@ export function buildDrillMessage({ points, count, level, materials }) {
     '\n\n请按要求输出完整 JSON（title + questions），题量 = ' + n + '。';
 }
 
+/* ---------- 自测卷批改（mode=grade）----------
+ * 只判**本地拿不准的**题：主观题（翻译/造句）、本地判成"接近"的、
+ * 以及改错题本地判"错"的（改错有无数种改法，相似度认不出来）。选择题与普通填空
+ * 已经在浏览器里判完了 —— 那些题再送一遍模型只是白花钱、还慢。
+ */
+export const GRADE_PROMPT = `你是英语老师，正在批改学生的自测题作答。用户会给你若干道题：题干、题型、标准答案、参考答案解析，以及**学生的作答**。
+
+输出必须是严格 JSON（不要 markdown 包装、不要代码块、不要额外说明）：
+{
+  "grades": [
+    {
+      "index": 0,
+      "verdict": "right | close | wrong",
+      "comment": "中文点评：先说他哪里对/哪里错，再指出具体怎么改（不要只说「不错」「再想想」）",
+      "better": "更好的表达或正确的完整句子（可选，没有就填空字符串）"
+    }
+  ]
+}
+
+判分要求：
+1. **index 必须与输入里每道题的 index 一一对应**，一题都不能漏，也不要多出题目。
+2. 尺度：意思对、语法对、搭配对 → right；方向对但有实打实的错（时态、单复数、冠词、介词、用词不当、拼写错）→ close；意思错、答非所问、用中文作答 → wrong。
+3. **翻译题允许多种译法**：只要意思与语域对，和标准答案不同也要给 right，并在 better 里给出更地道的说法。
+4. 造句题：看是否用上了要求的词/短语、搭配是否正确、句子是否完整；用上了且没错 → right。
+5. 学生**没作答**（作答为空）→ wrong，comment 写"未作答"。
+6. comment 用中文、具体、可操作；不要复述题干，不要编造题目之外的知识点。`;
+
+export function buildGradeMessage({ items, level }) {
+  const list = Array.isArray(items) ? items : [];
+  const L = levelGuide(level);
+  const text = list.map((it) => {
+    const lines = [
+      '【第 ' + it.index + ' 题 · ' + (it.type || '问答') + '】',
+      '题干：' + String(it.question || '').replace(/\s+/g, ' ').slice(0, 600),
+    ];
+    if (Array.isArray(it.options) && it.options.length) {
+      lines.push('选项：' + it.options.map((o) => String(o).slice(0, 80)).join(' / ').slice(0, 400));
+    }
+    if (it.answer) lines.push('标准答案：' + String(it.answer).slice(0, 600));
+    if (it.explanation) lines.push('参考解析：' + String(it.explanation).replace(/\s+/g, ' ').slice(0, 400));
+    lines.push('学生作答：' + (String(it.userAnswer || '').trim() ? String(it.userAnswer).slice(0, 800) : '（空）'));
+    return lines.join('\n');
+  }).join('\n\n');
+  return '请批改下面 ' + list.length + ' 道题（学生水平：' + L.key + '）。\n\n' + text +
+    '\n\n请输出严格 JSON：{"grades":[...]}，共 ' + list.length + ' 条，index 用上面每道题的题号。';
+}
+
 /* =====================================================================
  * 英译汉（en2cn）
  *

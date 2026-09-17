@@ -1291,6 +1291,7 @@ function App() {
             {quizData && (
               <QuizSheet
                 quiz={quizData}
+                settings={settings}
                 showAnswers={quizShowAnswers}
                 onToggleAnswers={() => setQuizShowAnswers((v) => !v)}
                 onBack={() => setView('editor')}

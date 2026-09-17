@@ -24,6 +24,7 @@
 - 词根词缀拆解（**四六级及以上等级**）：词汇深度辨析里的难词会多一行小字，拆出词根词缀并给出「核心记忆画面」，例如 **enunciate** = `e-（向外）+ nunci（宣布）+ -ate（动词后缀）` → 「把想法清楚地『送出来、说出来』」，还会附同根词（pronounce / announcement / denounce）；模型会自行判断难易，**小初/高考基础词（go / make / happy 等）不拆**，小初与高考等级完全不输出该内容
 - 知识点收藏夹：结果页每条错题/辨析、核心词、习语、**加分表达 / 高级句式**右上角点 ☆ 即可收藏，之后在顶栏「收藏夹」里直接复习，**不用打开整份作业**；支持搜索、按类型筛选、删除、复制全部、以及导出 / 导入 JSON 备份（纯本机实现，不依赖数据库）
 - 收藏知识点自测：在收藏夹里选题目数量（5/10/15/20/30/50）一键出题，AI 围绕收藏的考点混搭 **选择 / 填空 / 翻译 / 改错 / 造句** 五种题型；**题目区默认不显示答案、也不显示考点提示（避免提前泄露答案）**，做完点「显示答案」才展开底部的「答案与解析」；支持 **导出 PDF**（答案与解析统一印在最后）、复制题目；AI 不可用时自动用本地题库兜底出题
+- **自测卷可以直接在屏幕上做 + 一键批改（混合判分）**：选择题的四个选项是能点的按钮，**点下去立刻判对错**并把标准答案标绿；填空 / 改错写完点旁边的「核对」；翻译 / 造句写完整句，点底部常驻的「批改」交给 AI。判分分两层——**本地判**（选择 / 填空 / 改错，含大小写标点归一、一个词的多种写法、拼错一两个字母算"接近"、改错只差一处实词算"接近"，毫秒级出结果、断网也能用）+ **AI 复核**（只送本地拿不准的：主观题、判成"接近"的、改错判"错"的；一次批量提交，回复带中文点评与"更好的表达"）。AI 用不了时主观题自动退回**对照参考答案自评**（我写对了 / 我写错了），不会把人卡在转圈上；底部实时显示「已批改 N 题 · 对 x · 接近 y · 错 z」。打印 / 导出 PDF 仍是干净的纸质卷子（交互控件与批改痕迹不印）
 - AI 原创素材：按主题/难度/文体用 AI 生成无版权英文短文 + 完整中文翻译（如时事、中国文化），可直接作为回译训练题源（回应用户「教材课文有版权、AI 生成文章可商业化」的建议）
 - 逐句级解析：每条错误含 from → to 与中文解释，分 error / improve / study 三级；核心动词/形容词/易混词按「语域、感情色彩、语用、语义轻重、固定搭配、内涵外延」六大维度讲透，并附带近义词对比表（word / meaning / register / tone / strength / usage / example）与例句
 - 地道习语强化：AI 润色版优先使用符合情境的习语（如 suddenly → out of the blue），并在 findings 与「地道习语强化」板块逐条解释气势、场景与普通说法的差异
@@ -109,6 +110,7 @@
 
 - 实现：纯前端 localStorage（`bt-favorites`），**不需要数据库**；导出/导入为 JSON 文件，方便备份与换设备。
 - **间隔重复复习（SM-2）**：每条收藏带 `{ ease, interval, due, reps }` 排期，顶栏「今日待复习 N」把今天该复习的排成队列，一张一张先回想再翻面，三档评分（忘了 / 一般 / 简单）——评分按钮上直接写着下次几天后再见。忘了 → 明天重来并调低难度因子；一般 → 间隔 ×难度因子；简单 → 再 ×1.3 并调高难度因子（上限 365 天）。评分会立刻落盘，配了同步码时**复习进度跟着一起同步**（同一条两端都复习过时，以复习得更新的那份为准，不会互相顶掉）。
+- **复习的键盘快捷键**：**空格**翻面、**1 / 2 / 3** = 忘了 / 一般 / 简单（小键盘同样有效）；没翻面时数字键不评分，带 Ctrl / Cmd / Alt 的组合键、输入法组合中的按键一律让给系统。键帽直接印在按钮上，触屏设备不显示。
 - ⚠️ **数据丢失风险**：收藏只存在当前浏览器里——
   - 清除浏览器数据 / 隐私模式关闭 / 重装浏览器 → 丢失；
   - 换浏览器或换设备 → 不同步；
@@ -187,8 +189,8 @@
 | GET | /api/generate-material/:jobId | 轮询素材生成状态：`{ok, job:{jobId, status, data?, error?}}`，status 为 pending / running / done / error |
 | POST | /api/analyze | 异步提交回译作业（chinese、draft + 可选 book、lessonId、title、original、level、baseUrl、model、apiKey），立即返回 `{ok, jobId}`；level ∈ 小初 / 高考英语 / 四六级 / 考研·专四 / 专八（旧的「考研英语」「专四」会自动归一化为「考研·专四」） |
 | GET | /api/phonetic?word=spoil | 查单词 IPA 音标（模型未返回 phonetic 时的兜底，带内存缓存与熔断） |
-| POST | /api/quiz | 根据收藏知识点出题：提交 `{points[], count, level, baseUrl, model, apiKey}`，返回 `{ok, jobId}` |
-| GET | /api/quiz/:jobId | 轮询自测题：`{ok, job:{jobId, status, data:{title, level, count, questions[{type,question,options,answer,explanation,source}]}, error}}` |
+| POST | /api/quiz | 根据收藏知识点出题：提交 `{points[], count, level, baseUrl, model, apiKey}`，返回 `{ok, jobId}`。同一端点还带两种模式：`mode:'drill'`（错误训练，换提示词）、`mode:'grade'`（批改自测卷，提交 `{mode:'grade', items:[{index,type,question,options,answer,explanation,userAnswer}], level}`） |
+| GET | /api/quiz/:jobId | 轮询自测题：`{ok, job:{jobId, status, data:{title, level, count, questions[{type,question,options,answer,explanation,source}]}, error}}`；批改任务的 `data` 换成 `{grades:[{index,verdict:'right'|'close'|'wrong',comment,better}]}`（index 是**这一批里的位置**，服务端按位置重排，不信客户端题号） |
 | GET | /api/analyze/:jobId | 轮询作业状态：`{ok, job:{jobId, status, data?, error?}}`，status 为 pending / running / done / error |
 
 所有任务（分析 / 素材 / OCR / 自测题）都会持久化到服务端的键值存储（配了 `UPSTASH_*` 就是云端 Redis，否则是容器本地 `data/kv/`，一条一个键），后端重启、重新部署都不会丢。结果页「复制分享链接」生成 `#job=<jobId>` 链接，**任何人打开都能恢复同一次批改结果**；前端还会在本机浏览器保存最近 20 条历史记录。

@@ -4,9 +4,9 @@ import path from 'node:path';
 import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { promises as dnsLookup } from 'node:dns';
-import { SYSTEM_PROMPT, buildUserMessage, EN2CN_SYSTEM_PROMPT, buildEn2CnUserMessage, MATERIAL_PROMPT, buildMaterialMessage, QUIZ_PROMPT, buildQuizMessage, DRILL_PROMPT, buildDrillMessage, AI_LEVEL_KEYS, DEFAULT_AI_LEVEL, normalizeLevel } from './prompt.mjs';
-import { MAX_DRILL_COUNT, MAX_DRILL_POINTS } from './limits.mjs';
-import { sanitizeQuestions } from './questionShape.mjs';
+import { SYSTEM_PROMPT, buildUserMessage, EN2CN_SYSTEM_PROMPT, buildEn2CnUserMessage, MATERIAL_PROMPT, buildMaterialMessage, QUIZ_PROMPT, buildQuizMessage, DRILL_PROMPT, buildDrillMessage, GRADE_PROMPT, buildGradeMessage, AI_LEVEL_KEYS, DEFAULT_AI_LEVEL, normalizeLevel } from './prompt.mjs';
+import { MAX_DRILL_COUNT, MAX_DRILL_POINTS, MAX_GRADE_ITEMS } from './limits.mjs';
+import { sanitizeGrades, sanitizeQuestions } from './questionShape.mjs';
 import { recognizeImage } from './ocr.mjs';
 import { MAX_SNAPSHOT_BYTES, createSyncStore, emptySnapshot, isValidSyncCode, newSyncCode, sanitizeSnapshot } from './sync.mjs';
 import { createUpstashKv, createFileKv } from './kv.mjs';
@@ -1022,6 +1022,53 @@ async function runQuizJob(jobId, { points, count, level, baseUrl, model, apiKey,
   }
 }
 
+/* ---------- 自测卷批改任务（mode=grade）----------
+ * 与出题**共用一条任务链路**（同样的 job kind=quiz、同样的轮询端点、同样的限流与僵尸判定），
+ * 只有提示词和返回形状不同：出题返回 questions，批改返回 grades。
+ * 另起一套端点只会把已经验证过的那些东西再抄一遍。
+ */
+async function runGradeJob(jobId, { items, level, baseUrl, model, apiKey }) {
+  const job = await findJob(jobId);
+  if (!job) return;
+  job.status = 'running';
+  job.startedAt = Date.now();
+  job.updatedAt = Date.now();
+  saveJob(job);
+  try {
+    const messages = [
+      { role: 'system', content: GRADE_PROMPT },
+      { role: 'user', content: buildGradeMessage({ items, level }) },
+    ];
+    const raw = await callLLM({ baseUrl, model, apiKey, messages });
+    let parsed;
+    try {
+      parsed = parseJsonLoose(raw);
+    } catch {
+      throw new Error('模型返回不是有效 JSON，请重试或换模型');
+    }
+    const grades = sanitizeGrades(parsed, items.length);
+    if (!grades.length) throw new Error('模型没有给出批改结果，请重试');
+    // 漏判的题目：不让它们变成"永远转圈"，由前端标成未批改（可以再点一次批改）
+    if (grades.length < items.length) {
+      console.warn(`[quiz/grade] 模型漏判 ${items.length - grades.length} 题`);
+    }
+    job.data = { grades };
+    job.status = 'done';
+    job.updatedAt = Date.now();
+    saveJob(job);
+  } catch (e) {
+    job.status = 'error';
+    job.error = e.message || '批改失败，请重试';
+    job.updatedAt = Date.now();
+    saveJob(job);
+  } finally {
+    job.finishedAt = Date.now();
+    job.updatedAt = Date.now();
+    saveJob(job);
+    scheduleForget(jobId);
+  }
+}
+
 /* ---------- server ---------- */
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css',
@@ -1367,6 +1414,40 @@ const server = http.createServer(async (req, res) => {
     }
     if (p === '/api/quiz' && req.method === 'POST') {
       const body = await readBody(req, MAX_SMALL_BYTES);
+      // 同一个端点三种模式：出题（默认）/ drill（错误训练）/ grade（批改自测卷）。
+      // 共用的原因：提交→轮询→限流→僵尸任务→结果清洗这条链路已经验证过，
+      // 每加一种模式就抄一遍的话，改一处必然漏一处。
+      const mode = String(body.mode || '');
+      const drill = mode === 'drill';
+
+      /* ---------- mode=grade：批改（只判"本地拿不准的题"，见 GRADE_PROMPT） ---------- */
+      if (mode === 'grade') {
+        // 题号**由服务端按批次位置重排**（不信客户端传什么）：模型只要照着回 0..n-1，
+        // 形状清洗就能拿它当边界用；客户端负责把位置映射回卷子上的题号。
+        const parsed = (Array.isArray(body.items) ? body.items : [])
+          .slice(0, MAX_GRADE_ITEMS)
+          .map((it) => ({
+            type: String((it && it.type) || '').slice(0, 40),
+            question: String((it && it.question) || '').slice(0, 1200),
+            options: Array.isArray(it && it.options) ? it.options.slice(0, 8).map((o) => String(o)) : [],
+            answer: String((it && it.answer) || '').slice(0, 1200),
+            explanation: String((it && it.explanation) || '').slice(0, 800),
+            userAnswer: String((it && it.userAnswer) || '').slice(0, 1200),
+          }))
+          .filter((it) => it.question || it.answer);
+        const items = parsed.map((it, i) => ({ ...it, index: i }));
+        if (!items.length) return json(res, 400, { error: '没有需要批改的题目' });
+        const model = String(body.model || '').trim() || stat.model();
+        const ep = await resolveEndpoint({ bodyBase: body.baseUrl, bodyKey: body.apiKey, fallbackBase: stat.baseUrl(), fallbackKey: envKey() });
+        if (ep.error) return json(res, 400, { error: ep.error });
+        if (!ep.apiKey) return json(res, 400, { error: '未配置 AI_API_KEY：请复制 .env.example 为 .env 并填写，或在设置面板填入 API Key' });
+        const jobId = randomUUID();
+        saveJob({ jobId, kind: 'quiz', title: '批改 · ' + items.length + ' 题', status: 'pending', createdAt: Date.now(), data: null, error: null });
+        registerJob(jobId);
+        safeRun('quiz', jobId, () => runGradeJob(jobId, { items, level: normalizeLevel(body.level), baseUrl: ep.baseUrl, model, apiKey: ep.apiKey }));
+        return json(res, 200, { ok: true, jobId, status: 'pending' });
+      }
+
       // 上限放宽到 120：前端现在**按题量精确送点**（10 道题就送 10 条错题，
       // 这样才知道用户做的是哪几条、下次好避开），题量上限 100 时不能再被 60 截断。
       const points = (Array.isArray(body.points) ? body.points : [])
@@ -1375,7 +1456,6 @@ const server = http.createServer(async (req, res) => {
         .slice(0, MAX_DRILL_POINTS);
       // mode=drill：错误训练。走**同一条任务链路**（提交→轮询→试卷页），只换提示词与标题 ——
       // 另起一个端点只会把限流/僵尸任务/结果清洗这些已经验证过的东西再抄一遍。
-      const drill = String(body.mode || '') === 'drill';
       if (!points.length) return json(res, 400, { error: drill ? '选中的课时里没有找到错题' : '请先收藏一些知识点，再生成自测题' });
       // 100 是产品上限（与 src/constants.js 的 MAX_DRILL_COUNT、前端 generateDrill 一致）
       const count = Math.max(1, Math.min(MAX_DRILL_COUNT, Number(body.count) || 10));

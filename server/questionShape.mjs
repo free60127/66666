@@ -104,3 +104,31 @@ export function sanitizeQuestions(list, { count = 0, drill = false } = {}) {
   }
   return { questions: out, dropped };
 }
+
+/* ---------- 批改结果的形状清洗（mode=grade）----------
+ * 与题目清洗同样的道理：模型的返回**不能直接信** —— 题号越界/重复、
+ * verdict 写成长句（"基本正确但…"）、点评灌水式超长，都会一路漏到界面上
+ * （最糟的是 index 错位：把第 3 题的点评贴到第 1 题上，学生完全看不出来）。
+ * 这里只做形状：越界与重复的丢掉，verdict 只留三档，长文本截断。
+ */
+const GRADE_VERDICTS = new Set(['right', 'close', 'wrong']);
+
+export function sanitizeGrades(raw, itemCount) {
+  const n = Math.max(0, Math.floor(Number(itemCount) || 0));
+  const list = Array.isArray(raw && raw.grades) ? raw.grades : [];
+  const byIndex = new Map();
+  for (const g of list) {
+    if (!g || typeof g !== 'object') continue;
+    const i = Number(g.index ?? g.i ?? g.no);
+    // 越界的题号直接丢：宁可这道题显示"未批改"，也不能把点评贴到别的题上
+    if (!Number.isInteger(i) || i < 0 || i >= n || byIndex.has(i)) continue;
+    const v = String(g.verdict || '').trim().toLowerCase();
+    byIndex.set(i, {
+      index: i,
+      verdict: GRADE_VERDICTS.has(v) ? v : 'close',
+      comment: String(g.comment || '').slice(0, 800),
+      better: String(g.better || '').slice(0, 800),
+    });
+  }
+  return [...byIndex.values()].sort((a, b) => a.index - b.index);
+}

@@ -12,6 +12,12 @@
  *  否则会出现"界面让选 100、后端悄悄砍成 50"这种最难查的不一致。 */
 export const MAX_DRILL_COUNT = 100;
 
+/** 一次最多把多少道题交给 AI 批改（自测卷底部的「批改」按钮）。
+ *  只会送"本地拿不准的题"（主观题 + 存疑题），所以上限比出题小得多。
+ *  服务端 server/limits.mjs 的 MAX_GRADE_ITEMS 是同一个数，
+ *  server/quizlimit.test.mjs 会断言两者相等（防的正是"界面说 40、后端砍成 10"）。 */
+export const MAX_GRADE_ITEMS = 40;
+
 /** 等级标签：编辑区、收藏夹、结果页三处共用 */
 export const LEVEL_LABEL = { error: '必须改错', improve: '润色升级', study: '对照学习' };
 

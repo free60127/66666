@@ -17,3 +17,8 @@ export const MAX_DRILL_COUNT = 100;
  *  120 略大于 MAX_DRILL_COUNT：前端按题量精确送点（要 10 道就送 10 条），
  *  这里留一点余量给"题目数 = 要点数"以外的用法，同时挡住超长 payload。 */
 export const MAX_DRILL_POINTS = 120;
+
+/** 一次最多批改多少道题（mode=grade）。
+ *  比出题上限小得多：只有"本地拿不准的题"才会走到这里（主观题 + 存疑题），
+ *  而且它们要和题干、标准答案、学生作答一起进提示词 —— 40 题已经是很大的 payload 了。 */
+export const MAX_GRADE_ITEMS = 40;
