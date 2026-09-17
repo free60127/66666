@@ -7,6 +7,11 @@
  * 现在按用途命名，改策略只动这里。
  */
 
+/** 一次最多出多少道题（自测题 / 错误训练共用）。
+ *  服务端 server/index.mjs 的 MAX_DRILL_COUNT 是同一个数 —— 改一处要改两处，
+ *  否则会出现"界面让选 100、后端悄悄砍成 50"这种最难查的不一致。 */
+export const MAX_DRILL_COUNT = 100;
+
 /** 等级标签：编辑区、收藏夹、结果页三处共用 */
 export const LEVEL_LABEL = { error: '必须改错', improve: '润色升级', study: '对照学习' };
 

@@ -35,9 +35,20 @@ function LessonEditModal({ open, lesson, onClose, onSave, onDelete, modalRef }) 
     }
   }
 
-  // 聚焦仍然放 effect（要在 DOM 提交后才能 focus）
+  // 聚焦放 effect（要在 DOM 提交后才能 focus），但**每次打开只聚焦一次**。
+  //
+  // 为什么不能直接依赖 [open, lesson]：`lesson` 是父组件从 myLibs 里查出来的**对象引用**，
+  // 只要父组件在这期间把库对象重建了一次（保存、同步合并、加 lid …），依赖就变，
+  // effect 重跑 → 40ms 后再把焦点抢回标题框。用户正在改「序号」时被抢走焦点，
+  // 接下来敲的字就落进标题里 —— 自动化测试里复现过一次：落盘的标题变成
+  // 「人工智能（改过标题）1」，序号那个 1 被拼进了标题（tools/e2e-b6b7.mjs 的诊断③）。
+  // 这与 useModals 里修过的"焦点被抢走、中文输入法被打断"是同一类问题。
+  const focusedForRef = useRef(null);
   useEffect(() => {
-    if (!open || !lesson) return undefined;
+    if (!open || !lesson) { focusedForRef.current = null; return undefined; }
+    const key = lesson.lid || String(lesson.lesson || '');
+    if (focusedForRef.current === key) return undefined;  // 这次打开已经聚焦过了
+    focusedForRef.current = key;
     const t = setTimeout(() => firstRef.current?.focus(), 40);
     return () => clearTimeout(t);
   }, [open, lesson]);

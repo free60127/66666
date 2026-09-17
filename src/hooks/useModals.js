@@ -18,6 +18,9 @@ export function useModals({ getCloseCamera, getMaterialBusy, getAuthOpen, closeA
   const [newJobOpen, setNewJobOpen] = useState(false);
   const [backupOpen, setBackupOpen] = useState(false);
   const [camOpen, setCamOpen] = useState(false);
+  // 错误训练是后加的弹窗，**必须在这里登记**：漏登记 = Esc 关不掉 + 焦点不进来
+  // （同一个坑踩过两次：账号弹窗、这个）
+  const [drillOpen, setDrillOpen] = useState(false);
   const [lessonEdit, setLessonEdit] = useState(null); // { libId, lid, lesson }
   const [backupTip, setBackupTip] = useState('');
   const [libTip, setLibTip] = useState('');
@@ -27,7 +30,7 @@ export function useModals({ getCloseCamera, getMaterialBusy, getAuthOpen, closeA
   // 键盘可达性：把「哪个弹窗开着」做成一件事，Esc 关闭、Tab 只在弹窗内循环。
   // 优先级顺序 = 屏幕上的层级顺序（后打开的排前面）。
   const authOpen = Boolean(getAuthOpen && getAuthOpen());
-  const open = camOpen ? 'cam' : materialOpen ? 'material' : newJobOpen ? 'newjob' : libModalOpen ? 'lib' : lessonEdit ? 'lessonEdit' : backupOpen ? 'backup' : historyOpen ? 'history' : favOpen ? 'fav' : authOpen ? 'auth' : settingsOpen ? 'settings' : null;
+  const open = camOpen ? 'cam' : materialOpen ? 'material' : newJobOpen ? 'newjob' : libModalOpen ? 'lib' : lessonEdit ? 'lessonEdit' : drillOpen ? 'drill' : backupOpen ? 'backup' : historyOpen ? 'history' : favOpen ? 'fav' : authOpen ? 'auth' : settingsOpen ? 'settings' : null;
 
   /**
    * 回调统一放 ref，下面的 effect 只依赖 `open` 这个字符串，不依赖父组件传进来的函数身份。
@@ -50,6 +53,7 @@ export function useModals({ getCloseCamera, getMaterialBusy, getAuthOpen, closeA
       newjob: () => setNewJobOpen(false),
       lib: () => setLibModalOpen(false),
       lessonEdit: () => setLessonEdit(null),
+      drill: () => setDrillOpen(false),
       backup: () => setBackupOpen(false),
       history: () => setHistoryOpen(false),
       fav: () => setFavOpen(false),
@@ -142,6 +146,7 @@ export function useModals({ getCloseCamera, getMaterialBusy, getAuthOpen, closeA
     backupOpen, setBackupOpen,
     camOpen, setCamOpen,
     lessonEdit, setLessonEdit,
+    drillOpen, setDrillOpen,
     backupTip, setBackupTip,
     libTip, setLibTip,
     modalRefs, anyOpen,

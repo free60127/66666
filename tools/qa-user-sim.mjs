@@ -111,6 +111,21 @@ const watchErrors = (page) => {
   return errs;
 };
 
+/** 收起手机端浮层侧栏（它会盖住顶栏按钮，点别的东西之前必须先收起来） */
+async function ensureSidebarClosed(page) {
+  const open = await page.evaluate(() => {
+    const s = document.querySelector('.sidebar');
+    if (!s) return false;
+    const cs = getComputedStyle(s);
+    if (cs.display === 'none' || cs.position !== 'fixed') return false;
+    return s.getBoundingClientRect().width > 0;
+  });
+  if (!open) return;
+  const btn = await page.$('.sidebar-close');
+  if (btn) await btn.click().catch(() => {}); else await page.keyboard.press('Escape');
+  await sleep(350);
+}
+
 async function openSidebar(page) {
   const state = await page.evaluate(() => {
     const s = document.querySelector('.sidebar');
@@ -152,6 +167,33 @@ async function generate(page, { chinese, draft, title } = {}) {
   await page.fill('.big-textarea >> nth=1', draft ?? 'I was searching my bag after having lunch at a little village bar.');
   await page.click('.primary-btn.big');
   await page.waitForSelector('.result', { timeout: 60000 });
+}
+
+/**
+ * 侧栏能不能滚到最后一课 —— 用 elementFromPoint 判定"真的看得见"。
+ *
+ * 为什么不能用 getBoundingClientRect 判断：课时列表被挤成 0 高时，
+ * 里面每个 .lesson-item 自己的 rect 依然是"正常"的（有几 px 高、坐标也在视口内），
+ * 只是被 0 高的祖先裁掉了 —— 用 rect 判定会**假通过**（踩过：列表高 0px 却报"末课可见"）。
+ * elementFromPoint 取该点最上层的真实元素，被裁掉就命不中，这才是可信的判据。
+ */
+async function reachLastLesson(page) {
+  return page.evaluate(() => {
+    const items = [...document.querySelectorAll('.lesson-item')];
+    if (!items.length) return { ok: false, why: '没有课时' };
+    const last = items[items.length - 1];
+    last.scrollIntoView({ block: 'nearest' });
+    const r = last.getBoundingClientRect();
+    const cx = r.left + Math.min(20, r.width / 2);
+    const cy = r.top + r.height / 2;
+    const hit = document.elementFromPoint(cx, cy);
+    const visible = r.height > 0 && r.top >= 0 && r.bottom <= window.innerHeight + 1
+      && Boolean(hit) && (last === hit || last.contains(hit) || hit.contains(last));
+    return {
+      ok: visible,
+      why: `末课 y=${Math.round(r.top)}→${Math.round(r.bottom)}（视口高 ${window.innerHeight}）· 该点命中 ${hit ? (hit.className || hit.tagName).toString().slice(0, 24) : 'null'}`,
+    };
+  });
 }
 
 /**
@@ -358,6 +400,34 @@ async function mobileJourney() {
     return !(s.getBoundingClientRect().width > 0 && getComputedStyle(s).position === 'fixed');
   });
   ok('[手机] 选完课侧栏自动收起（不挡内容）', closedAfterPick, closedAfterPick ? '' : '侧栏仍覆盖屏幕');
+
+  /* ---- 侧栏在手机上必须真的能用 ----
+     背景：加了「连续天数 / 错误训练 / 本册进度」之后，侧栏上半部分在手机上要占 400px+，
+     而课时列表是 flex 子项（能被压扁），结果被挤成 0 高 —— 用户看到进度条下面一片空白，
+     滑也滑不动（侧栏自己不溢出，所以连滚动条都没有）。这条断言就是钉死它。 */
+  {
+    await openSidebar(page);
+    await sleep(400);
+    const geom = await page.evaluate(() => {
+      const list = document.querySelector('.lesson-list');
+      const sec = document.querySelector('.side-section');
+      const sb = document.querySelector('.sidebar');
+      const r = list?.getBoundingClientRect();
+      return {
+        listH: Math.round(r?.height || 0),
+        items: document.querySelectorAll('.lesson-item').length,
+        secScroll: sec ? sec.scrollHeight - sec.clientHeight : 0,
+        sbScroll: sb ? sb.scrollHeight - sb.clientHeight : 0,
+      };
+    });
+    ok('[手机] 侧栏课时列表有可用高度（没被上面的区块挤成 0）', geom.listH >= 120,
+      `列表高 ${geom.listH}px · ${geom.items} 课 · 可滚空间：侧栏 ${geom.sbScroll}px / 内容区 ${geom.secScroll}px`);
+
+    // 能滚到最后一课（这是"能不能用"的最终判据）
+    const reach = await reachLastLesson(page);
+    ok('[手机] 侧栏能滚到最后一课', reach.ok, reach.why);
+    await ensureSidebarClosed(page);
+  }
 
   if (LIVE) {
     note('LIVE 模式：手机端只跑布局/触屏检查（不生成，不花钱）');
@@ -900,11 +970,57 @@ async function coreFlows() {
       ok('[错误训练] 能列出练过的课并默认勾选错得最多的',
         d.empty || (d.rows > 0 && d.picked > 0), d.empty ? '显示"还没有可训练的错题"' : `${d.rows} 课可选 · 默认勾 ${d.picked} 课 · ${d.toolbar}`);
       if (d.missing) note(`未练过的课折叠提示："${d.missing.slice(0, 50)}"`);
+
+      /* 题量：预设之外要能自定义，上限 100（用户明确要求） */
+      {
+        const sel = page.locator('.drill-count-pick select');
+        await sel.selectOption('custom');
+        await sleep(250);
+        const hasInput = await page.locator('.drill-count-input').count();
+        ok('[错误训练] 题量选「自定义…」后出现数字输入框', hasInput > 0, hasInput ? '' : '没有出现 .drill-count-input');
+        if (hasInput) {
+          await page.fill('.drill-count-input', '37');
+          await sleep(250);
+          const v37 = await page.evaluate(() => Number(document.querySelector('.drill-count-input')?.value));
+          ok('[错误训练] 自定义题量能填到 37（不再只有 5/10/15/20）', v37 === 37, `输入框值=${v37}`);
+          await page.fill('.drill-count-input', '500');
+          await sleep(300);
+          const clamped = await page.evaluate(() => Number(document.querySelector('.drill-count-input')?.value));
+          ok('[错误训练] 题量上限 100：填 500 会被夹回（不会真去要 500 道）', clamped <= 100, `填 500 后 =${clamped}`);
+        }
+        await sel.selectOption('10');
+        await sleep(200);
+      }
+
       if (!d.empty && d.picked > 0) {
         await page.click('.modal button >> text=开始出题');
         const got = await page.waitForSelector('.quiz-sheet', { timeout: 60000 }).then(() => true).catch(() => false);
         const n = await page.locator('.quiz-question').count();
         ok('[错误训练] 能按错题真的出出题来', got && n > 0, `题目 ${n} 道`);
+        ok('[错误训练] 出过题后把用掉的错题记账（下次才会避开）',
+          await page.evaluate(() => {
+            try { return Object.keys(JSON.parse(localStorage.getItem('bt-drill-used') || '{}')).length > 0; } catch { return false; }
+          }), '应写入 bt-drill-used');
+        if (got) {
+          /* 再进来一次：弹窗要说明"这次有几道没练过"，去重效果必须看得见 */
+          await page.click('text=返回编辑').catch(() => {});
+          await sleep(500);
+          await openSidebar(page);
+          await sleep(300);
+          await page.click('.drill-entry');
+          await sleep(600);
+          const plan2 = await page.evaluate(() => document.querySelector('.drill-plan')?.innerText.replace(/\n/g, ' ') || '');
+          ok('[错误训练] 第二次进来会说明这次有几道没练过（去重可见）',
+            plan2.length > 0, plan2.slice(0, 90) || '没有 .drill-plan');
+
+          /* Esc 必须能关掉它 —— 这一条守的是"新加的弹窗忘了登记进 useModals"。
+             同一个坑踩过两次（账号弹窗、错误训练弹窗）：漏登记的表现就是 Esc 无反应、
+             Tab 也不会被圈在弹窗里，而肉眼完全看不出问题。 */
+          await page.keyboard.press('Escape');
+          await sleep(400);
+          ok('[错误训练] Esc 能关掉弹窗（新弹窗没漏登记进 useModals）',
+            !(await page.$('.drill-modal')), '按下 Esc 后弹窗仍在');
+        }
       }
     }
     await closeAnyModal(page);

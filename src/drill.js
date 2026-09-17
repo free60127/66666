@@ -29,6 +29,108 @@ function findingText(f) {
   return { cat, from, to, why };
 }
 
+/** 一条错题压成给模型看的一行（错题与"可提升点"共用，只有措辞不同） */
+function pointLine(name, e, kind) {
+  if (kind === 'improve') {
+    return `【${name}·可提升·${e.cat}】原句「${e.cn || '（无）'}」：我写「${e.from}」，更地道的是「${e.to}」${e.why ? '。' + e.why : ''}`;
+  }
+  return `【${name}·${e.cat}】原句「${e.cn || '（无）'}」里我写成「${e.from || '（漏写）'}」，应为「${e.to || '（多余）'}」${e.why ? '。' + e.why : ''}`;
+}
+
+/** 短哈希（djb2）：只用来给错题做稳定标识，不做安全用途 */
+function shortHash(s) {
+  let h = 5381;
+  const str = String(s || '');
+  for (let i = 0; i < str.length; i += 1) h = ((h << 5) + h + str.charCodeAt(i)) | 0;
+  return (h >>> 0).toString(36).slice(0, 5);
+}
+
+/**
+ * 一条错题的**稳定 id** —— 用来记住"这道错题已经出过题了"。
+ *
+ * 为什么不用数组下标：下标会随"历史里又多了几条作业""某条历史被删"而整体位移，
+ * 记住的 id 就全错位了 —— 表现为"我明明刚练过，怎么又出一样的题"。
+ * 所以用「哪一课 + 错在哪类 + 把什么改成什么 + 原句指纹」来定身份：
+ * 同一个班次里重复出现的同一条错误视为同一条（本来就该一起练）。
+ */
+export function errorId(lessonKey, e) {
+  const cat = String((e && e.cat) || '');
+  const from = String((e && e.from) || '');
+  const to = String((e && e.to) || '');
+  return [lessonKey || '', cat, from + '→' + to, shortHash((e && e.cn) || '')].join('|');
+}
+
+/**
+ * 选出这一次要出的题 —— **没用过的优先，其次最久没用过的**。
+ *
+ * 用户的原话：「我一篇课文有 17 个错误，第一次出题 10 道，第二次也出 10 道，
+ * 希望第二次尽量避免和第一次大规模重复，要把剩下 7 道都包含在内。」
+ * 这条规则正好满足它：第二次的 10 道 = 没出过的 7 道 + 上次出过的 3 道（最久远的先来）。
+ *
+ * 两处刻意的设计：
+ *  1. 课与课之间**轮转**取题（每课各一条、循环），而不是"错得最多的那课先拿完" ——
+ *     否则选了两课、第一课有 30 个错，第二课永远轮不到，等于白选。
+ *  2. 返回的是**恰好 count 条**（不够就有多少给多少），并把用掉的 id 一起带回去。
+ *     调用方拿这批 id 记账，下次才不会又抽到它们 —— 这也是"精确覆盖"能成立的前提：
+ *     多送给模型几条、让它自己挑，就无从知道它到底用了哪几条，记账必然失真。
+ *
+ * @param {Array} rows   collectDrills 的结果（只取选中的那几课）
+ * @param {object} o
+ * @param {number} o.count 要出多少题
+ * @param {object} o.used  { [errorId]: 上次使用时间 } —— 见 storage.js 的 loadDrillUsed
+ * @returns {{points: string[], ids: string[], fresh: number, reused: number}}
+ */
+export function pickDrillItems(rows, { count = 10, used = {} } = {}) {
+  const want = Math.max(1, Math.min(100, Number(count) || 10));
+  const usedMap = used && typeof used === 'object' ? used : {};
+  const queues = [];
+
+  for (const r of (Array.isArray(rows) ? rows : [])) {
+    if (!r) continue;
+    const all = [
+      ...(Array.isArray(r.errors) ? r.errors : []).map((e) => ({ e, kind: 'error' })),
+      ...(Array.isArray(r.improves) ? r.improves : []).map((e) => ({ e, kind: 'improve' })),
+    ];
+    const items = all.map(({ e, kind }) => {
+      const id = errorId(r.key, e);
+      return { row: r, e, kind, id, at: Number(usedMap[id]) || 0 };
+    });
+    // 课内顺序：没出过的按原顺序排前面；出过的按"最久没出"排后面
+    const fresh = items.filter((x) => !x.at);
+    const seen = items.filter((x) => x.at).sort((a, b) => a.at - b.at);
+    const queue = [...fresh, ...seen];
+    if (queue.length) queues.push(queue);
+  }
+
+  const picked = [];
+  let moved = true;
+  while (picked.length < want && moved) {
+    moved = false;
+    for (const q of queues) {
+      if (picked.length >= want) break;
+      const next = q.shift();
+      if (!next) continue;
+      picked.push(next);
+      moved = true;
+    }
+  }
+  return picked;
+}
+
+/**
+ * pickDrillItems 的"给模型看"版本：文案 + 用掉的 id + 新旧统计。
+ * 为什么把 id 一起回传：调用方要拿它记账（下次避开），见 markDrillUsed。
+ */
+export function pickDrillPoints(rows, opts = {}) {
+  const picked = pickDrillItems(rows, opts);
+  return {
+    points: picked.map((x) => pointLine(x.row.name, x.e, x.kind)),
+    ids: picked.map((x) => x.id),
+    fresh: picked.filter((x) => !x.at).length,
+    reused: picked.filter((x) => x.at).length,
+  };
+}
+
 /**
  * 从「进度 + 历史 + 结果缓存」里收集每课的错题。
  *
@@ -128,8 +230,11 @@ export function summarizeDrills(rows) {
 }
 
 /**
- * 压成给模型的要点清单。
+ * 压成给模型的要点清单（不带"用过没用过"的概念，给需要全量清单的调用方用）。
  * 每条都带**原始错句**，模型才知道"你当时想说什么"——只给 from→to 它会出成空泛的语法题。
+ *
+ * 出题链路上用的是 pickDrillPoints（它按"没出过的优先"选题）；
+ * 这个函数保留下来是给"我要看全部错题"这类场景，两者共用 pointLine 的措辞。
  */
 export function drillsToPoints(rows, { maxPerLesson = 10, max = 60 } = {}) {
   const out = [];
@@ -138,13 +243,13 @@ export function drillsToPoints(rows, { maxPerLesson = 10, max = 60 } = {}) {
     let n = 0;
     for (const e of r.errors) {
       if (n >= maxPerLesson || out.length >= max) break;
-      out.push(`【${r.name}·${e.cat}】原句「${e.cn || '（无）'}」里我写成「${e.from || '（漏写）'}」，应为「${e.to || '（多余）'}」${e.why ? '。' + e.why : ''}`);
+      out.push(pointLine(r.name, e, 'error'));
       n += 1;
     }
     // 可提升点跟在错题后面（同样针对这个人，但不是"错"）
     for (const e of r.improves) {
       if (n >= maxPerLesson || out.length >= max) break;
-      out.push(`【${r.name}·可提升·${e.cat}】原句「${e.cn || '（无）'}」：我写「${e.from}」，更地道的是「${e.to}」${e.why ? '。' + e.why : ''}`);
+      out.push(pointLine(r.name, e, 'improve'));
       n += 1;
     }
     if (out.length >= max) break;
@@ -159,30 +264,31 @@ export function materialsToText(materials) {
 }
 
 /**
- * 本地兜底出题（AI 失败时用）：把错题直接变成"改错题"和"翻译题"。
+ * 本地兜底出题（AI 失败时用）：把错题直接变成"改错题"。
  * 有真错题在手，兜底卷的质量其实不差 —— 比重试一次网络请求更让用户踏实。
+ *
+ * 选题**与 AI 那条链路完全同一套规则**（pickDrillPoints：没出过的优先），
+ * 所以兜底卷也不会把上次的题原样再来一遍。
+ *
+ * ⚠️ 题量上不"轮着出"：错题只有 4 条而要 10 题时，返回 4 道**不重复**的，
+ * 而不是把同样 4 道抄两遍半 —— 重复的题对复习没有增量，只会让人觉得工具在糊弄。
+ * （AI 那条链路不受影响：模型可以围绕同一个错点换角度出不同的题。）
  */
-export function buildLocalDrill(rows, count = 10) {
-  const picked = (Array.isArray(rows) ? rows : []).filter((r) => r && (r.errors.length || r.improves.length));
-  const pool = [];
-  for (const r of picked) {
-    for (const e of [...r.errors, ...r.improves]) {
-      if (!e.from || !e.to) continue;
-      // ⚠️ 字段名必须与自测题那条链路**完全一致**（question / 中文题型 / source），
-      //    否则试卷页、复制、导出 PDF 全都渲染不出来 —— 两个形状各写一份必然漂移。
-      pool.push({
-        type: '改错',
-        question: `改错（${r.name}${e.cat ? '·' + e.cat : ''}）${e.cn ? '：原句说的是「' + e.cn + '」' : ''}\n我写的是：${e.from}\n请改正。`,
-        options: [],
-        answer: e.to,
-        explanation: e.why || `${e.cat || '错误'}：应改为「${e.to}」`,
-        source: r.name,
-      });
-    }
-  }
-  const n = Math.max(1, Math.min(50, Number(count) || 10));
+export function buildLocalDrill(rows, count = 10, { used = {} } = {}) {
   const questions = [];
-  for (let i = 0; i < n && pool.length; i += 1) questions.push(pool[i % pool.length]);
+  for (const { row: r, e } of pickDrillItems(rows, { count, used })) {
+    if (!e.from || !e.to) continue;              // 没有明确"改成什么"的没法出改错题
+    // ⚠️ 字段名必须与自测题那条链路**完全一致**（question / 中文题型 / source），
+    //    否则试卷页、复制、导出 PDF 全都渲染不出来 —— 两个形状各写一份必然漂移。
+    questions.push({
+      type: '改错',
+      question: `改错（${r.name}${e.cat ? '·' + e.cat : ''}）${e.cn ? '：原句说的是「' + e.cn + '」' : ''}\n我写的是：${e.from}\n请改正。`,
+      options: [],
+      answer: e.to,
+      explanation: e.why || `${e.cat || '错误'}：应改为「${e.to}」`,
+      source: r.name,
+    });
+  }
   return {
     // 标题/字段与 buildLocalQuiz 对齐（同一个试卷页直接复用）
     title: '错误训练 · ' + questions.length + ' 题（本地生成）',

@@ -9,8 +9,8 @@ import { mergeFavorites, saveFavorites } from './favorites.js'
 import { DIRECTION_KEY, DIRECTIONS, directionMeta, directionText, normalizeDirection } from './direction.js'
 import {
   lessonTombstoneKey, loadDeletedFavorites, loadDeletedLibraries, loadDeletedLessons,
-  loadResultCache, safeGet, safeSet, saveDeletedFavorites, saveDeletedHistory,
-  saveDeletedLibraries, saveDeletedLessons, saveHistory,
+  loadDrillUsed, loadResultCache, markDrillUsed, safeGet, safeSet, saveDeletedFavorites,
+  saveDeletedHistory, saveDeletedLibraries, saveDeletedLessons, saveDrillUsed, saveHistory,
 } from './storage.js'
 import { saveProgress } from './lessonProgress.js'
 import { dayStamp } from './format.js'
@@ -23,7 +23,7 @@ import { useModals } from './hooks/useModals.js'
 import { useLibraries } from './hooks/useLibraries.js'
 import { useEditor } from './hooks/useEditor.js'
 import { lessonKeyOf, lessonLabel } from './lessonLabel.js'
-import { buildLocalDrill, collectDrills, drillsToPoints, materialsToText } from './drill.js'
+import { buildLocalDrill, collectDrills, materialsToText, pickDrillPoints } from './drill.js'
 import { extractPdfText } from './pdfText.js'
 import { prepareImage } from './ocrImage.js'
 import { useLessons } from './hooks/useLessons.js'
@@ -191,6 +191,8 @@ function App() {
     libModalOpen, setLibModalOpen, newJobOpen, setNewJobOpen,
     backupOpen, setBackupOpen, camOpen, setCamOpen,
     lessonEdit, setLessonEdit, backupTip, setBackupTip, libTip, setLibTip,
+    // 错误训练弹窗也走这里（Esc 关闭 / 焦点陷阱）—— 见 useModals 里的说明
+    drillOpen, setDrillOpen,
     modalRefs,
     // 账号弹窗是后加的，之前漏在键盘可达性之外（Esc 关不掉）—— 接进来
   } = useModals({
@@ -545,12 +547,13 @@ function App() {
    * 第三条学习路径（前两条：按课文练、按收藏复习）：从**自己实际犯过的错**出发出题。
    * 数据来自三处 —— 逐课进度（练过没有）、历史（哪几次作业属于哪一课）、结果缓存（错在哪）。
    * 三者的读取与容错都在 src/drill.js 里（纯函数，有单测）。 */
-  const [drillOpen, setDrillOpen] = useState(false);
   const [drillSelected, setDrillSelected] = useState(() => new Set());
   const [drillMaterials, setDrillMaterials] = useState([]);
   const [drillBusy, setDrillBusy] = useState(false);
   const [drillTip, setDrillTip] = useState('');
   const [drillCount, setDrillCount] = useState(10);
+  // 出过的错题（id → 上次出题时间）：让每次出题优先挑"还没出过"的，避免两次大规模重复
+  const [drillUsed, setDrillUsed] = useState(loadDrillUsed);
 
   const drillRows = useMemo(() => collectDrills({
     lessons: visibleLessons,
@@ -562,6 +565,16 @@ function App() {
   // 徽章只数**错误**（可提升不算错，混进去会让数字虚高、也让"错误训练"这个名字名不副实）
   const drillReady = useMemo(() => drillRows.reduce((n, r) => n + r.errors.length, 0), [drillRows]);
 
+  /**
+   * 打开弹窗时先算一遍"这次会抽到哪些题" —— 只用来**如实告诉用户**
+   * 「10 道里 7 道是没练过的」，让他知道去重规则真的在起作用。
+   * 真正的选题在 startDrill 里再做一次（那时选中范围/题量才是最终的）。
+   */
+  const drillPlan = useMemo(() => {
+    const chosen = drillRows.filter((r) => drillSelected.has(r.key));
+    return pickDrillPoints(chosen, { count: drillCount, used: drillUsed });
+  }, [drillRows, drillSelected, drillCount, drillUsed]);
+
   /** 打开时**默认勾好错得最多的几课** —— 一进来就是可用状态，想改再改 */
   const openDrill = useCallback(() => {
     setDrillTip('');
@@ -569,7 +582,7 @@ function App() {
     setDrillSelected((cur) => (cur && cur.size
       ? cur
       : new Set(drillRows.filter((r) => r.errors.length).slice(0, 5).map((r) => r.key))));
-  }, [drillRows]);
+  }, [drillRows, setDrillOpen]);
 
   /** 上传该课材料：PDF 抠文字层；图片走已有的视觉识别 */
   const uploadDrillMaterial = useCallback(async (row, file) => {
@@ -624,19 +637,32 @@ function App() {
    */
   const startDrill = useCallback(async () => {
     const chosen = drillRows.filter((r) => drillSelected.has(r.key));
-    const points = drillsToPoints(chosen);
+    // 选题规则：没出过的优先、其 次最久没出的（见 drill.pickDrillPoints）。
+    // 这里拿到的 ids 就是"这一批题用掉了哪些错题"，出题成功后记账，下次才会避开。
+    const plan = pickDrillPoints(chosen, { count: drillCount, used: drillUsed });
     const materials = materialsToText(drillMaterials);
-    if (!points.length && !materials) { setDrillTip('选中的课里没有错题，也没上传材料'); return; }
+    if (!plan.points.length && !materials) { setDrillTip('选中的课里没有错题，也没上传材料'); return; }
     setDrillBusy(true);
-    setDrillTip('正在按你的错题出题…');
+    setDrillTip(plan.reused
+      ? `正在出题…这次 ${plan.points.length} 道里 ${plan.fresh} 道没练过、${plan.reused} 道是复习`
+      : '正在按你的错题出题…');
     try {
       const r = await generateDrill({
-        points, materials, count: drillCount,
-        fallback: () => buildLocalDrill(chosen, drillCount),
+        points: plan.points, materials, count: drillCount,
+        // 兜底卷走同一套选题规则（同样传 used），所以它也不会把上次的题原样再来一遍
+        fallback: () => buildLocalDrill(chosen, drillCount, { used: drillUsed }),
         onReady: () => setDrillOpen(false),
       });
       if (r.ok) {
         setDrillTip('');
+        // 记账要放在**出题成功之后**：失败时这批题并没真的给用户做，记上就白白跳过了
+        if (plan.ids.length) {
+          setDrillUsed((cur) => {
+            const next = markDrillUsed(cur, plan.ids);
+            saveDrillUsed(next);
+            return next;
+          });
+        }
         if (r.local) flashTipRef.current(setToast, 'AI 出题失败（' + (r.error || '未知错误') + '），已用你的错题本地生成改错题', 4500);
       } else {
         setDrillTip('出题失败：' + (r.error || '未知错误'));
@@ -646,7 +672,7 @@ function App() {
     }
     // flashTip 不是 useCallback（身份每次都变），放进依赖会让 startDrill 每次都重建 ——
     // 它只是"弹一句提示"，用 ref 取最新实现即可
-  }, [drillRows, drillSelected, drillMaterials, drillCount, generateDrill]);
+  }, [drillRows, drillSelected, drillMaterials, drillCount, drillUsed, generateDrill, setDrillOpen]);
 
 
   const closeHistory = useCallback(() => setHistoryOpen(false), [setHistoryOpen]);
@@ -1418,6 +1444,7 @@ function App() {
 
       {drillOpen ? (
         <ErrorDrillModal
+          modalRef={(el) => { modalRefs.current.drill = el; }}
           rows={drillRows}
           selected={drillSelected}
           onToggle={(key) => setDrillSelected((cur) => {
@@ -1431,7 +1458,7 @@ function App() {
           materials={drillMaterials}
           onUploadMaterial={uploadDrillMaterial}
           onRemoveMaterial={(key) => setDrillMaterials((l) => l.filter((m) => m.key !== key))}
-          busy={drillBusy} tip={drillTip} count={drillCount} onCount={setDrillCount}
+          busy={drillBusy} tip={drillTip} count={drillCount} onCount={setDrillCount} plan={drillPlan}
           hasKey={hasAiKey}
           onStart={startDrill}
           onClose={() => { setDrillOpen(false); setDrillTip(''); }} />

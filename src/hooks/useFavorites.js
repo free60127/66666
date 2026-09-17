@@ -206,7 +206,8 @@ export function useFavorites({ flash, setView, settings, polishLevel, isOpen, op
   const generateDrill = async ({ points, materials, count, fallback, onReady }) => {
     const pts = Array.isArray(points) ? points : [];
     if (!pts.length && !materials) return { ok: false, error: '没有可用的错题或材料' };
-    const n = Math.max(1, Math.min(50, Number(count) || 10));
+    // 题量上限 100：与 server/index.mjs 的 /api/quiz 校验、以及 MAX_DRILL_COUNT 保持一致
+    const n = Math.max(1, Math.min(100, Number(count) || 10));
     const finish = (data, local, error) => {
       setQuizData(data);
       setQuizShowAnswers(false);

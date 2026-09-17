@@ -109,3 +109,45 @@ export const loadDeletedLessons = () => loadIds(DELETED_LESSONS_KEY);
 export const saveDeletedLessons = (arr) => saveIds(DELETED_LESSONS_KEY, arr, DELETED_LESSONS_MAX);
 export const loadDeletedFavorites = () => loadIds(DELETED_FAVORITES_KEY);
 export const saveDeletedFavorites = (arr) => saveIds(DELETED_FAVORITES_KEY, arr, DELETED_FAVORITES_MAX);
+
+/* ---------- 出过的错题（错误训练去重）----------
+ * 记「这条错题上次被出题是什么时候」，下次出题就优先挑没出过的 ——
+ * 用户的原话：「一篇课文 17 个错误，第一次出 10 道，第二次也出 10 道，
+ * 希望第二次把剩下 7 道都包含在内，别大规模重复」。
+ *
+ * 为什么记时间戳而不是只记"出过"：只记布尔值就没有先后可言，老题会被反复抽中、
+ * 新题永远排不上；有时间戳才能"最久没出的先来"。
+ *
+ * 为什么不进云同步：它是**出题顺序的偏好**，不是用户数据。为它改同步快照的结构
+ * （还要考虑老版本客户端的合并）不值得；换设备后最多是把同一批错题再练一遍。
+ */
+export const DRILL_USED_KEY = 'bt-drill-used';
+/** 上限：超过就丢最老的。1000 条远超一个人的错题规模，只是防无限增长 */
+export const DRILL_USED_MAX = 1000;
+
+export function loadDrillUsed() {
+  try {
+    const o = JSON.parse(safeGet(DRILL_USED_KEY, '{}'));
+    if (!o || typeof o !== 'object' || Array.isArray(o)) return {};
+    const out = {};
+    for (const [k, v] of Object.entries(o)) {
+      const t = Number(v);
+      if (k && Number.isFinite(t) && t > 0) out[k] = t;
+    }
+    return out;
+  } catch { return {}; }
+}
+
+/** 把这一次出题用掉的错题记上时间；顺带裁掉最老的，避免无限增长 */
+export function markDrillUsed(map, ids, now = Date.now()) {
+  const out = { ...(map && typeof map === 'object' ? map : {}) };
+  for (const id of (Array.isArray(ids) ? ids : [])) if (id) out[String(id)] = now;
+  const entries = Object.entries(out);
+  if (entries.length <= DRILL_USED_MAX) return out;
+  entries.sort((a, b) => b[1] - a[1]);
+  return Object.fromEntries(entries.slice(0, DRILL_USED_MAX));
+}
+
+export function saveDrillUsed(map) {
+  safeSet(DRILL_USED_KEY, JSON.stringify(map && typeof map === 'object' ? map : {}));
+}

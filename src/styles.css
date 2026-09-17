@@ -43,7 +43,7 @@ textarea, input { font: inherit; }
 .ghost-btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 11px; border: 1px solid var(--line); border-radius: 9px; color: var(--muted); background: #fff; }
 .ghost-btn:hover { color: var(--text); border-color: #cdd5de; }
 .sidebar .ghost-btn { background: transparent; border-color: #3a4f5e; color: #b9cad6; width: 100%; justify-content: center; }
-.side-section { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.side-section { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow-y: auto; }
 .side-title { font-size: 11px; letter-spacing: .12em; color: #7f99aa; padding: 8px 6px; }
 /* 内置库：从 4 册扩到 9 个（多了四级/六级/英语一/英语二/专八），
    固定 4 列会让「英语（一）」这种长名字换行、格子高矮不齐，所以改成自适应列宽。 */
@@ -53,7 +53,14 @@ textarea, input { font: inherit; }
 /* 还没有语料的库：灰一点 + 虚线边，一眼看出"这里还没内容"而不是"坏了" */
 .book-tabs button.empty { border-style: dashed; color: #6f8b9c; }
 .book-tabs button.empty.active { color: #fff; }
-.lesson-list { overflow-y: auto; display: flex; flex-direction: column; gap: 3px; }
+/* 课时列表：**绝不允许被上面的区块挤成 0 高**。
+   flex:1 让它吃掉剩余空间（正常情况它填满侧栏下半部分）；
+   min-height 是保命的那条 —— 窗口一矮，"课文库 / 我的课文库 / 搜索 / 连续天数 /
+   错误训练 / 本册进度"加起来就超过侧栏高度，而它是唯一能被压扁的 flex 子项，
+   于是被挤到 0px：用户看到进度条下面一片空白，滑也滑不动（没有任何容器在溢出，
+   连滚动条都不会出现）。实测 390×640 与 1360×560 都正好压到 0。
+   真到了连 min-height 都放不下，由 .side-section 自己滚动兜底。 */
+.lesson-list { flex: 1 1 auto; min-height: 132px; overflow-y: auto; display: flex; flex-direction: column; gap: 3px; }
 .lesson-item { display: flex; align-items: center; gap: 8px; padding: 7px 8px; border-radius: 8px; color: #c7d6df; text-align: left; width: 100%; }
 .lesson-item:hover { background: rgba(255,255,255,.06); }
 .lesson-item.active { background: rgba(66,150,255,.18); color: #fff; }
@@ -215,10 +222,25 @@ mark.hl { background: #ffe3e3; color: inherit; padding: 0 2px; border-radius: 2p
 .link { color: var(--brand); text-decoration: none; }
 
 @media screen and (max-width: 900px) {
-  .sidebar { position: fixed; top: 0; left: 0; bottom: 0; z-index: 40; margin-left: 0; box-shadow: 0 0 30px rgba(0, 0, 0, .3); }
+  .sidebar { position: fixed; top: 0; left: 0; bottom: 0; z-index: 40; margin-left: 0; box-shadow: 0 0 30px rgba(0, 0, 0, .3); gap: 10px; }
   .sidebar.collapsed { display: none; }
   .sidebar-close { display: inline-flex; position: absolute; top: 10px; right: 10px; z-index: 41; }
   .sidebar-backdrop { display: block; position: fixed; inset: 0; z-index: 39; background: rgba(0, 0, 0, .35); }
+
+  /* 侧栏改成"整段一起滚"，课时列表不再自己滚。
+     桌面那套是"上半部分固定 + 只有列表滚"，手机上上半部分要占 400px+，
+     留给列表的高度根本不够（实测 390×640 直接是 0）。改成单一滚动区之后：
+     底部「AI 设置 / 备份」仍然常驻（它是 .side-section 的兄弟），
+     课文库 / 搜索 / 连续天数 / 错误训练 / 进度 / 全部课时都能滚到。
+     overscroll-behavior: contain 防止滚到底后把后面的正文带着一起滚。 */
+  .side-section { overflow-y: auto; overscroll-behavior: contain; }
+  .lesson-list { flex: none; min-height: 0; overflow: visible; }
+
+  /* 9 个课文库在手机上排 3 行、吃掉 106px 高度 —— 改成一排横向滑动，
+     省下来的高度直接给课时列表（这正是用户抱怨"看不到课时"的来源之一）。 */
+  .book-tabs { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: max-content; overflow-x: auto; scrollbar-width: none; }
+  .book-tabs::-webkit-scrollbar { display: none; }
+  .book-tabs button { padding: 6px 11px; }
 
   /* 手机端改为整页滚动：顶栏（历史结果 / 收藏夹 / 今日待复习 / 状态条）不再常驻屏幕顶部，
      而是随内容一起滚走 —— 全屏壳布局下它要占掉 4 行、约 1/4 屏幕，视觉上很挤。
@@ -896,6 +918,14 @@ mark.hl { background: #ffe3e3; color: inherit; padding: 0 2px; border-radius: 2p
 .drill-empty { display: flex; gap: 10px; padding: 12px 14px; border: 1px solid #f0dca8; background: #fffaf0; border-radius: 10px; }
 .drill-empty p { margin: 4px 0 0; }
 .drill-count-pick { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); margin-right: auto; }
+/* 自定义题量：只放得下 3 位数，宽度写死免得输入时控件左右乱跳（iOS 上尤其明显） */
+.drill-count-input { width: 68px; border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; font: inherit; font-size: 12.5px; color: var(--text); background: #fff; }
+/* 「这次会抽到哪些题」的说明条：与工具栏同色系，比正文稍重一点点 */
+.drill-plan {
+  margin: 6px 0 0; padding: 7px 10px; border-radius: 8px; font-size: 12.5px; line-height: 1.6;
+  background: #f2f7ff; border-left: 3px solid var(--brand); color: #25507f;
+}
+.drill-plan b { color: #14406f; }
 .error-tip { color: #8a5a00; }
 
 @media (max-width: 720px) {

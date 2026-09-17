@@ -1,3 +1,4 @@
+import { MAX_DRILL_COUNT } from './limits.mjs';
 export const SYSTEM_PROMPT = `你是「回译本」的王牌英语导师，最擅长把学生的英文回译初稿与中文原意、教材课文原文做逐句、事无巨细的对比分析，并且能把每个词、每个时态、每个搭配都讲透，让学生不仅会改错，更能积累地道表达。
 
 你的输出必须严格是 JSON（不要任何 markdown 包装、不要代码块标记、不要额外说明）。JSON 结构如下：
@@ -282,7 +283,9 @@ export const QUIZ_PROMPT = `你是英语自测题出题老师。用户会给你�
 
 export function buildQuizMessage({ points, count, level }) {
   const list = Array.isArray(points) ? points : [];
-  const n = Math.max(1, Math.min(50, Number(count) || 10));
+  // 题量上限**必须与入口校验、与前端控件是同一个数** —— 这里写死 50 会让
+  // "选了 100 题只拿到 50 题"，且不报任何错（见 server/limits.mjs 的说明）
+  const n = Math.max(1, Math.min(MAX_DRILL_COUNT, Number(count) || 10));
   const L = levelGuide(level);
   return '请根据下面这份知识点收藏出 ' + n + ' 道自测题。\n\n' +
     '【润色等级（决定题目难度）：' + L.key + '】\n' +
@@ -339,7 +342,9 @@ export const DRILL_PROMPT = `你是英语老师，正在给一个学生做**错�
 
 export function buildDrillMessage({ points, count, level, materials }) {
   const list = Array.isArray(points) ? points : [];
-  const n = Math.max(1, Math.min(50, Number(count) || 10));
+  // 题量上限**必须与入口校验、与前端控件是同一个数** —— 这里写死 50 会让
+  // "选了 100 题只拿到 50 题"，且不报任何错（见 server/limits.mjs 的说明）
+  const n = Math.max(1, Math.min(MAX_DRILL_COUNT, Number(count) || 10));
   const L = levelGuide(level);
   const mats = String(materials || '').trim();
   return '请根据下面这份**错题清单**出 ' + n + ' 道针对性训练题。\n\n' +

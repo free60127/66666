@@ -5,6 +5,7 @@ import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { promises as dnsLookup } from 'node:dns';
 import { SYSTEM_PROMPT, buildUserMessage, EN2CN_SYSTEM_PROMPT, buildEn2CnUserMessage, MATERIAL_PROMPT, buildMaterialMessage, QUIZ_PROMPT, buildQuizMessage, DRILL_PROMPT, buildDrillMessage, AI_LEVEL_KEYS, DEFAULT_AI_LEVEL, normalizeLevel } from './prompt.mjs';
+import { MAX_DRILL_COUNT, MAX_DRILL_POINTS } from './limits.mjs';
 import { recognizeImage } from './ocr.mjs';
 import { MAX_SNAPSHOT_BYTES, createSyncStore, emptySnapshot, isValidSyncCode, newSyncCode, sanitizeSnapshot } from './sync.mjs';
 import { createUpstashKv, createFileKv } from './kv.mjs';
@@ -1108,7 +1109,10 @@ async function runQuizJob(jobId, { points, count, level, baseUrl, model, apiKey,
       }));
     if (!questions.length) throw new Error('模型没有生成有效题目，请重试');
     job.data = {
-      title: parsed.title || ('收藏知识点自测（' + questions.length + ' 题）'),
+      // 兜底标题要分模式：错误训练若沿用"收藏知识点自测"，题目页的标题就跟功能对不上
+      title: parsed.title || (drill
+        ? ('错误训练 · ' + questions.length + ' 题')
+        : ('收藏知识点自测（' + questions.length + ' 题）')),
       level: level || DEFAULT_AI_LEVEL,
       count: questions.length,
       questions,
@@ -1474,15 +1478,18 @@ const server = http.createServer(async (req, res) => {
     }
     if (p === '/api/quiz' && req.method === 'POST') {
       const body = await readBody(req, MAX_SMALL_BYTES);
+      // 上限放宽到 120：前端现在**按题量精确送点**（10 道题就送 10 条错题，
+      // 这样才知道用户做的是哪几条、下次好避开），题量上限 100 时不能再被 60 截断。
       const points = (Array.isArray(body.points) ? body.points : [])
         .map((x) => String(x || '').trim())
         .filter(Boolean)
-        .slice(0, 60);
+        .slice(0, MAX_DRILL_POINTS);
       // mode=drill：错误训练。走**同一条任务链路**（提交→轮询→试卷页），只换提示词与标题 ——
       // 另起一个端点只会把限流/僵尸任务/结果清洗这些已经验证过的东西再抄一遍。
       const drill = String(body.mode || '') === 'drill';
       if (!points.length) return json(res, 400, { error: drill ? '选中的课时里没有找到错题' : '请先收藏一些知识点，再生成自测题' });
-      const count = Math.max(1, Math.min(50, Number(body.count) || 10));
+      // 100 是产品上限（与 src/constants.js 的 MAX_DRILL_COUNT、前端 generateDrill 一致）
+      const count = Math.max(1, Math.min(MAX_DRILL_COUNT, Number(body.count) || 10));
       const level = normalizeLevel(body.level);
       const materials = drill ? String(body.materials || '').slice(0, MAX_SMALL_BYTES / 2) : '';
       const model = String(body.model || '').trim() || stat.model();

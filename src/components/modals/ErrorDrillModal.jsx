@@ -1,24 +1,37 @@
 import React, { useMemo, useRef, useState } from 'react';
 import { AlertTriangle, FileUp, Sparkles, Target, X } from 'lucide-react';
+import { MAX_DRILL_COUNT } from '../../constants.js';
 
 /**
  * 错误训练：挑几课 → 用这几课里**实际犯过的错**出题。
  *
- * 两个刻意的设计：
+ * 三个刻意的设计：
  *  1) **默认帮你勾好** —— 按"错得最多的前几课"预选。一进来就是可用的状态，
  *     想改再改；让用户从 96 课里自己挑是本末倒置。
  *  2) **没记录的课不装作能出题** —— 历史只有最近 20 条，更早练过的课可能已经查不到结果。
  *     这种课单独列在下半部分，明说"找不到作业记录"，并给一条出路：上传该课 PDF/图片。
  *     给个能点但点了没用的按钮，比不给更糟。
+ *  3) **出过的错题会避开** —— 同一批错题第二次出题时优先挑没出过的，
+ *     所以这里要把"这次 N 道里有几道是没练过的"如实说出来；
+ *     不讲的话用户只会觉得"怎么又出一样的"，反而不信任这个功能。
  */
 export default function ErrorDrillModal({
   rows, selected, onToggle, onSelectTop, onSelectAll, onClear,
   materials, onUploadMaterial, onRemoveMaterial, busy, tip, count, onCount,
-  onStart, onClose, hasKey,
+  onStart, onClose, hasKey, plan, modalRef,
 }) {
   const fileRef = useRef(null);
   const [uploadFor, setUploadFor] = useState(null);
   const [localErr, setLocalErr] = useState('');
+  // 题量：预设档 + 自定义。自定义态是纯 UI 的，没必要放到 App 里
+  const [customCount, setCustomCount] = useState(() => ![5, 10, 15, 20, 30, 50, MAX_DRILL_COUNT].includes(count));
+
+  /** 题量输入：允许 1..MAX_DRILL_COUNT；非法输入不写回（用户删空输入框时不该被强行变成 1） */
+  const applyCustom = (raw) => {
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n < 1) return;
+    onCount(Math.min(MAX_DRILL_COUNT, Math.round(n)));
+  };
 
   const chosen = useMemo(() => rows.filter((r) => selected.has(r.key)), [rows, selected]);
   const stats = useMemo(() => {
@@ -48,7 +61,7 @@ export default function ErrorDrillModal({
 
   return (
     <div className="modal-mask" onClick={onClose}>
-      <div className="modal drill-modal" role="dialog" aria-modal="true" aria-label="错误训练" onClick={(e) => e.stopPropagation()}>
+      <div className="modal drill-modal" ref={modalRef} role="dialog" aria-modal="true" aria-label="错误训练" onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
           <h2><Target size={16} />错误训练</h2>
           <button className="icon-btn" onClick={onClose} aria-label="关闭"><X size={16} /></button>
@@ -112,6 +125,18 @@ export default function ErrorDrillModal({
                 选中的错误类型：{stats.cats.map(([c, n]) => `${c}×${n}`).join('、')}
               </p>
             ) : null}
+
+            {/* 去重的效果要看得见：用户第二次点进来时，这里会告诉他"7 道没练过、3 道复习"，
+                否则他只会以为"怎么又出一样的题"。 */}
+            {plan && plan.points.length ? (
+              <p className="drill-plan">
+                这次 <b>{plan.points.length}</b> 道：
+                {plan.reused
+                  ? <>其中 <b>{plan.fresh}</b> 道是没练过的错题、<b>{plan.reused}</b> 道回来复习（出过的先让一让）</>
+                  : <>全部是<b>还没练过</b>的错题</>}
+                {stats.errors > plan.points.length ? <>· 本库还有 {stats.errors - plan.points.length} 处待练</> : null}
+              </p>
+            ) : null}
           </>
         )}
 
@@ -160,9 +185,28 @@ export default function ErrorDrillModal({
         <div className="modal-actions">
           <label className="drill-count-pick">
             题量
-            <select className="ocr-mode" value={count} onChange={(e) => onCount(Number(e.target.value))}>
-              {[5, 10, 15, 20].map((n) => <option key={n} value={n}>{n} 题</option>)}
+            <select
+              className="ocr-mode"
+              value={customCount ? 'custom' : String(count)}
+              onChange={(e) => {
+                if (e.target.value === 'custom') { setCustomCount(true); return; }
+                setCustomCount(false);
+                onCount(Number(e.target.value));
+              }}
+            >
+              {[5, 10, 15, 20, 30, 50, MAX_DRILL_COUNT].map((n) => <option key={n} value={n}>{n} 题</option>)}
+              <option value="custom">自定义…</option>
             </select>
+            {customCount ? (
+              <input
+                className="drill-count-input"
+                type="number" inputMode="numeric" min="1" max={MAX_DRILL_COUNT} step="1"
+                value={count}
+                aria-label={`自定义题量（1-${MAX_DRILL_COUNT}）`}
+                onChange={(e) => applyCustom(e.target.value)}
+                onBlur={(e) => { if (Number(e.target.value) > MAX_DRILL_COUNT) onCount(MAX_DRILL_COUNT); }}
+              />
+            ) : null}
           </label>
           <button className="ghost-btn" onClick={onClose}>取消</button>
           <button className="primary-btn" disabled={busy || !chosen.length || !stats.errors && !materials.length}
