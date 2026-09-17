@@ -165,10 +165,21 @@ console.log('\n' + '='.repeat(62));
   const bUsed = {};
   pickDrillPoints(one, { count: 10 }).ids.forEach((id, i) => { bUsed[id] = 1000 + i; });
   const b2 = buildLocalDrill(one, 10, { used: bUsed });
-  const b1q = new Set(b1.questions.map((q) => q.question));
-  check('兜底卷也避开出过的题（第二次只有 3 道与第一次重复）',
-    b2.questions.filter((q) => b1q.has(q.question)).length === 3,
-    `重复 ${b2.questions.filter((q) => b1q.has(q.question)).length} 道`);
+  // 按**答案**（= 这条错题的"正确写法"，每条错题唯一）比，而不是按题干文字：
+  // 兜底卷现在会在「改错 / 选择」之间交替，同一条错题第二次可能换个题型出现，
+  // 题干文字自然不同 —— 但"考的是不是同一条错题"要看答案。
+  const b1a = new Set(b1.questions.map((q) => q.answer));
+  check('兜底卷也避开出过的题（第二次只有 3 条错题与第一次重复）',
+    b2.questions.filter((q) => b1a.has(q.answer)).length === 3,
+    `重复 ${b2.questions.filter((q) => b1a.has(q.answer)).length} 条`);
+  check('兜底卷题型有变化（不再全是"改错"）',
+    new Set(b1.questions.map((q) => q.type)).size >= 2,
+    b1.questions.map((q) => q.type).join('/'));
+  check('兜底卷的选择题有 4 个选项、答案在其中',
+    (() => {
+      const c = b1.questions.find((q) => q.type === '选择');
+      return c && c.options.length === 4 && c.options.some((o) => o.includes(c.answer));
+    })(), '');
 
   check('缺失 from/to 的错题不进改错卷（没法出题）',
     buildLocalDrill([{ key: 'k', name: 'K', errors: [{ cat: '时态', from: '', to: '' }], improves: [] }], 5).questions.length === 0);

@@ -247,9 +247,18 @@ async function runDevice(label, ctxOpts) {
   {
     await closeAnyModal(page);
     await ensureSidebarClosed(page);
-    const favBtn = page.locator('button', { hasText: /收藏夹/ }).first();
-    if (await favBtn.count()) {
+    // 手机端「收藏夹」已经收进右上角 ⋮ 菜单，桌面端仍是平铺按钮 —— 两条路都要能走
+    const favBtn = page.locator('.topbar .ghost-btn', { hasText: /收藏夹/ }).first();
+    const favVisible = (await favBtn.count()) > 0 && await favBtn.isVisible().catch(() => false);
+    if (favVisible) {
       await favBtn.click();
+    } else {
+      await page.click('.more-btn');
+      await sleep(300);
+      await page.locator('.more-item').filter({ hasText: '收藏夹' }).first().click();
+    }
+    {
+      await page.waitForSelector('.modal-mask', { timeout: 5000 }).catch(() => {});
       await page.waitForSelector('.modal-mask', { timeout: 5000 }).catch(() => {});
       const m = await page.evaluate(() => {
         const mask = document.querySelector('.modal-mask');
@@ -312,9 +321,18 @@ async function runDevice(label, ctxOpts) {
     await sleep(400);
     const before = await readPos();
     // 程序化点击：locator.click() 会先把按钮滚进视口，那会污染"背景位置"的测量
+    // 全程程序化点击（locator.click 会滚动进视口，污染"背景位置"的测量）：
+    // 手机端先开 ⋮ 菜单再点菜单项，桌面端直接点顶栏按钮。
     await page.evaluate(() => {
+      const more = document.querySelector('.more-btn');
+      if (more && more.getBoundingClientRect().width > 0) { more.click(); return; }
       const b = [...document.querySelectorAll('button')].find((x) => /收藏夹/.test(x.textContent));
       if (b) b.click();
+    });
+    await sleep(250);
+    await page.evaluate(() => {
+      const item = [...document.querySelectorAll('.more-item')].find((x) => /收藏夹/.test(x.textContent));
+      if (item) item.click();
     });
     await page.waitForSelector('.modal-mask', { timeout: 5000 }).catch(() => {});
     await sleep(450);

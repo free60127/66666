@@ -40,6 +40,7 @@ import FavoritesModal from './components/modals/FavoritesModal.jsx'
 import ErrorDrillModal from './components/modals/ErrorDrillModal.jsx'
 import HistoryModal from './components/modals/HistoryModal.jsx'
 import BackToTop from './components/BackToTop.jsx'
+import MoreMenu from './components/MoreMenu.jsx'
 import LessonEditModal from './components/modals/LessonEditModal.jsx'
 const AI_LEVELS = ['小初', '高考英语', '四六级', '考研/专四', '专八'];
 const DEFAULT_AI_LEVEL = '四六级';
@@ -1023,6 +1024,28 @@ function App() {
           <button className={'ghost-btn due-btn' + (favDueCount ? ' has-due' : '')} onClick={startReview} title="按间隔重复安排：打开今天该复习的收藏">
             <Flame size={15} />今日待复习{favDueCount ? ` (${favDueCount})` : ''}
           </button>
+          {/* 手机端把上面这些次要入口收进 ⋮（桌面端由 CSS 隐藏本组件，一切照旧） */}
+          <MoreMenu
+            view={view}
+            historyCount={historyList.length}
+            favCount={favorites.length}
+            dueCount={favDueCount}
+            directionName={directionMeta(dir).name}
+            onToggleDirection={() => chooseDirection(dir === 'en2cn' ? 'cn2en' : 'en2cn')}
+            polishLevel={polishLevel} levels={AI_LEVELS}
+            onPolishLevel={(lv) => { setPolishLevel(lv); safeSet(LEVEL_KEY, lv); }}
+            ocrMode={ocrMode} onOcrMode={setOcrMode}
+            onBackToEditor={backToEditor}
+            hasQuiz={Boolean(quizData)}
+            onOpenQuiz={() => setView('quiz')}
+            onOpenHistory={openHistoryModal}
+            onOpenFavs={() => { setFavTip(''); setFavReview(null); setFavOpen(true); }}
+            onStartReview={startReview}
+            onOpenSettings={openSettings}
+            onOpenBackup={openBackup}
+            info={status ? (hasAiKey ? 'AI 已配置 · ' + status.model : '未配置 API Key') : '后端未连接'}
+            infoSub={status?.corpusLessons ? status.corpusLessons + ' 课可用' : ''}
+          />
         </header>
         {favTip ? <div className="fav-tip" role="status" aria-live="polite">{favTip}</div> : null}
         {toast ? <div className="fav-tip toast" role="status" aria-live="polite">{toast}</div> : null}

@@ -111,6 +111,19 @@ const watchErrors = (page) => {
   return errs;
 };
 
+/**
+ * 点顶栏上的次要入口（历史结果 / 收藏夹 / 今日待复习）。
+ * 桌面端这些按钮平铺在顶栏；手机端已经收进右上角的 ⋮ 菜单 —— 两种情况都要能点到。
+ */
+async function openTopAction(page, label) {
+  const direct = page.locator('.topbar .ghost-btn, .topbar .due-btn').filter({ hasText: label }).first();
+  if (await direct.count() && await direct.isVisible().catch(() => false)) { await direct.click(); return 'topbar'; }
+  await page.click('.more-btn');
+  await sleep(300);
+  await page.locator('.more-item').filter({ hasText: label }).first().click();
+  return 'more-menu';
+}
+
 /** 收起手机端浮层侧栏（它会盖住顶栏按钮，点别的东西之前必须先收起来） */
 async function ensureSidebarClosed(page) {
   const open = await page.evaluate(() => {
@@ -430,6 +443,96 @@ async function mobileJourney() {
   {
     await openSidebar(page);
     await sleep(400);
+
+    /* ---- 手机端顶栏瘦身：次要入口收进 ⋮ ----
+     原来四个按钮 + 状态条换行后占掉 200px（约 1/4 屏幕）。 */
+  {
+    // 侧栏浮层开着时，它的遮罩会挡住顶栏（这是应用本身的正确行为），先收起来再点 ⋮
+    await ensureSidebarClosed(page);
+    const bar = await page.evaluate(() => {
+      const t = document.querySelector('.topbar');
+      const more = document.querySelector('.more-btn');
+      const ghost = [...document.querySelectorAll('.topbar .ghost-btn, .topbar .due-btn')]
+        .filter((b) => b.getBoundingClientRect().width > 0).length;
+      return { h: Math.round(t.getBoundingClientRect().height), more: Boolean(more && more.getBoundingClientRect().width > 0), ghost };
+    });
+    ok('[手机] 顶栏次要入口已收进 ⋮（顶栏明显变矮）', bar.more && bar.ghost === 0 && bar.h <= 120,
+      `顶栏高 ${bar.h}px · 平铺按钮 ${bar.ghost} 个 · ⋮ 可见=${bar.more}`);
+    await page.click('.more-btn');
+    await sleep(300);
+    const menu = await page.evaluate(() => {
+      const m = document.querySelector('.more-menu');
+      if (!m) return null;
+      const items = [...m.querySelectorAll('.more-item')].map((b) => b.innerText.split(String.fromCharCode(10)).join(' ').trim());
+      const r = m.getBoundingClientRect();
+      return { items, w: Math.round(r.width), left: Math.round(r.left), right: Math.round(r.right), vw: window.innerWidth, fields: [...m.querySelectorAll('.more-field span')].map((x) => x.innerText.trim()) };
+    });
+    ok('[手机] ⋮ 菜单能打开，含历史/收藏/复习/设置/备份',
+      Boolean(menu) && ['历史结果', '收藏夹', '今日待复习', 'AI 设置', '备份'].every((k) => menu.items.some((t) => t.includes(k))),
+      menu ? menu.items.join(' | ').slice(0, 110) : '菜单没打开');
+    ok('[手机] ⋮ 菜单不超出屏幕', Boolean(menu) && menu.left >= 0 && menu.right <= menu.vw + 1,
+      menu ? `菜单 ${menu.w}px 位置 ${menu.left}→${menu.right}，视口 ${menu.vw}` : '');
+    ok('[手机] 低频设置（润色等级 / 识别模式）也挪进了 ⋮',
+      Boolean(menu) && menu.fields.includes('润色等级') && menu.fields.includes('识别模式'),
+      menu ? menu.fields.join(' / ') : '');
+    // 点一下"练习方向"这一项：切方向并自动收起菜单
+    const before = await page.evaluate(() => document.querySelector('.dir-tabs button.active')?.innerText.trim() || '');
+    await page.locator('.more-item').filter({ hasText: '练习方向' }).first().click();
+    await sleep(400);
+    const after = await page.evaluate(() => ({
+      dir: document.querySelector('.dir-tabs button.active')?.innerText.trim() || '',
+      menuOpen: Boolean(document.querySelector('.more-menu')),
+    }));
+    ok('[手机] ⋮ 里能切练习方向，且点完自动收起菜单',
+      after.dir !== before && !after.menuOpen, `${before} → ${after.dir}，菜单还开着=${after.menuOpen}`);
+    // 切回来，免得影响后面的断言（后面的流程按汉译英写的）
+    await page.click('.more-btn'); await sleep(250);
+    await page.locator('.more-item').filter({ hasText: '练习方向' }).first().click();
+    await sleep(400);
+    // 上面为了点 ⋮ 把侧栏收起来了，这里再打开 —— 紧接着的几条断言都要求侧栏是展开的
+    await openSidebar(page);
+    await sleep(400);
+  }
+
+  /* ---- 课文库的 9 个库标签必须在手机上真的看得见 ----
+     上一轮把「9 个库排 3 行」改成「一排横向滑动」省高度时，把它们整个搞丢过一次
+     （用户截图：课文库下面是空的）。这条断言就是那次回归的守卫。 */
+    {
+    const tabs = await page.evaluate(() => {
+      const btns = [...document.querySelectorAll('.book-tabs button')];
+      const el = document.querySelector('.book-tabs');
+      const box = el ? el.getBoundingClientRect() : null;
+      const first = btns[0] ? btns[0].getBoundingClientRect() : null;
+      return {
+        n: btns.length,
+        visible: btns.filter((b) => { const r = b.getBoundingClientRect(); return r.width > 0 && r.height > 0; }).length,
+        boxW: box ? Math.round(box.width) : -1,
+        boxH: box ? Math.round(box.height) : -1,
+        scrollW: el ? el.scrollWidth : -1,
+        firstLabel: btns[0] ? btns[0].innerText.trim() : '',
+        firstW: first ? Math.round(first.width) : -1,
+      };
+    });
+    ok('[手机] 课文库的 9 个库标签可见（否则手机上切不了库）',
+      tabs.n >= 9 && tabs.visible === tabs.n && tabs.boxH > 0 && tabs.firstW > 0,
+      `共 ${tabs.n} 个、可见 ${tabs.visible} 个 · 容器 ${tabs.boxW}×${tabs.boxH} · scrollWidth=${tabs.scrollW} · 首个"${tabs.firstLabel}"宽 ${tabs.firstW}`);
+    }
+
+
+    /* 侧栏里**只能有一个滚动区**：曾经 .sidebar 和 .side-section 都设了 overflow-y:auto，
+       用户在窄屏上看到两三条滚动条叠在一起（截图反馈"太丑了"）。 */
+    const scrollables = await page.evaluate(() => {
+      const out = [];
+      document.querySelectorAll('.sidebar, .sidebar *').forEach((el) => {
+        const cs = getComputedStyle(el);
+        const scrollable = /auto|scroll/.test(cs.overflowY) && el.scrollHeight > el.clientHeight + 2;
+        if (scrollable) out.push((el.className || el.tagName).toString().slice(0, 30));
+      });
+      return out;
+    });
+    ok('[手机] 侧栏里只有一条滚动条（不叠滚动条）', scrollables.length <= 1,
+      scrollables.length ? `可滚动的有 ${scrollables.length} 个：${scrollables.join(' / ')}` : '无（内容没超，也是一种正常状态）');
+
     const geom = await page.evaluate(() => {
       const list = document.querySelector('.lesson-list');
       const sec = document.querySelector('.side-section');
@@ -505,7 +608,7 @@ async function mobileJourney() {
 
   // 矮视口（≈软键盘弹出后剩下的高度）：弹窗底部按钮要么在视口内，要么内部能滚到
   await page.setViewportSize({ width: 390, height: 420 });
-  await page.click('.ghost-btn >> text=收藏夹').catch(() => {});
+  await openTopAction(page, '收藏夹').catch(() => {});
   await sleep(400);
   const reach = await page.evaluate(() => {
     const m = document.querySelector('.modal');
@@ -552,7 +655,7 @@ async function mobileJourney() {
       `scrollWidth=${narrow.doc}/${W2}` + (narrow.bad.length ? ' 越界: ' + narrow.bad.join(', ') : ''));
     const bar = await barOn();
     ok('[手机 320px] 顶栏不横向溢出', Boolean(bar) && !bar.overflow, bar ? `顶栏高 ${bar.h}px（占 568 视口 ${Math.round(bar.h / 568 * 100)}%）溢出=${bar.overflow}` : '没有顶栏');
-    await page.click('.ghost-btn >> text=收藏夹').catch(() => {});
+    await openTopAction(page, '收藏夹').catch(() => {});
     await sleep(400);
     const modalFit = await page.evaluate(() => {
       const m = document.querySelector('.modal');

@@ -25,7 +25,10 @@ textarea, input { font: inherit; }
 .sheet-glance, .score-comment, .match-text, .ocr-note { overflow-wrap: anywhere; }
 
 .app { display: flex; height: 100%; }
-.sidebar { width: 268px; min-width: 268px; background: #10222e; color: #dfe9f0; display: flex; flex-direction: column; padding: 16px 12px; gap: 14px; overflow-y: auto; transition: margin-left .25s ease; }
+/* ⚠️ 侧栏本体**不滚动**：滚动交给 .side-section（唯一滚动区）。
+   两边都设 overflow-y:auto 会叠出两条滚动条（用户截图反馈"叠在一起太丑"），
+   而且在窄屏上还会冒出一条横向的。overflow: hidden 也顺手挡掉横向溢出。 */
+.sidebar { width: 268px; min-width: 268px; background: #10222e; color: #dfe9f0; display: flex; flex-direction: column; padding: 16px 12px; gap: 14px; overflow: hidden; transition: margin-left .25s ease; }
 .sidebar.collapsed { margin-left: -268px; }
 .sidebar-close { display: none; align-items: center; justify-content: center; padding: 8px; border-radius: 8px; color: #b9cad6; background: rgba(255,255,255,.08); }
 .sidebar-close:hover { background: rgba(255,255,255,.16); color: #fff; }
@@ -43,24 +46,41 @@ textarea, input { font: inherit; }
 .ghost-btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 11px; border: 1px solid var(--line); border-radius: 9px; color: var(--muted); background: #fff; }
 .ghost-btn:hover { color: var(--text); border-color: #cdd5de; }
 .sidebar .ghost-btn { background: transparent; border-color: #3a4f5e; color: #b9cad6; width: 100%; justify-content: center; }
-.side-section { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow-y: auto; }
+/* 整个侧栏里**只有这一个滚动区**（课文库 / 搜索 / 连续天数 / 错误训练 / 进度 / 全部课时
+   都在里面一起滚），底部「AI 设置 / 备份」是它的兄弟，所以常驻不动。
+   滚动条隐藏：这里本来空间就窄，再叠一条滚动条既占宽度又是纯视觉噪音。
+   隐藏的是**滚动条的样式**，不影响滚轮 / 触摸滑动 / 键盘。 */
+.side-section {
+  flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column;
+  overflow-y: auto; overflow-x: hidden;
+  scrollbar-width: none; -ms-overflow-style: none;
+}
+.side-section::-webkit-scrollbar { width: 0; height: 0; display: none; }
 .side-title { font-size: 11px; letter-spacing: .12em; color: #7f99aa; padding: 8px 6px; }
 /* 内置库：从 4 册扩到 9 个（多了四级/六级/英语一/英语二/专八），
    固定 4 列会让「英语（一）」这种长名字换行、格子高矮不齐，所以改成自适应列宽。 */
-.book-tabs { display: grid; grid-template-columns: repeat(auto-fit, minmax(64px, 1fr)); gap: 5px; margin: 0 4px 8px; }
+/* 课文库标签：**用最保守的多行换行网格**，不要横向滚动那一套。
+   曾经为了省高度改成 `grid-auto-flow: column` 的一排横滑，用户手机上整个看不见了
+   （我这边 Chromium 量着正常 9/9，所以怀疑是国产 OEM 浏览器对隐式网格列支持不好）——
+   这类"只有别人手机上坏"的问题不值得赌，换行排布是所有人都能看见的。
+   flex: 0 0 auto 是防挤压：它是 .side-section（flex 列）的子项，
+   侧栏空间紧张时默认会被压扁（课时列表就被压成过 0 高）。 */
+.book-tabs { display: grid; grid-template-columns: repeat(auto-fit, minmax(64px, 1fr)); gap: 5px; margin: 0 4px 8px; flex: 0 0 auto; }
 .book-tabs button { border: 1px solid #3a4f5e; border-radius: 7px; color: #a9bdc9; padding: 6px 4px; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .book-tabs button.active { background: #2d81d7; border-color: #2d81d7; color: #fff; }
 /* 还没有语料的库：灰一点 + 虚线边，一眼看出"这里还没内容"而不是"坏了" */
 .book-tabs button.empty { border-style: dashed; color: #6f8b9c; }
 .book-tabs button.empty.active { color: #fff; }
-/* 课时列表：**绝不允许被上面的区块挤成 0 高**。
-   flex:1 让它吃掉剩余空间（正常情况它填满侧栏下半部分）；
-   min-height 是保命的那条 —— 窗口一矮，"课文库 / 我的课文库 / 搜索 / 连续天数 /
-   错误训练 / 本册进度"加起来就超过侧栏高度，而它是唯一能被压扁的 flex 子项，
-   于是被挤到 0px：用户看到进度条下面一片空白，滑也滑不动（没有任何容器在溢出，
-   连滚动条都不会出现）。实测 390×640 与 1360×560 都正好压到 0。
-   真到了连 min-height 都放不下，由 .side-section 自己滚动兜底。 */
-.lesson-list { flex: 1 1 auto; min-height: 132px; overflow-y: auto; display: flex; flex-direction: column; gap: 3px; }
+/* 课时列表：**自己不滚动、也绝不允许被上面的区块挤成 0 高**。
+   曾经它既滚动又被挤：窗口一矮，"课文库 / 我的课文库 / 搜索 / 连续天数 / 错误训练 /
+   本册进度"加起来就超过侧栏高度，而它是唯一能被压扁的 flex 子项，于是被挤到 0px ——
+   用户看到进度条下面一片空白，滑也滑不动（没有任何容器在溢出，连滚动条都不出现）。
+   实测 390×640 与 1360×560 都正好压到 0。
+   现在改成**自然高度**：它有多长就多长，由 .side-section 统一滚动。
+   好处是侧栏里只剩一条滚动条，也不会出现"列表滚到底、外面还有一截"的嵌套手感。 */
+.lesson-list { flex: 0 0 auto; min-height: 0; overflow: visible; display: flex; flex-direction: column; gap: 3px; }
+/* 长标题 + 右侧星标/按钮一起挤时会让整行超宽 → 冒横向滚动条。给它一个可压缩的下限。 */
+.lesson-row, .lesson-item { min-width: 0; }
 .lesson-item { display: flex; align-items: center; gap: 8px; padding: 7px 8px; border-radius: 8px; color: #c7d6df; text-align: left; width: 100%; }
 .lesson-item:hover { background: rgba(255,255,255,.06); }
 .lesson-item.active { background: rgba(66,150,255,.18); color: #fff; }
@@ -233,14 +253,9 @@ mark.hl { background: #ffe3e3; color: inherit; padding: 0 2px; border-radius: 2p
      底部「AI 设置 / 备份」仍然常驻（它是 .side-section 的兄弟），
      课文库 / 搜索 / 连续天数 / 错误训练 / 进度 / 全部课时都能滚到。
      overscroll-behavior: contain 防止滚到底后把后面的正文带着一起滚。 */
-  .side-section { overflow-y: auto; overscroll-behavior: contain; }
-  .lesson-list { flex: none; min-height: 0; overflow: visible; }
+  .side-section { overscroll-behavior: contain; }   /* 滚到底不要把后面的正文带着一起滚 */
 
-  /* 9 个课文库在手机上排 3 行、吃掉 106px 高度 —— 改成一排横向滑动，
-     省下来的高度直接给课时列表（这正是用户抱怨"看不到课时"的来源之一）。 */
-  .book-tabs { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: max-content; overflow-x: auto; scrollbar-width: none; }
-  .book-tabs::-webkit-scrollbar { display: none; }
-  .book-tabs button { padding: 6px 11px; }
+  /* 课时列表不再自己滚（整段一起滚），见上面的说明 */
 
   /* 手机端改为整页滚动：顶栏（历史结果 / 收藏夹 / 今日待复习 / 状态条）不再常驻屏幕顶部，
      而是随内容一起滚走 —— 全屏壳布局下它要占掉 4 行、约 1/4 屏幕，视觉上很挤。
@@ -257,7 +272,20 @@ mark.hl { background: #ffe3e3; color: inherit; padding: 0 2px; border-radius: 2p
   /* 顶部栏：允许换行，状态条独占一行，避免按钮被挤出屏幕 */
   .topbar { flex-wrap: wrap; height: auto; min-height: 0; padding: 8px 12px; gap: 8px; }
 
-  /* ---------- 安全区（刘海 / 灵动岛 / 横屏挖孔 / home indicator）----------
+    /* ---------- 手机端「更多」菜单（⋮）----------
+     顶栏原来平铺 4 个按钮 + 状态条，换行后占掉 200px（约 1/4 屏幕，实测 390×844 与 320×568）；
+     侧栏底部还并排着「AI 设置 / 备份」。现在次要入口统一收进 ⋮，
+     低频设置（润色等级 / 识别模式）也从正文里挪进去 —— 这正是用户说的"主页杂七杂八"。 */
+  /* ⚠️ 必须写成 .topbar .more-wrap（0,2,0）：基础规则 `.more-wrap{display:none}` 在文件末尾，
+     同特异性下**后写的赢**，直接写 .more-wrap 会被它盖掉 —— ⋮ 按钮根本不出现。
+     这与之前 .fav-tip.toast 被拉伸那个坑是同一类（见 css-media-override-specificity）。 */
+  .topbar .more-wrap { display: block; margin-left: auto; }
+  .topbar .ghost-btn, .topbar .due-btn { display: none; }
+  .side-footer { display: none; }
+  /* 低频设置挪进菜单后，正文里这两个下拉就不显示了（桌面端照旧显示） */
+  .upload-strip .ocr-mode-wrap { display: none; }
+
+/* ---------- 安全区（刘海 / 灵动岛 / 横屏挖孔 / home indicator）----------
      index.html 的 viewport 现在带 viewport-fit=cover，内容会铺满整屏，
      所以四边必须用 env() 把系统区域让回来 —— 否则顶部内容被状态栏盖住、
      底部按钮被 home indicator 压住。这正是当初那几处 env() 内边距想解决的事，
@@ -718,10 +746,10 @@ mark.hl { background: #ffe3e3; color: inherit; padding: 0 2px; border-radius: 2p
    且侧栏 scrollHeight === clientHeight，连滚动条都不出现，条目跑到屏幕外点不到。
    对策：矮视口下让子块保持自然高度、由侧栏整体滚动，并给课表保底高度。 */
 @media (max-height: 520px) {
-  .sidebar { overflow-y: auto; }
-  .side-section { flex: 0 0 auto; }
-  .lesson-list { min-height: 96px; max-height: 46vh; }
-  .my-libs { max-height: 88px; overflow-y: auto; }
+  /* 这里原来自己又开了一条滚动条（.sidebar{overflow-y:auto} + .lesson-list{max-height}），
+     和基础规则叠在一起就是用户截图里那两条挤在一起的滚动条。
+     现在"侧栏只有一个滚动区、课表绝不被压成 0 高"已由 .side-section / .lesson-list 的基础规则保证，
+     这一块只留矮视口下的紧凑化。 */
   .brand { padding: 2px 6px; }
   .brand span { display: none; }
   .side-title { padding: 4px 6px; }
@@ -954,3 +982,32 @@ mark.hl { background: #ffe3e3; color: inherit; padding: 0 2px; border-radius: 2p
   .drill-row { flex-wrap: wrap; }
   .drill-cats { width: 100%; }
 }
+
+/* ---------- 「更多」菜单（手机端）----------
+   桌面端整体隐藏：那边屏幕够宽，平铺更好用，不改动既有习惯。 */
+.more-wrap { position: relative; display: none; }
+.more-btn { color: var(--muted); }
+.more-menu {
+  position: absolute; right: 0; top: calc(100% + 8px); z-index: 60;
+  min-width: 232px; max-width: calc(100vw - 24px);
+  background: #fff; border: 1px solid var(--line); border-radius: 12px;
+  box-shadow: 0 14px 34px rgba(16, 34, 46, .18);
+  padding: 6px; text-align: left;
+}
+.more-item {
+  display: flex; align-items: center; gap: 9px; width: 100%;
+  padding: 10px 10px; border-radius: 9px;
+  font-size: 14px; color: var(--text); background: none; border: none; cursor: pointer; text-align: left;
+}
+.more-item:hover { background: #f2f5f8; }
+.more-item svg { color: var(--muted); flex-shrink: 0; }
+.more-count { margin-left: auto; font-size: 12.5px; color: var(--muted); }
+.more-sep { height: 1px; background: var(--line); margin: 5px 6px; }
+.more-field {
+  display: flex; align-items: center; gap: 9px; padding: 6px 10px;
+  font-size: 13px; color: var(--muted); margin: 0;
+}
+.more-field > span { flex-shrink: 0; }
+.more-field .ocr-mode { margin-left: auto; }
+.more-info { padding: 8px 10px 6px; font-size: 12px; line-height: 1.7; color: var(--muted); }
+.more-dot { display: inline-block; width: 7px; height: 7px; border-radius: 999px; background: var(--green); margin-right: 6px; }

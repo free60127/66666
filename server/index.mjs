@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { promises as dnsLookup } from 'node:dns';
 import { SYSTEM_PROMPT, buildUserMessage, EN2CN_SYSTEM_PROMPT, buildEn2CnUserMessage, MATERIAL_PROMPT, buildMaterialMessage, QUIZ_PROMPT, buildQuizMessage, DRILL_PROMPT, buildDrillMessage, AI_LEVEL_KEYS, DEFAULT_AI_LEVEL, normalizeLevel } from './prompt.mjs';
 import { MAX_DRILL_COUNT, MAX_DRILL_POINTS } from './limits.mjs';
+import { sanitizeQuestions } from './questionShape.mjs';
 import { recognizeImage } from './ocr.mjs';
 import { MAX_SNAPSHOT_BYTES, createSyncStore, emptySnapshot, isValidSyncCode, newSyncCode, sanitizeSnapshot } from './sync.mjs';
 import { createUpstashKv, createFileKv } from './kv.mjs';
@@ -978,7 +979,7 @@ async function runQuizJob(jobId, { points, count, level, baseUrl, model, apiKey,
     } catch (e) {
       throw new Error('模型返回不是有效 JSON，请重试或换模型');
     }
-    const questions = (Array.isArray(parsed.questions) ? parsed.questions : [])
+    const rawQuestions = (Array.isArray(parsed.questions) ? parsed.questions : [])
       .filter((q) => q && (q.question || q.answer))
       .map((q) => ({
         type: String(q.type || '问答'),
@@ -988,6 +989,13 @@ async function runQuizJob(jobId, { points, count, level, baseUrl, model, apiKey,
         explanation: String(q.explanation || ''),
         source: String(q.source || ''),
       }));
+    // 形状清洗（见 server/questionShape.mjs）：丢掉"中文提示被挖空"和"同一句话出两道题"的题。
+    // 这两类毛病只在真模型上偶发，提示词拦不住 —— 用户实测反馈过（填空把中文挖了、
+    // 同一句先出填空再出改错）。drill 才启用这两条：自测题的题干本来就是知识点，不适用。
+    const { questions, dropped } = sanitizeQuestions(rawQuestions, { count, drill });
+    if (dropped.chineseBlank || dropped.duplicate || dropped.incomplete) {
+      console.warn(`[quiz${drill ? '/drill' : ''}] 丢弃题目：中文被挖空 ${dropped.chineseBlank} 条 · 同句重复 ${dropped.duplicate} 条 · 不完整 ${dropped.incomplete} 条`);
+    }
     if (!questions.length) throw new Error('模型没有生成有效题目，请重试');
     job.data = {
       // 兜底标题要分模式：错误训练若沿用"收藏知识点自测"，题目页的标题就跟功能对不上

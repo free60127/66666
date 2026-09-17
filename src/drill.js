@@ -275,20 +275,41 @@ export function materialsToText(materials) {
  * （AI 那条链路不受影响：模型可以围绕同一个错点换角度出不同的题。）
  */
 export function buildLocalDrill(rows, count = 10, { used = {} } = {}) {
-  const questions = [];
-  for (const { row: r, e } of pickDrillItems(rows, { count, used })) {
-    if (!e.from || !e.to) continue;              // 没有明确"改成什么"的没法出改错题
+  const picked = pickDrillItems(rows, { count, used }).filter(({ e }) => e.from && e.to);
+  // 干扰项池：拿别人的"正确写法"当选项 —— 它们是**同一批错题里的真实表达**，
+  // 比随机凑词更像回事，且天然跟这个人的水平贴。
+  const pool = [...new Set(picked.map((x) => String(x.e.to || '').trim()).filter(Boolean))];
+  const questions = picked.map(({ row: r, e }, i) => {
+    const cat = e.cat ? '·' + e.cat : '';
+    const why = e.why || `${e.cat || '错误'}：应改为「${e.to}」`;
+    // 题型交替：全出"改错"十道会很单调（用户要求"题型灵活一点"）。
+    // 这里只用**能自动判分**的两种：改错（写出来）与选择（选出正确表达）。
+    if (i % 2 === 1 && pool.length >= 3) {
+      const wrong = pool.filter((x) => x !== e.to).slice(0, 3);
+      const options = [e.to, ...wrong].sort((a, b) => (a < b ? -1 : 1));   // 稳定顺序：同一次生成的卷子可复现
+      return {
+        type: '选择',
+        question: `选择正确的表达（${r.name}${cat}）：原句说的是「${e.cn || '（无中文）'}」，`
+          + `我写的是「${e.from}」。下面哪个才是对的？`,
+        options: options.map((o, k) => String.fromCharCode(65 + k) + '. ' + o),
+        answer: e.to,
+        explanation: why,
+        source: r.name,
+      };
+    }
     // ⚠️ 字段名必须与自测题那条链路**完全一致**（question / 中文题型 / source），
     //    否则试卷页、复制、导出 PDF 全都渲染不出来 —— 两个形状各写一份必然漂移。
-    questions.push({
+    return {
       type: '改错',
-      question: `改错（${r.name}${e.cat ? '·' + e.cat : ''}）${e.cn ? '：原句说的是「' + e.cn + '」' : ''}\n我写的是：${e.from}\n请改正。`,
+      question: `改错（${r.name}${cat}）${e.cn ? '：原句说的是「' + e.cn + '」' : ''}
+我写的是：${e.from}
+请改正。`,
       options: [],
       answer: e.to,
-      explanation: e.why || `${e.cat || '错误'}：应改为「${e.to}」`,
+      explanation: why,
       source: r.name,
-    });
-  }
+    };
+  });
   return {
     // 标题/字段与 buildLocalQuiz 对齐（同一个试卷页直接复用）
     title: '错误训练 · ' + questions.length + ' 题（本地生成）',
@@ -297,3 +318,4 @@ export function buildLocalDrill(rows, count = 10, { used = {} } = {}) {
     questions,
   };
 }
+
