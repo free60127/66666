@@ -2,7 +2,13 @@
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      viewport-fit=cover 是必须的：下面声明了 apple-mobile-web-app-status-bar-style=black-translucent
+      （加到主屏后内容要铺满整屏），而缺了 viewport-fit=cover 时 env(safe-area-inset-*) 一律返回 0 ——
+      styles.css 里那几处 env() 内边距就全成了死代码，刘海 / 灵动岛 / 横屏挖孔会盖住内容。
+      补上之后由 CSS 用 env() 把四边让回来（没有刘海的设备 env() = 0，桌面与安卓完全不受影响）。
+    -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#10222e" />
     <meta name="description" content="回译本 · 你的私人英语工坊：看中文写英文的回译训练，AI 逐句批改并和原文对照。支持自带课文与任意 OpenAI 兼容接口。" />
     <!--

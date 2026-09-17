@@ -386,6 +386,28 @@ async function mobileJourney() {
   ok('[手机] 首屏无横向溢出', firstOver.doc <= W + 1 && firstOver.bad.length === 0,
     `scrollWidth=${firstOver.doc}/${W}` + (firstOver.bad.length ? ' 越界元素: ' + firstOver.bad.map((b) => `${b.cls}(${b.left}→${b.right})`).join(', ') : ''));
 
+  /* ---- 安全区：viewport-fit 与 env() 是配套的，少一个就全废 ----
+     缺 viewport-fit=cover 时 env(safe-area-inset-*) 恒为 0，
+     styles.css 里所有 env() 内边距会变成死代码（这个坑踩了很久）。
+     这里守两件事：声明在不在、以及"非刘海设备上 env=0 时布局不受影响"。 */
+  {
+    const vp = await page.evaluate(() => document.querySelector('meta[name="viewport"]')?.content || '');
+    ok('[手机] viewport 声明了 viewport-fit=cover（否则 env(safe-area-inset-*) 恒为 0）',
+      /viewport-fit\s*=\s*cover/.test(vp), vp);
+    const safe = await page.evaluate(() => {
+      const px = (el, prop) => (el ? Math.round(parseFloat(getComputedStyle(el)[prop]) || 0) : -1);
+      return {
+        topbarTop: px(document.querySelector('.topbar'), 'paddingTop'),
+        editorBottom: px(document.querySelector('.editor') || document.querySelector('.result'), 'paddingBottom'),
+        doc: document.documentElement.scrollWidth,
+      };
+    });
+    // 本机（无刘海）env() = 0 → 内边距就是基准值，且不能因此溢出
+    ok('[手机] 安全区内边距接上了且非刘海设备不受影响',
+      safe.topbarTop === 8 && safe.editorBottom >= 16 && safe.doc <= W + 1,
+      `顶栏 padding-top=${safe.topbarTop}px（期望 8）· 内容 padding-bottom=${safe.editorBottom}px · scrollWidth=${safe.doc}`);
+  }
+
   // 侧栏：开 → 选课 → 自动收起
   await openSidebar(page);          // 手机上侧栏默认收起，得先展开才看得到课表
   await waitLessonList(page);

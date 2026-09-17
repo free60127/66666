@@ -11,6 +11,7 @@ import {
   dayKey, dueFavorites, dueLabel, dueOf, isDueOn, mergeFavoriteItem, mergeFavorites,
   newSchedule, nextDueAt, sm2Review, withSchedule,
 } from '../src/favorites.js';
+import { dayKey as streakDayKey } from '../src/studyStreak.js';
 
 const results = [];
 const check = (name, ok, detail = '') => {
@@ -192,6 +193,17 @@ console.log('=== 收藏夹 / 间隔重复测试 ===\n');
   const laterReviewed = { id: 'a', title: 't', lastReviewed: T0, reps: 1, due: T0 + DAY };
   check('合并冲突：以最近复习过的那份为准', mergeFavoriteItem(olderReviewed, laterReviewed).reps === 1);
   check('合并：mergeFavoriteItem 容错空值', mergeFavoriteItem(null, laterReviewed) === laterReviewed && mergeFavoriteItem(olderReviewed, null) === olderReviewed);
+}
+
+/* ---------- dayKey 只能有一份实现 ----------
+ * 连续天数（studyStreak）与复习排期（favorites）必须用同一个"今天是哪一天"的定义。
+ * 各写一份的话，两处对"跨天"的判断迟早会漂移一处 —— 表现是"打卡断了但复习还在"这类
+ * 自相矛盾的状态，而且两边的单测都是绿的（因为它们各自自洽）。 */
+{
+  check('favorites 与 studyStreak 共用同一个 dayKey（不是各写一份）', dayKey === streakDayKey,
+    dayKey === streakDayKey ? '同一函数引用' : '两个不同的实现，早晚会漂移');
+  check('共用后行为不变：本地日期、月日补零', dayKey(new Date(2026, 8, 17, 6, 27).getTime()) === '2026-09-17'
+    && dayKey(new Date(2026, 0, 5).getTime()) === '2026-01-05', dayKey(new Date(2026, 0, 5).getTime()));
 }
 
 const failed = results.filter((r) => !r.ok);

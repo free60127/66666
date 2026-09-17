@@ -7,6 +7,9 @@
  * 这些调度字段会跟着同步码一起走（见 mergeFavorites），否则多设备复习进度会互相覆盖。
  */
 
+// 「今天是哪一天」只认 src/studyStreak.js 那一份实现（连续天数与复习排期必须同口径）
+import { dayKey } from './studyStreak.js';
+
 export const FAV_KEY = 'bt-favorites';
 export const FAV_MAX = 2000;
 export const FAV_KIND_LABEL = { finding: '错题/辨析', vocab: '核心词', idiom: '习语', expression: '加分表达' };
@@ -31,11 +34,11 @@ const DAY = 86400000;
  * 精确的 due 时间戳仍然保留：排序（拖最久的先复习）、"下次到期"文案还用它，
  * 只是**判定是否到期**时只看日期。姊妹项目「单词本」用的是同一套口径。
  */
-export function dayKey(ts) {
-  const d = new Date(num(ts, 0));
-  const p = (n) => String(n).padStart(2, '0');
-  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
-}
+/* dayKey 的实现只有一份，在 src/studyStreak.js —— 连续天数与复习排期必须用同一个
+ * "今天是哪一天"的定义，各写一份的话，两处对"跨天"的判断迟早会漂移一处。
+ * 这里重新导出，是为了让收藏这条链路的调用方（含测试）继续从 favorites.js 取，
+ * 不必关心它实际住在哪。 */
+export { dayKey } from './studyStreak.js';
 
 /** 今天是否该复习：到期日 ≤ 今天都算（没有 due 的老收藏按"立刻可复习"处理） */
 export function isDueOn(due, now = Date.now()) {
@@ -48,7 +51,9 @@ export function isDueOn(due, now = Date.now()) {
 function dayGap(from, to) {
   const a = new Date(dayKey(from) + 'T00:00:00');
   const b = new Date(dayKey(to) + 'T00:00:00');
-  return Math.round((b - a) / DAY);
+  const n = Math.round((b - a) / DAY);
+  // 脏数据（dayKey 返回空串 → Invalid Date → NaN）不能让"还有 NaN 天"这种文案露出去
+  return Number.isFinite(n) ? n : 0;
 }
 
 function num(v, fallback = 0) {

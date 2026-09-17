@@ -1485,6 +1485,13 @@ function App() {
             <label>API Key<input type="password" value={settings.apiKey || ''} onChange={(e) => setSettings({ ...settings, apiKey: e.target.value })} placeholder="sk-..." /></label>
             <label className="remember-key"><input type="checkbox" checked={Boolean(settings.rememberKey)} onChange={(e) => setSettings({ ...settings, rememberKey: e.target.checked })} /> 在本机记住 Key（关闭浏览器后仍保留）</label>
             <p className="muted small">默认只保留到<b>关闭标签页</b>为止——Key 存在浏览器会话存储里，不长期落盘；勾选上面的选项才会长期保存（换设备 / 换浏览器需重填）。Key 只会发给你自己部署的这个后端，由它转发给模型接口；<b>自定义 Base URL 时必须同时填该接口的 Key</b>，否则服务端会拒绝（避免把你的密钥发给陌生地址）。想让所有访问者免填 Key，请在部署平台的环境变量里配置 AI_API_KEY / AI_VISION_MODEL。</p>
+            {/* 离线示例的入口**不能只挂在"没配 Key"上**：服务端配了 Key 的站点里，
+                hasAiKey 恒为真，那个按钮根本不渲染 —— 想零成本先看看成品长什么样的人
+                就没有任何入口了（实测在真站上找不到）。这里补一个常驻入口。 */}
+            <p className="muted small">
+              想先看看成品长什么样？<button className="link" onClick={() => { setSettingsOpen(false); loadDemo(); }}>看一份离线示例</button>
+              ——不调用模型、不花钱，直接打开一份完整的批改结果。
+            </p>
             <div className="modal-actions"><button className="primary-btn" onClick={onSaveSettings}>保存并重连</button><button className="ghost-btn" onClick={() => setSettingsOpen(false)}>取消</button></div>
           </div>
         </div>

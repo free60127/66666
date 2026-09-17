@@ -256,6 +256,27 @@ mark.hl { background: #ffe3e3; color: inherit; padding: 0 2px; border-radius: 2p
 
   /* 顶部栏：允许换行，状态条独占一行，避免按钮被挤出屏幕 */
   .topbar { flex-wrap: wrap; height: auto; min-height: 0; padding: 8px 12px; gap: 8px; }
+
+  /* ---------- 安全区（刘海 / 灵动岛 / 横屏挖孔 / home indicator）----------
+     index.html 的 viewport 现在带 viewport-fit=cover，内容会铺满整屏，
+     所以四边必须用 env() 把系统区域让回来 —— 否则顶部内容被状态栏盖住、
+     底部按钮被 home indicator 压住。这正是当初那几处 env() 内边距想解决的事，
+     但缺了 viewport-fit 时 env() 恒为 0，它们一直是死代码。
+     没有安全区的设备 env() = 0，等于什么都没加，桌面与安卓完全不受影响。 */
+  .topbar {
+    padding-top: calc(8px + env(safe-area-inset-top, 0px));
+    padding-left: calc(12px + env(safe-area-inset-left, 0px));
+    padding-right: calc(12px + env(safe-area-inset-right, 0px));
+  }
+  .sidebar {
+    padding-top: calc(16px + env(safe-area-inset-top, 0px));
+    padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+    padding-left: calc(12px + env(safe-area-inset-left, 0px));
+    padding-right: calc(12px + env(safe-area-inset-right, 0px));
+  }
+  .sidebar-close { top: calc(10px + env(safe-area-inset-top, 0px)); right: calc(10px + env(safe-area-inset-right, 0px)); }
+  /* 整页滚动的内容：最后一屏别被 home indicator 压住 */
+  .editor, .result { padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px)); }
   .topbar-left { flex: 1 1 auto; min-width: 0; }
   .topbar-left strong { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: inline-block; max-width: 100%; vertical-align: middle; }
   .topbar .ghost-btn { white-space: nowrap; }
