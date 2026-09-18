@@ -115,12 +115,25 @@ async function callVision({ dataUrl, prompt, vision }) {
   const timer = setTimeout(() => controller.abort(), VISION_TIMEOUT_MS);
   let r;
   try {
-    r = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body), signal: controller.signal });
+    r = await fetch(url, {
+      method: 'POST', headers,
+      body: JSON.stringify(body),
+      signal: controller.signal,
+      // 不跟随重定向 —— 与 index.mjs postChat 同一套 SSRF 防护（此前只有主链路有，
+      // OCR 链路漏了）：baseUrl 校验通过后再 302 跳向内网地址，请求会带着
+      // Authorization 头和最大 20MB 的 body 跟过去，响应还会回显给用户 —— 可读 SSRF。
+      redirect: 'manual',
+    });
   } catch (e) {
     if (e?.name === 'AbortError') throw new Error('视觉模型请求超时（' + Math.round(VISION_TIMEOUT_MS / 1000) + '秒），请重试或换更小的图片');
     throw new Error('无法连接视觉模型接口: ' + e.message);
   } finally {
     clearTimeout(timer);
+  }
+  // 重定向一律拒绝（undici 手动模式下 3xx 可读；某些实现会返回 opaqueredirect，一并挡住）
+  if (r.type === 'opaqueredirect' || (r.status >= 300 && r.status < 400)) {
+    const loc = r.headers?.get?.('location') || '(响应里没有 Location)';
+    throw new Error('视觉模型接口返回了重定向（' + r.status + ' → ' + loc + '）。出于安全考虑不自动跟随，请把视觉模型 Base URL 直接写成最终地址。');
   }
   if (!r.ok) {
     const t = await r.text();
