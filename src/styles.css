@@ -104,6 +104,11 @@ textarea, input { font: inherit; }
 /* flex 列 + 动作条 margin-top:auto：内容不满一屏时动作条也贴在窗口底部（而不是悬在半空），
    内容超一屏时退化为普通流式排列，由 sticky 接管 */
 .editor { flex: 1; overflow-y: auto; padding: 20px; max-width: 1180px; width: 100%; margin: 0 auto; display: flex; flex-direction: column; }
+/* ⚠️ 子块一律禁止收缩（flex-shrink:0）：.editor 是**固定高度**的滚动容器，
+   默认 shrink:1 会让 flex 把各区块压矮来"凑合"容器高度，而不是出现滚动条 ——
+   实测 bug：「英文原文」折叠栏展开后它的输入框永远被压在吸底动作条底下，
+   看不到也几乎没法编辑。禁止收缩后，高度不够就走正常的容器滚动。 */
+.editor > * { flex-shrink: 0; }
 /* ---------- 模式条（方案A）----------
    原来首屏有六块同级控件：上传条、课文/自由 tabs、方向 tabs、标题行、润色等级、识别模式。
    现在收敛成一行白底条：高频的「模式 / 方向 / 难度 / 导入 DOCX」留在条上，
@@ -116,8 +121,10 @@ textarea, input { font: inherit; }
 .modebar-select { border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; font: inherit; font-size: 12.5px; color: var(--text); background: #fff; }
 .match-banner { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; padding: 7px 12px; border: 1px solid #b9e1d8; border-left: 4px solid var(--teal); border-radius: 8px; background: #effaf7; color: #176b62; font-size: 12.5px; }
 /* 面板网格吃掉编辑器剩余高度：中文提示/初稿两栏一直伸到底部动作条上沿，
-   不再留下大块空白（预览图的样子）。min-height 防止矮视口下被压没。 */
-.editor-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; flex: 1 1 auto; min-height: 320px; margin-bottom: 4px; }
+   不再留下大块空白（预览图的样子）。min-height 防止矮视口下被压没。
+   ⚠️ shrink 必须是 0（见 .editor > * 的说明）：否则「英文原文」展开时网格被压扁、
+   折叠栏内容永远露不出来，容器也不出滚动条。 */
+.editor-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; flex: 1 0 auto; min-height: 320px; margin-bottom: 4px; }
 .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 16px; display: flex; flex-direction: column; gap: 8px; min-height: 0; }
 /* 面板内的输入框在拉伸后的面板里自动填满剩余高度 */
 .panel > .big-textarea { flex: 1 1 auto; }
@@ -138,7 +145,10 @@ textarea, input { font: inherit; }
 .action-dock {
   position: sticky; bottom: 0; z-index: 6;
   display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
-  margin: auto -20px -20px; padding: 10px 20px;
+  /* 底部外边距必须是 0：负值会让文档高度"恰好"不溢出 —— 「英文原文」展开后
+     动作条被 sticky 拉上来压住它的输入框，且永远滚不出来（实测踩过）。
+     折叠状态由 margin-top:auto 负责贴底；展开状态多出的 20px 就是滚动余量。 */
+  margin: auto -20px 0; padding: 10px 20px;
   background: var(--panel); border-top: 1px solid var(--line);
   box-shadow: 0 -6px 16px rgba(16, 34, 46, .06);
 }
@@ -570,8 +580,7 @@ mark.hl { background: #ffe3e3; color: inherit; padding: 0 2px; border-radius: 2p
     position: static;
     margin: 16px -20px calc(-16px - env(safe-area-inset-bottom, 0px));
     padding: 10px 16px calc(10px + env(safe-area-inset-bottom, 0px));
-  }
-  .action-dock .primary-btn.big { flex: 1 1 100%; }
+  }  .action-dock .primary-btn.big { flex: 1 1 100%; }
   .timer-box { margin-left: auto; }
   .timer-display { min-width: 56px; font-size: 17px; }
 }
@@ -612,6 +621,10 @@ mark.hl { background: #ffe3e3; color: inherit; padding: 0 2px; border-radius: 2p
 
 @media screen and (max-width: 900px) {
   .fav-modal { width: calc(100vw - 24px); }
+  /* 手机端：收藏列表不再内部滚动（52vh 的内滚区会把「根据收藏自测」等底部区块
+     永远钉在弹窗下沿，看起来像固定的、很挡画面）。整弹窗一起滚，
+     出题 / 备份 / 说明自然落到内容末尾。 */
+  .fav-list { max-height: none; overflow: visible; }
   /* ⚠️ 选择器必须连 .toast 一起写，不能只写 .fav-tip：
      `.fav-tip.toast`(0,2,0) 的 top:108px 特异度高于 `.fav-tip`(0,1,0)，
      只改后者的话 top 收不回来 —— 于是 fixed 元素同时拿到 top:108px 与 bottom:16px，
