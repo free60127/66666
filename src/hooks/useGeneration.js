@@ -372,7 +372,15 @@ export function useGeneration({
       setStreaming(false);
       setStreamNote('');
       setError(e.message);
-      setView('editor');
+      // 流式已经把用户带到结果页看半成品（或已点「取消等待」留在原地）时，
+      // **不再硬拽回编辑器** —— 正在看的内容不该被一个失败事件切走（用户实测反馈）。
+      // 失败原因用提示条就地说明；setError 照常记录，用户回编辑器就能看到完整报错。
+      // 从没离开过编辑器（轮询路径）的，维持原行为：带着报错回编辑器。
+      if (streamViewRef.current || cancelGenRef.current) {
+        flashTip(setToast, '生成中断：' + (e.message || '未知错误') + '。可回编辑器重试；若任务实际已完成，会出现在「历史结果」里', 8000);
+      } else {
+        setView('editor');
+      }
     }
   };
 
