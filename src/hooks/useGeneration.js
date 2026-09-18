@@ -10,6 +10,7 @@ import {
 } from '../storage.js'
 import { POLL_ANALYZE_MS, TIMEOUT_ANALYZE_MS } from '../constants.js'
 import { normalizeResult } from '../resultData.js'
+import { foldSegments, SEGMENT_LABEL } from '../resultFold.js'
 import { loadProgress, recordAttempt, saveProgress } from '../lessonProgress.js'
 import { scoreOf } from '../progress.js'
 import { loadDays, recordDay, saveDays } from '../studyStreak.js'
@@ -77,6 +78,15 @@ export function useGeneration({
   const [shareTip, setShareTip] = useState('');
   // 「取消等待」标记：不是取消任务，只是让界面解锁（见 cancelGenerate 的说明）
   const cancelGenRef = useRef(false);
+  /* ---------- 流式：边生成边显示 ----------
+   * 学生原来要盯着"AI 正在后台生成（约1-2分钟）"干等；现在模型一行一段地吐，
+   * 每收到一段就把已到的部分折成一份结果画出来（整体评价 → 逐句解析 → 词汇 → 习语 → 句式）。
+   * 流式不可用（代理缓冲/服务端没起/中途断了）时由 submitAndPoll 用同一个 jobId 回退轮询，
+   * 所以这里只是"显示得快一点"，不影响任何可靠性语义。 */
+  const streamSegsRef = useRef([]);     // 按 index 落位：断线重放不会折出重复内容
+  const streamViewRef = useRef(false);  // 只自动切一次结果页（切过去之后就由用户自己导航）
+  const [streaming, setStreaming] = useState(false);
+  const [streamNote, setStreamNote] = useState('');
 
   // 本次作业的「英文原文（标准答案）」优先级：
   // 用户手填 > AI 素材生成的原文 > 自建库课文自带的原文。
@@ -269,6 +279,8 @@ export function useGeneration({
     if (!df) { setError(dir === 'en2cn' ? '请先写下你的中文翻译' : '请先上传包含英文初稿的 DOCX，或填入英文初稿'); return; }
     setError('');
     cancelGenRef.current = false; // 新的生成开始，清掉上一次的取消标记
+    streamSegsRef.current = [];
+    streamViewRef.current = false;
     const myToken = (genTokenRef.current += 1);
     // 点击生成时定格用时（本次练习从开始计时到提交用掉的时长）
     const durationMs = elapsedMsNow(); // 定格「从开始计时到提交」的用时（不算等 AI 的时间）
@@ -284,6 +296,9 @@ export function useGeneration({
           lessonId: mode === 'lesson' && !myLibId ? id : undefined,
           original: currentOriginal || undefined,
           level: polishLevel,
+          // 流式：服务端一行一段地往外写，前端边收边画（见下面的 stream 配置）。
+          // 服务端不认识这个字段时会忽略它 —— 老后端 + 新前端也不会出错。
+          stream: true,
           baseUrl: settings.baseUrl, model: settings.model, apiKey: settings.apiKey,
           });
           deleteToken = (resp && resp.deleteToken) || '';
@@ -296,6 +311,28 @@ export function useGeneration({
         netError: '网络不稳定，暂时无法获取生成结果，请重试',
         timeoutError: '等待超时（已等 10 分钟）。任务可能还在后台跑：稍后刷新本页就能看到这次结果（任务号已记在地址栏），不必重新提交。',
         texts: { submit: '正在提交后台任务…', running: 'AI 正在后台生成（约1-2分钟）…', done: '生成完成' },
+        /* 流式：边收边画。首段到达就把视图切到结果页 —— 这是"不再干等一分钟"的全部意义。
+           折叠规则见 src/resultFold.js（与服务端 server/analyzeStream.mjs 同构，
+           test/analyzeStream.test.mjs 交叉断言两边一致）。 */
+        stream: {
+          path: (jid) => '/api/analyze/' + jid + '/stream',
+          onFirst: () => setStreaming(true),
+          onEvent: (name, payload) => {
+            if (name !== 'segment' || !payload) return;
+            if (Number.isInteger(payload.index)) streamSegsRef.current[payload.index] = { ...payload.seg, __i: payload.index };
+            else streamSegsRef.current.push(payload.seg);
+            const partial = foldSegments(streamSegsRef.current.filter(Boolean));
+            const sentences = partial.sentences.length;
+            setStreamNote((payload.label || SEGMENT_LABEL[payload.seg && payload.seg.t] || '解析')
+              + (payload.seg && payload.seg.t === 'sentence' ? ' · 第 ' + sentences + ' 句' : ''));
+            setResult(normalizeResult({ ...partial, direction: dir, aiLevel: polishLevel, durationMs, lessonKey, attemptTime: Date.now() }));
+            // 用户在等待期间切过课 / 点过「取消等待」就不抢视图（与 onData 的规则一致）
+            if (!streamViewRef.current && !cancelGenRef.current && myToken === genTokenRef.current) {
+              streamViewRef.current = true;
+              setView('result');
+            }
+          },
+        },
         onJobId: (id2) => {
           jobId = id2;
           // 拿到任务号就立刻写进地址栏：这是"任务还在后台、但界面这边已经放弃"时的唯一入口
@@ -307,6 +344,10 @@ export function useGeneration({
           window.history.replaceState(null, '', '#job=' + id2);
         },
         onData: (data) => {
+          // 流式结束：用服务端**收敛过的完整结果**覆盖边生成边画的那份
+          //（"看到的"和"存进历史的"由此收敛成同一个东西）
+          setStreaming(false);
+          setStreamNote('');
           // attemptTime：这次练习的时间戳。结果页要靠它判断"哪次才算上一次"
           // （从历史里点开旧作业时，比它更晚的练习不能算"上次"）。
           const enriched = { ...(data || {}), durationMs, lessonKey, attemptTime: Date.now() };
@@ -315,7 +356,9 @@ export function useGeneration({
           // 三种情况都不抢视图：生成期间用户切过课 / 点过「新建」/ 点过「取消等待」。
           // 但结果照常入历史 —— 用户随时能从「历史结果」里打开。
           const cancelled = cancelGenRef.current;
-          if (!cancelled && myToken === genTokenRef.current) setView('result');
+          // 流式已经切过一次结果页了：收尾时**不再抢视图** —— 用户看完结果回到编辑器继续改，
+          // 不该在任务完成的那一刻又被拽回结果页（轮询那条路径没切过，照旧在这里切）。
+          if (!cancelled && myToken === genTokenRef.current && !streamViewRef.current) setView('result');
           if (jobId) {
             addToHistory(jobId, (data && data.title) || title, enriched, durationMs, deleteToken);
             bumpProgress(lessonKey, enriched, durationMs);
@@ -326,6 +369,8 @@ export function useGeneration({
         },
       });
     } catch (e) {
+      setStreaming(false);
+      setStreamNote('');
       setError(e.message);
       setView('editor');
     }
@@ -344,6 +389,10 @@ export function useGeneration({
   const cancelGenerate = () => {
     if (!busy) return;
     cancelGenRef.current = true;
+    // 流式那条横幅也一起收掉：用户说了"不等了"，界面上就该干净
+    //（流本身继续跑，跑完照样入历史 —— 与轮询那条路径的语义一致）
+    setStreaming(false);
+    setStreamNote('');
     cancelProgress(); // 界面立刻解锁；后台轮询继续（见 hooks/useJobRunner.js 的说明）
     flashTip(setToast, '已取消等待，可以继续编辑。后台仍在生成，完成后会存进「历史结果」。', 7000);
   };
@@ -394,6 +443,7 @@ export function useGeneration({
     deletedHistory, setDeletedHistory, addTombstones, removeFromHistory,
     lessonProgress, setLessonProgress, bumpProgress, studyDays, setStudyDays, bumpStudyDay,
     currentOriginal,
+    streaming, streamNote,
     runGenerate, cancelGenerate, addToHistory, openHistoryModal, loadHistoryJob,
     shareResult, copyAll, loadDemo,
   };

@@ -52,11 +52,12 @@ export function useJobRunner() {
 
   /**
    * 跑一条链路。出错时**照常抛出**（调用方仍可用 try/catch 做兜底，比如自测题的本地题库）。
+   * `stream`（可选）交给 submitAndPoll：先走 SSE 流式，不可用就用同一个 jobId 回退轮询。
    * @returns {Promise<{data?: any, aborted?: true}>}
    */
   const run = useCallback(async ({
     submit, fetchJob, intervalMs, timeoutMs, maxFailures, netError, timeoutError,
-    texts = {}, onData, onProgress, onJobId,
+    texts = {}, onData, onProgress, onJobId, stream,
   }) => {
     setBusy(true);
     if (texts.submit) { setStep(1); setMessage(texts.submit); }
@@ -73,6 +74,7 @@ export function useJobRunner() {
         timeoutError,
         isAlive: () => aliveRef.current,
         onJobId,
+        stream,
         onProgress: onProgress || (texts.running ? () => { setStep(2); setMessage(texts.running); } : undefined),
       });
       if (outcome.aborted) return { aborted: true };

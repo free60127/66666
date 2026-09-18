@@ -74,6 +74,7 @@ function QuizSheetImpl({ quiz, settings, showAnswers, onToggleAnswers, onBack, o
                   <span className="quiz-no">{i + 1}</span>
                   <span className="quiz-type">{q.type || '问答'}</span>
                   {v && v.status !== 'pending' ? <span className={'quiz-mark ' + v.status}>{VERDICT_LABEL[v.status]}</span> : null}
+                  {!v && g.aiProgress.pending.includes(i) ? <span className="quiz-mark judging"><LoaderCircle className="spin" size={11} />AI 批改中</span> : null}
                   {v && mode === 'choice' ? <button className="quiz-retry" onClick={() => g.clearOne(i)}>重做本题</button> : null}
                 </div>
                 <div className="quiz-question">{q.question}</div>
@@ -160,7 +161,11 @@ function QuizSheetImpl({ quiz, settings, showAnswers, onToggleAnswers, onBack, o
               ) : ('共 ' + s.total + ' 题 —— 做完点右边「批改」')}
             </div>
             {g.aiBusy ? (
-              <span className="quiz-grade-running"><LoaderCircle className="spin" size={14} />AI 正在批改主观题{g.aiElapsed ? ' · ' + g.aiElapsed + 's' : ''}</span>
+              <span className="quiz-grade-running">
+                <LoaderCircle className="spin" size={14} />
+                AI 正在批改{g.aiProgress.total ? '（已判 ' + g.aiProgress.done + ' / ' + g.aiProgress.total + ' 题）' : '…'}
+                {g.aiElapsed ? ' · ' + g.aiElapsed + 's' : ''}
+              </span>
             ) : null}
             <button className="ghost-btn" onClick={g.resetAll} disabled={g.aiBusy || (!s.judged && !s.selfPending && !touched)}><RotateCcw size={14} />重做</button>
             <button className="primary-btn" onClick={g.gradeAll} disabled={g.aiBusy}><CheckCheck size={15} />{g.aiBusy ? '批改中…' : '批改'}</button>

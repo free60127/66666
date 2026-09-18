@@ -4,9 +4,11 @@ import path from 'node:path';
 import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { promises as dnsLookup } from 'node:dns';
-import { SYSTEM_PROMPT, buildUserMessage, EN2CN_SYSTEM_PROMPT, buildEn2CnUserMessage, MATERIAL_PROMPT, buildMaterialMessage, QUIZ_PROMPT, buildQuizMessage, DRILL_PROMPT, buildDrillMessage, GRADE_PROMPT, buildGradeMessage, AI_LEVEL_KEYS, DEFAULT_AI_LEVEL, normalizeLevel } from './prompt.mjs';
+import { SYSTEM_PROMPT, buildUserMessage, EN2CN_SYSTEM_PROMPT, buildEn2CnUserMessage, MATERIAL_PROMPT, buildMaterialMessage, QUIZ_PROMPT, buildQuizMessage, DRILL_PROMPT, buildDrillMessage, GRADE_PROMPT, GRADE_STREAM_PROMPT, buildGradeMessage, STREAM_FORMAT_RULES, AI_LEVEL_KEYS, DEFAULT_AI_LEVEL, normalizeLevel } from './prompt.mjs';
 import { MAX_DRILL_COUNT, MAX_DRILL_POINTS, MAX_GRADE_ITEMS } from './limits.mjs';
 import { sanitizeGrades, sanitizeQuestions } from './questionShape.mjs';
+import { createGradeReader, finalizeGrades } from './gradeStream.mjs';
+import { createResultReader, finalizeResult, SEGMENT_LABEL } from './analyzeStream.mjs';
 import { recognizeImage } from './ocr.mjs';
 import { MAX_SNAPSHOT_BYTES, createSyncStore, emptySnapshot, isValidSyncCode, newSyncCode, sanitizeSnapshot } from './sync.mjs';
 import { createUpstashKv, createFileKv } from './kv.mjs';
@@ -708,6 +710,9 @@ async function readBody(req, maxBytes = MAX_BODY_BYTES) {
   return parsed;
 }
 const DEFAULT_MAX_TOKENS = Number(process.env.AI_MAX_TOKENS || 20000);
+/** 流式调用的等待上限：比普通调用长（批改要一条条往外写），但要小于任务僵尸阈值。
+ *  前端还有自己的三道保险丝（首段 8s / 停顿 30s / 全程 150s），见 src/gradeStream.js。 */
+const STREAM_TIMEOUT_MS = Number(process.env.AI_STREAM_TIMEOUT_MS || 4 * 60 * 1000);
 const FALLBACK_MAX_TOKENS = 8192;
 const RETRY_MAX_TOKENS = 32000;
 
@@ -810,56 +815,174 @@ async function callLLM({ baseUrl, model, apiKey, messages }) {
   return result.content;
 }
 
+/* ---------- 流式调用（批改边收边贴）----------
+ * 与 callLLM 的区别只有两点：
+ *  · `stream: true`，并且**不能带 response_format** —— response_format 要求"一次性输出一个 JSON"，
+ *    与"一行一道题"的约定冲突（格式约束交给提示词，解析端有兜底，见 server/gradeStream.mjs）；
+ *  · 每收到一段增量就回调 `onDelta`，调用方边解析边往界面上推。
+ * 安全约定与 postChat 完全一致（不跟随重定向、超时、错误文案）。
+ */
+async function callLLMStream({ baseUrl, model, apiKey, messages }, { onDelta, timeoutMs = STREAM_TIMEOUT_MS } = {}) {
+  const url = baseUrl.replace(/\/+$/, '') + '/chat/completions';
+  const headers = { 'Content-Type': 'application/json' };
+  if (apiKey) headers['Authorization'] = 'Bearer ' + apiKey;
+  const r = await postChat({
+    url, headers, withFormat: false, timeoutMs,
+    body: { model, messages, temperature: 0.3, stream: true, max_tokens: DEFAULT_MAX_TOKENS },
+  });
+  if (!r.ok) {
+    const t = await r.text().catch(() => '');
+    throw new Error('模型接口错误 ' + r.status + ': ' + t.slice(0, 500));
+  }
+  if (!r.body) throw new Error('模型接口没有返回流式响应体');
+
+  let full = '';
+  let finishReason = '';
+  let buf = '';
+  /** 吃一段 SSE 文本：拆 data: 行 → 取 choices[0].delta.content */
+  const feedSse = (text) => {
+    buf += text;
+    let idx = buf.indexOf('\n');
+    while (idx >= 0) {
+      const line = buf.slice(0, idx).trim();
+      buf = buf.slice(idx + 1);
+      idx = buf.indexOf('\n');
+      if (!line || !line.startsWith('data:')) continue;       // 空行 / SSE 注释（心跳）
+      const payload = line.slice(5).trim();
+      if (payload === '[DONE]') continue;
+      let obj;
+      try { obj = JSON.parse(payload); } catch { continue; }  // 半截行：跳过，下一块会补全
+      const choice = (obj.choices && obj.choices[0]) || {};
+      if (choice.finish_reason) finishReason = String(choice.finish_reason);
+      const delta = (choice.delta && choice.delta.content) || '';
+      if (delta) { full += delta; if (onDelta) onDelta(delta); }
+    }
+  };
+
+  /* 有的网关 / 自建代理**不认 stream:true**，直接回一个普通 JSON。
+   * 不能因此报"模型没有返回内容"——那等于把一整次生成判死。
+   * 先看 content-type，不是事件流就把整段读回来：里头若有 data: 行就按 SSE 解析，
+   * 否则按普通 completion 取 content（结果照常拿到，只是没有"边生成边显示"）。 */
+  const ctype = String(r.headers.get('content-type') || '');
+  if (!/text\/event-stream/i.test(ctype)) {
+    const text = await r.text().catch(() => '');
+    if (!/^\s*data:/m.test(text)) {
+      let content = '';
+      try {
+        const data = JSON.parse(text);
+        const c0 = (data.choices && data.choices[0]) || {};
+        content = (c0.message && c0.message.content) || (c0.delta && c0.delta.content) || '';
+        if (c0.finish_reason) finishReason = String(c0.finish_reason);
+      } catch { /* 不是 JSON：下面统一报错 */ }
+      if (!String(content).trim()) throw new Error('模型没有返回内容，请重试');
+      console.warn('[stream] 该模型接口忽略了 stream=true（返回的是普通 JSON），本次按一次性结果处理');
+      if (onDelta) onDelta(String(content));
+      full = String(content);
+      if (finishReason === 'length') console.warn('[stream] 输出被 max_tokens 截断，可能有内容不完整');
+      return full;
+    }
+    feedSse(text);
+  } else {
+    const decoder = new TextDecoder('utf-8');
+    for await (const chunk of r.body) feedSse(decoder.decode(chunk, { stream: true }));
+  }
+  if (!full.trim()) throw new Error('模型没有返回内容，请重试');
+  if (finishReason === 'length') console.warn('[stream] 输出被 max_tokens 截断，可能有内容不完整');
+  return full;
+}
+
 /* ---------- 异步分析任务 ---------- */
-async function runAnalyzeJob(jobId, { title, chinese, draft, original, lesson, lessonNo, baseUrl, model, apiKey, level, direction }) {
+/**
+ * 把模型给的解析对象收敛成 job.data —— **一次性解析与流式收尾共用同一份**。
+ *
+ * 为什么必须共用：流式是"边生成边显示"，如果最终落库走另一套映射，
+ * 就会出现"我看到的"和"历史里存下来的"不是同一个东西（少一句、少一条点评），
+ * 而这种不一致只有在用户回头看历史时才会发现。
+ */
+function buildAnalyzeData({ parsed, dir, title, chinese, draft, original, level, lesson, lessonNo }) {
+  // 清洗 findings：丢掉「went → went」这类无意义对照（模型偶尔会为凑数而生造），
+  // 丢了多少条打进日志 —— 数量长期偏高就说明 prompt 需要再收一收。
+  const cleanedSentences = sanitizeSentences(parsed.sentences);
+  if (cleanedSentences.dropped > 0) {
+    console.warn(`[analyze] 丢弃 ${cleanedSentences.dropped} 条无意义 findings（from 与 to 相同/缺失或重复）`);
+  }
+  return {
+    direction: dir,
+    title: parsed.title || title,
+    chinese: parsed.chinese || chinese,
+    draft: parsed.draft || draft,
+    ai: parsed.ai || '',
+    original: parsed.original || original,
+    aiLevel: level || DEFAULT_AI_LEVEL,
+    overall: sanitizeOverall(parsed.overall),
+    sentences: cleanedSentences.list,
+    vocabularyNotes: objectArray(parsed.vocabularyNotes),
+    idiomHighlights: objectArray(parsed.idiomHighlights),
+    advancedSentences: Array.isArray(parsed.advancedSentences) ? parsed.advancedSentences : [],
+    bonusExpressions: Array.isArray(parsed.bonusExpressions) ? parsed.bonusExpressions : [],
+    meta: { book: lesson?.book || null, lessonId: lesson?.lesson || lessonNo },
+  };
+}
+
+async function runAnalyzeJob(jobId, { title, chinese, draft, original, lesson, lessonNo, baseUrl, model, apiKey, level, direction, stream = false }) {
   const job = await findJob(jobId);
   if (!job) return;
   job.status = 'running';
   job.startedAt = Date.now();
   job.updatedAt = Date.now();
+  job.segments = [];              // 流式过程中逐步长出来的段（内存里读给 SSE 用）
   saveJob(job);
   try {
     // 两个方向共用同一套 JSON 字段（见 src/direction.js 的说明），只是 prompt 不同：
     // 汉译英把 chinese 当"中文提示"、original 当"英文原文"；
     // 英译汉把 chinese 当"英文原文"、original 当"参考译文"。
     const dir = normalizeDirection(direction);
+    // 流式时在系统提示词后面追加"一行一段"的格式说明（内容要求原样保留，只换输出格式）
     const messages = dir === 'en2cn'
       ? [
-        { role: 'system', content: EN2CN_SYSTEM_PROMPT },
+        { role: 'system', content: EN2CN_SYSTEM_PROMPT + (stream ? STREAM_FORMAT_RULES : '') },
         { role: 'user', content: buildEn2CnUserMessage({ title, source: chinese, draft, reference: original, level }) },
       ]
       : [
-        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'system', content: SYSTEM_PROMPT + (stream ? STREAM_FORMAT_RULES : '') },
         { role: 'user', content: buildUserMessage({ title, chinese, draft, original, level }) },
       ];
-    const raw = await callLLM({ baseUrl, model, apiKey, messages });
+
+    let raw = '';
+    let segments = [];
+    if (stream) {
+      const reader = createResultReader();
+      raw = await callLLMStream({ baseUrl, model, apiKey, messages }, {
+        onDelta: (delta) => {
+          const got = reader.feed(delta);
+          if (!got.length) return;
+          segments = segments.concat(got);
+          job.segments = segments;
+          // ⚠️ 这里**故意不写 KV**：每一段写一次库会把存储打爆（完成时统一写一次）。
+          // 内存里这份就是 SSE 读的那份（findJob 先查内存，拿到的是同一个对象）。
+          job.updatedAt = Date.now();
+        },
+      });
+      for (const seg of reader.flush()) segments.push(seg);
+      job.streamStats = reader.stats;
+    } else {
+      raw = await callLLM({ baseUrl, model, apiKey, messages });
+    }
+
     let parsed;
-    try {
-      parsed = parseJsonLoose(raw);
-    } catch (e) {
-      throw new Error('模型返回不是有效 JSON，请重试或换模型');
+    if (stream) {
+      const final = finalizeResult({ segments, rawText: raw, parseLoose: parseJsonLoose });
+      parsed = final.parsed;
+      job.streamMode = final.mode;   // stream（正常）/ fallback（模型没按一行一段来）/ empty
+      if (!parsed) throw new Error('模型返回的内容无法解析（既不是分段格式，也不是完整 JSON），请重试或换模型');
+    } else {
+      try {
+        parsed = parseJsonLoose(raw);
+      } catch (e) {
+        throw new Error('模型返回不是有效 JSON，请重试或换模型');
+      }
     }
-    // 清洗 findings：丢掉「went → went」这类无意义对照（模型偶尔会为凑数而生造），
-    // 丢了多少条打进日志 —— 数量长期偏高就说明 prompt 需要再收一收。
-    const cleanedSentences = sanitizeSentences(parsed.sentences);
-    if (cleanedSentences.dropped > 0) {
-      console.warn(`[analyze] 丢弃 ${cleanedSentences.dropped} 条无意义 findings（from 与 to 相同/缺失或重复）`);
-    }
-    job.data = {
-      direction: dir,
-      title: parsed.title || title,
-      chinese: parsed.chinese || chinese,
-      draft: parsed.draft || draft,
-      ai: parsed.ai || '',
-      original: parsed.original || original,
-      aiLevel: level || DEFAULT_AI_LEVEL,
-      overall: sanitizeOverall(parsed.overall),
-      sentences: cleanedSentences.list,
-      vocabularyNotes: objectArray(parsed.vocabularyNotes),
-      idiomHighlights: objectArray(parsed.idiomHighlights),
-      advancedSentences: Array.isArray(parsed.advancedSentences) ? parsed.advancedSentences : [],
-      bonusExpressions: Array.isArray(parsed.bonusExpressions) ? parsed.bonusExpressions : [],
-    };
+    job.data = buildAnalyzeData({ parsed, dir, title, chinese, draft, original, level, lesson, lessonNo });
     job.status = 'done';
     job.meta = { book: lesson?.book || null, lessonId: lesson?.lesson || lessonNo, baseUrl, model };
     job.updatedAt = Date.now();
@@ -1026,27 +1149,61 @@ async function runQuizJob(jobId, { points, count, level, baseUrl, model, apiKey,
  * 与出题**共用一条任务链路**（同样的 job kind=quiz、同样的轮询端点、同样的限流与僵尸判定），
  * 只有提示词和返回形状不同：出题返回 questions，批改返回 grades。
  * 另起一套端点只会把已经验证过的那些东西再抄一遍。
+ *
+ * 流式（stream=1）：模型一行一道题地往外写，每解析出一行就更新 job.grades，
+ * 由 GET /api/quiz/:id/stream 推给浏览器 —— 学生看着点评一条条长出来，不用等整批写完。
  */
-async function runGradeJob(jobId, { items, level, baseUrl, model, apiKey }) {
+async function runGradeJob(jobId, { items, level, baseUrl, model, apiKey, stream = false }) {
   const job = await findJob(jobId);
   if (!job) return;
   job.status = 'running';
   job.startedAt = Date.now();
   job.updatedAt = Date.now();
+  job.grades = [];                 // 流式过程中逐步长出来的判定（内存里读给 SSE 用）
+  job.gradeTotal = items.length;
   saveJob(job);
   try {
     const messages = [
-      { role: 'system', content: GRADE_PROMPT },
+      { role: 'system', content: stream ? GRADE_STREAM_PROMPT : GRADE_PROMPT },
       { role: 'user', content: buildGradeMessage({ items, level }) },
     ];
-    const raw = await callLLM({ baseUrl, model, apiKey, messages });
-    let parsed;
-    try {
-      parsed = parseJsonLoose(raw);
-    } catch {
-      throw new Error('模型返回不是有效 JSON，请重试或换模型');
+    let raw = '';
+    let streamed = [];
+    let stats = null;
+    if (stream) {
+      const reader = createGradeReader({ itemCount: items.length });
+      raw = await callLLMStream({ baseUrl, model, apiKey, messages }, {
+        onDelta: (delta) => {
+          const got = reader.feed(delta);
+          if (!got.length) return;
+          streamed = streamed.concat(got);
+          job.grades = streamed;
+          // ⚠️ 这里**故意不写 KV**：每行写一次库会把存储打爆（完成时统一写一次）。
+          // 内存里这份就是 SSE 读的那份（findJob 先查内存，是同一个对象）。
+          job.updatedAt = Date.now();
+        },
+      });
+      for (const g of reader.flush()) streamed.push(g);
+      stats = reader.stats;
+      job.streamStats = stats;
+    } else {
+      raw = await callLLM({ baseUrl, model, apiKey, messages });
     }
-    const grades = sanitizeGrades(parsed, items.length);
+
+    let grades;
+    if (stream) {
+      const final = finalizeGrades({ grades: streamed, rawText: raw, parseLoose: parseJsonLoose, itemCount: items.length });
+      grades = final.grades;
+      job.streamMode = final.mode;   // stream（正常）/ fallback（模型没按一行一题来）/ empty
+    } else {
+      let parsed;
+      try {
+        parsed = parseJsonLoose(raw);
+      } catch {
+        throw new Error('模型返回不是有效 JSON，请重试或换模型');
+      }
+      grades = sanitizeGrades(parsed, items.length);
+    }
     if (!grades.length) throw new Error('模型没有给出批改结果，请重试');
     // 漏判的题目：不让它们变成"永远转圈"，由前端标成未批改（可以再点一次批改）
     if (grades.length < items.length) {
@@ -1444,8 +1601,11 @@ const server = http.createServer(async (req, res) => {
         const jobId = randomUUID();
         saveJob({ jobId, kind: 'quiz', title: '批改 · ' + items.length + ' 题', status: 'pending', createdAt: Date.now(), data: null, error: null });
         registerJob(jobId);
-        safeRun('quiz', jobId, () => runGradeJob(jobId, { items, level: normalizeLevel(body.level), baseUrl: ep.baseUrl, model, apiKey: ep.apiKey }));
-        return json(res, 200, { ok: true, jobId, status: 'pending' });
+        // stream=1：一行一道题地流式批改（前端边收边贴，见 GET /api/quiz/:id/stream）。
+        // 默认仍是关的 —— 老前端提交上来没有这个字段，行为一个字都不变。
+        const stream = body.stream === true || body.stream === 1 || body.stream === '1';
+        safeRun('quiz', jobId, () => runGradeJob(jobId, { items, level: normalizeLevel(body.level), baseUrl: ep.baseUrl, model, apiKey: ep.apiKey, stream }));
+        return json(res, 200, { ok: true, jobId, status: 'pending', stream });
       }
 
       // 上限放宽到 120：前端现在**按题量精确送点**（10 道题就送 10 条错题，
@@ -1473,6 +1633,70 @@ const server = http.createServer(async (req, res) => {
       safeRun('quiz', jobId, () => runQuizJob(jobId, { points, count, level, baseUrl, model, apiKey, drill, materials }));
       return json(res, 200, { ok: true, jobId, status: 'pending' });
     }
+    /* ---------- 流式批改：GET /api/quiz/:id/stream（SSE） ----------
+     * 只推**新增**的判定（?from=N / Last-Event-ID），断线重连不重放；
+     * 15 秒一次注释心跳，防代理把长连接掐掉；
+     * 结束时 event: done 带上**最终完整结果** —— 前端据此收敛，
+     * 保证"边看边长出来的"和"最后存下来的"是同一个东西（与单词本的查词同构）。 */
+    const quizStreamMatch = p.match(/^\/api\/quiz\/([A-Za-z0-9-]{8,64})\/stream$/);
+    if (quizStreamMatch && req.method === 'GET') {
+      const jobId = quizStreamMatch[1];
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream; charset=utf-8',
+        'Cache-Control': 'no-cache, no-transform',
+        Connection: 'keep-alive',
+        'X-Accel-Buffering': 'no',        // 让 nginx / 平台代理不要缓冲
+      });
+      const NL = String.fromCharCode(10);
+      const send = (event, data, id) => {
+        // 带 id 行：断线重连时浏览器自动带 Last-Event-ID，下面才能从断点续传（不重放已收到的判定）
+        if (id !== undefined && id !== null) res.write('id: ' + id + NL);
+        res.write('event: ' + event + NL);
+        res.write('data: ' + JSON.stringify(data) + NL + NL);
+      };
+      res.write(': connected' + NL + NL);
+
+      const url0 = new URL(req.url, 'http://x');
+      let cursor = Math.max(0, Number(url0.searchParams.get('from') || req.headers['last-event-id'] || 0) || 0);
+      let closed = false;
+      req.on('close', () => { closed = true; });
+      const heartbeat = setInterval(() => { if (!closed) res.write(': ping' + NL + NL); }, 15000);
+
+      try {
+        const first = guardStale(await findJob(jobId)) || null;
+        if (!first || first.kind !== 'quiz') { send('error', { error: '任务不存在或已过期，请重新批改' }); return res.end(); }
+        // 已经跑完的任务（切走又回来 / 秒回）：一次性推完再结束
+        if (first.status === 'done' || first.status === 'error') {
+          const list = Array.isArray(first.grades) ? first.grades : [];
+          for (let i = cursor; i < list.length; i += 1) send('grade', { grade: list[i], done: i + 1, total: first.gradeTotal || list.length }, i + 1);
+          if (first.status === 'error') send('error', { error: first.error || '批改失败，请重试' });
+          else send('done', { job: { jobId: first.jobId, status: 'done', data: first.data || null } });
+          return res.end();
+        }
+        const deadline = Date.now() + staleMsFor('quiz');
+        while (!closed && Date.now() < deadline) {
+          const job = guardStale(await findJob(jobId)) || null;
+          if (!job) { send('error', { error: '任务不存在或已过期，请重新批改' }); break; }
+          const list = Array.isArray(job.grades) ? job.grades : [];
+          for (let i = cursor; i < list.length; i += 1) {
+            send('grade', { grade: list[i], done: i + 1, total: job.gradeTotal || list.length }, i + 1);
+          }
+          cursor = Math.max(cursor, list.length);
+          if (job.status === 'done') { send('done', { job: { jobId: job.jobId, status: 'done', data: job.data || null } }); break; }
+          if (job.status === 'error') { send('error', { error: job.error || '批改失败，请重试' }); break; }
+          // 判定级轮询（250ms）：只读内存里那份 job（findJob 先查内存，是同一个对象），
+          // 比任务级轮询快得多，也远小于写 KV 的代价（流式期间我们刻意不写 KV）
+          await new Promise((r) => setTimeout(r, 250));
+        }
+      } catch (e) {
+        if (!closed) send('error', { error: String((e && e.message) || e) });
+      } finally {
+        clearInterval(heartbeat);
+        if (!closed) res.end();
+      }
+      return undefined;
+    }
+
     const quizMatch = p.match(/^\/api\/quiz\/([A-Za-z0-9-]{8,64})$/);
     if (quizMatch && req.method === 'GET') {
       const job = await findJob(quizMatch[1]);
@@ -1507,14 +1731,80 @@ const server = http.createServer(async (req, res) => {
       // 删除凭据：分享链接是「可读」能力，不该顺带给出删除权，所以删除要另配一个只发一次的 token。
       // 只在**创建响应**里返回，GET /api/analyze/:jobId 不会带它。
       const deleteToken = randomBytes(16).toString('hex');
+      // stream=1：模型一行一段地往外写，结果页边收边画（见 GET /api/analyze/:id/stream）。
+      // 默认仍是关的 —— 老前端不带这个字段，行为一个字都不变。
+      const stream = body.stream === true || body.stream === 1 || body.stream === '1';
       saveJob({ jobId, kind: 'analyze', title, status: 'pending', createdAt: Date.now(), data: null, error: null, deleteToken });
       registerJob(jobId);
       // 立即返回任务号，后台再调用模型；手机端/弱网不会因长时间占用请求而卡死
       safeRun('analyze', jobId, () => runAnalyzeJob(jobId, {
         title, chinese, draft, original: lesson ? lesson.english : userOriginal,
-        lesson, lessonNo, baseUrl, model, apiKey, level, direction,
+        lesson, lessonNo, baseUrl, model, apiKey, level, direction, stream,
       }));
-      return json(res, 200, { ok: true, jobId, status: 'pending', deleteToken });
+      return json(res, 200, { ok: true, jobId, status: 'pending', deleteToken, stream });
+    }
+
+    /* ---------- 流式解析：GET /api/analyze/:id/stream（SSE） ----------
+     * 只推**新增**的段（?from=N / Last-Event-ID），断线重连不重放；
+     * 15 秒一次注释心跳，防代理把长连接掐掉；
+     * 结束时 event: done 带上**最终完整结果**（服务端收敛过的）—— 前端据此覆盖 partial，
+     * 保证"边看边长出来的"和"存进历史的"是同一个东西。 */
+    const analyzeStreamMatch = p.match(/^\/api\/analyze\/([A-Za-z0-9-]{8,64})\/stream$/);
+    if (analyzeStreamMatch && req.method === 'GET') {
+      const jobId = analyzeStreamMatch[1];
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream; charset=utf-8',
+        'Cache-Control': 'no-cache, no-transform',
+        Connection: 'keep-alive',
+        'X-Accel-Buffering': 'no',
+      });
+      const NL = String.fromCharCode(10);
+      const send = (event, data, id) => {
+        if (id !== undefined && id !== null) res.write('id: ' + id + NL);
+        res.write('event: ' + event + NL);
+        res.write('data: ' + JSON.stringify(data) + NL + NL);
+      };
+      res.write(': connected' + NL + NL);
+
+      const url0 = new URL(req.url, 'http://x');
+      let cursor = Math.max(0, Number(url0.searchParams.get('from') || req.headers['last-event-id'] || 0) || 0);
+      let closed = false;
+      req.on('close', () => { closed = true; });
+      const heartbeat = setInterval(() => { if (!closed) res.write(': ping' + NL + NL); }, 15000);
+
+      try {
+        const first = guardStale(await findJob(jobId)) || null;
+        if (!first || first.kind !== 'analyze') { send('error', { error: '任务不存在或已过期，请重新提交' }); return res.end(); }
+        // 已经跑完的任务（切走又回来 / 秒回）：一次性推完再结束
+        if (first.status === 'done' || first.status === 'error') {
+          const list = Array.isArray(first.segments) ? first.segments : [];
+          for (let i = cursor; i < list.length; i += 1) send('segment', { index: i, seg: list[i], label: SEGMENT_LABEL[list[i].t] || '' }, i + 1);
+          if (first.status === 'error') send('error', { error: first.error || '生成失败，请重试' });
+          else send('done', { job: { jobId: first.jobId, status: 'done', data: first.data || null } });
+          return res.end();
+        }
+        const deadline = Date.now() + staleMsFor('analyze');
+        while (!closed && Date.now() < deadline) {
+          const job = guardStale(await findJob(jobId)) || null;
+          if (!job) { send('error', { error: '任务不存在或已过期，请重新提交' }); break; }
+          const list = Array.isArray(job.segments) ? job.segments : [];
+          for (let i = cursor; i < list.length; i += 1) {
+            send('segment', { index: i, seg: list[i], label: SEGMENT_LABEL[list[i].t] || '' }, i + 1);
+          }
+          cursor = Math.max(cursor, list.length);
+          if (job.status === 'done') { send('done', { job: { jobId: job.jobId, status: 'done', data: job.data || null } }); break; }
+          if (job.status === 'error') { send('error', { error: job.error || '生成失败，请重试' }); break; }
+          // 段级轮询（250ms）：只读内存里那份 job（findJob 先查内存，是同一个对象），
+          // 远小于写 KV 的代价（流式期间我们刻意不写 KV）
+          await new Promise((r) => setTimeout(r, 250));
+        }
+      } catch (e) {
+        if (!closed) send('error', { error: String((e && e.message) || e) });
+      } finally {
+        clearInterval(heartbeat);
+        if (!closed) res.end();
+      }
+      return undefined;
     }
     const jobMatch = p.match(/^\/api\/analyze\/([A-Za-z0-9-]{8,64})$/);
     if (jobMatch && req.method === 'GET') {

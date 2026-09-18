@@ -1,3 +1,5 @@
+import { streamJob } from '../jobStream.js';
+
 /**
  * 统一的异步任务轮询（分析 / 素材 / 自测题 / OCR 共用）。
  *
@@ -63,14 +65,38 @@ export async function pollJob({ jobId, fetchJob, intervalMs, timeoutMs, maxFailu
  * 参数写错（比如忘了 maxFailures）不会报错，只会表现成"偶尔卡住"。收到这里之后，
  * 调用方只管 submit 什么、拿到 data 做什么。
  *
+ * 传了 `stream` 时先走流式（SSE）：边生成边回调，学生在结果页上看着内容长出来；
+ * 流式不可用/中途断了就**用同一个 jobId 回退到轮询**（不重复提交、不重复计费）。
+ * 两条路最终都以「服务端收敛过的完整 data」收尾，所以下游（历史 / 进度 / 分享）不用分叉。
+ *
  * @returns {Promise<{data?: any, aborted?: true}>}
  */
-export async function submitAndPoll({ submit, fetchJob, intervalMs, timeoutMs, maxFailures, netError, timeoutError, isAlive, onProgress, onJobId }) {
+export async function submitAndPoll({ submit, fetchJob, intervalMs, timeoutMs, maxFailures, netError, timeoutError, isAlive, onProgress, onJobId, stream }) {
   const resp = await submit();
   const jobId = resp && resp.jobId;
   // 少数情况服务端会直接同步返回结果（没有任务号）：当作已完成，不再轮询
   if (!jobId && resp && resp.data) return { data: resp.data };
   if (!jobId) throw new Error('服务器未返回任务编号，请重试');
   if (onJobId) onJobId(jobId);
+  if (stream) {
+    const r = await streamJob({
+      jobId,
+      path: typeof stream.path === 'function' ? stream.path(jobId) : stream.path,
+      onEvent: stream.onEvent,
+      onFirst: () => {
+        // 首段到达 = 真的在流式了：调用方据此切视图/显示"正在生成"横幅，runner 据此进第 2 步
+        if (stream.onFirst) stream.onFirst();
+        if (onProgress) onProgress({ status: 'running', streamed: true });
+      },
+      isAlive,
+      firstMs: stream.firstMs,
+      stallMs: stream.stallMs,
+      totalMs: stream.totalMs,
+    });
+    if (r.aborted) return { aborted: true };
+    if (r.error) throw r.error;
+    if (r.data) return { data: r.data };
+    // fallback → 继续往下走轮询（同一个 jobId，费用不重复）
+  }
   return pollJob({ jobId, fetchJob, intervalMs, timeoutMs, maxFailures, netError, timeoutError, isAlive, onProgress });
 }

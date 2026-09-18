@@ -7,7 +7,7 @@
  */import React from 'react';
 import { formatDuration } from '../../format.js'
 import { directionText } from '../../direction.js';
-import { ArrowLeft, CheckCircle2, ChevronDown, ClipboardCopy, Download, Link2 } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, ChevronDown, ClipboardCopy, Download, Link2, LoaderCircle } from 'lucide-react';
 import { DraftText } from './bits.jsx';
 import { ErrorProfile, Section, SentenceCard, VocabularyNotes, IdiomHighlights, SummaryBlock } from './cards.jsx';
 import { PracticeCompare } from './Compare.jsx';
@@ -73,7 +73,7 @@ function ReferenceBlocks({ result, allFindings }) {
   );
 }
 
-function ResultSheetImpl({ result, onBack, onCopy, onShare, shareTip, fav, history, jobId }) {
+function ResultSheetImpl({ result, onBack, onCopy, onShare, shareTip, fav, history, jobId, streaming }) {
   const overall = result.overall || {};
   // 整页文案按这条结果的方向走（老结果没有 direction 字段 → directionText 回落汉译英）
   const dt = directionText(result.direction);
@@ -92,6 +92,17 @@ function ResultSheetImpl({ result, onBack, onCopy, onShare, shareTip, fav, histo
         <button className="ghost-btn" onClick={() => window.print()}><Download size={15} />导出 PDF</button>
         {shareTip ? <span className="share-tip" role="status" aria-live="polite">{shareTip}</span> : null}
       </div>
+      {/* 流式进行中：告诉学生"还没完，但已经在出内容了"，并保留「取消等待」这条退路 */}
+      {streaming && streaming.active ? (
+        <div className="stream-banner" role="status" aria-live="polite">
+          <LoaderCircle className="spin" size={14} />
+          <span className="stream-text">
+            正在生成{streaming.note ? '：' + streaming.note : ''}
+            {streaming.elapsed > 0 ? ' · 已进行 ' + streaming.elapsed + ' 秒' : ''}
+          </span>
+          {streaming.onCancel ? <button className="ghost-btn sm" onClick={streaming.onCancel}>取消等待</button> : null}
+        </div>
+      ) : null}
       <article className="sheet">
         <header className="sheet-title"><span className="eyebrow">{dt.eyebrow}</span><h1>{result.title}</h1>
           {result.aiLevel ? <span className="sheet-duration">润色等级 {result.aiLevel}</span> : null}

@@ -125,6 +125,11 @@ textarea, input { font: inherit; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 .result { flex: 1; overflow-y: auto; padding: 18px; }
+/* 流式生成中的横幅：结果页边生成边显示时，告诉学生"还没完，但已经在出内容了"。
+   与旧的"转圈等一分钟"是同一件事的两种体验 —— 这条横幅就是那个体验的说明书。 */
+.stream-banner { max-width: 960px; margin: 0 auto 10px; display: flex; align-items: center; gap: 9px; padding: 9px 13px; border: 1px solid #cfe0ff; background: #f2f7ff; color: var(--brand); border-radius: 10px; font-size: 13px; }
+.stream-banner .stream-text { flex: 1; min-width: 0; }
+@media print { .stream-banner { display: none !important; } }
 .result-toolbar { max-width: 960px; margin: 0 auto 14px; display: flex; gap: 8px; }
 .sheet { max-width: 960px; margin: 0 auto; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 32px 38px; }
 .sheet-title { border-bottom: 2px solid var(--brand); padding-bottom: 14px; margin-bottom: 22px; }
@@ -655,6 +660,8 @@ mark.hl { background: #ffe3e3; color: inherit; padding: 0 2px; border-radius: 2p
 
 .quiz-mark { font-size: 11.5px; font-weight: 700; border-radius: 5px; padding: 2px 8px; }
 .quiz-mark.right { background: #e7f7ee; color: #1a7f4b; }
+/* AI 正在批改这道题：判定还没回来，先给个"在办"的标记 */
+.quiz-mark.judging { display: inline-flex; align-items: center; gap: 4px; background: #eef4ff; color: var(--brand); }
 .quiz-mark.close { background: #fff3d6; color: var(--gold); }
 .quiz-mark.wrong { background: #fdecec; color: var(--red); }
 .quiz-retry { margin-left: auto; border: 0; background: none; color: var(--muted); font-size: 11.5px; cursor: pointer; text-decoration: underline; padding: 0; }

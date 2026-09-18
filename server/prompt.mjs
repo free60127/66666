@@ -226,6 +226,37 @@ export function levelGuide(level) {
   return { key, ...AI_LEVELS[key] };
 }
 
+/**
+ * 流式输出的格式附加说明（拼在 SYSTEM_PROMPT / EN2CN_SYSTEM_PROMPT 后面）。
+ *
+ * 为什么是"附加"而不是另写一份提示词：内容质量的全部要求（字段含义、六大维度、
+ * 音标、词根词缀、等级匹配…）都在原提示词里，重写一份必然与它漂移。
+ * 这里只覆盖**输出格式**这一段，把"一个大 JSON"换成"一行一段的 NDJSON"——
+ * 学生因此能在 10 秒内看到先出来的整体评价和第一句解析，而不是干等一分钟。
+ */
+export const STREAM_FORMAT_RULES = `
+
+【输出格式：一行一段（覆盖上面的 JSON 结构说明，最重要）】
+不要输出一整个 JSON 对象，改成**一行一个 JSON 对象**（NDJSON）：每行末尾必须有换行，
+行内不能有换行符（字符串里的换行用中文分号代替），不要 markdown 围栏，不要任何解释文字。
+每行的字段名与上面的结构**完全一致**，只是把一个大 JSON 拆成下面这些行、按这个顺序输出：
+
+{"t":"meta","title":"标题","chinese":"中文提示（原样返回）","draft":"学生初稿（原样返回）","original":"课文原文（没有就空字符串）"}
+{"t":"ai","ai":"整体润色后的完整段落"}
+{"t":"overall","overall":{ …与上面 overall 完全相同的结构（score / scoreBreakdown / issues / summary / highlights / advice）… }}
+{"t":"sentence","item":{ …一句一行，字段与上面 sentences[] 的每个元素完全一致… }}
+{"t":"vocab","item":{ …一个词一行，字段与上面 vocabularyNotes[] 的每个元素完全一致… }}
+{"t":"idiom","item":{ …一条习语一行，字段与上面 idiomHighlights[] 的每个元素完全一致… }}
+{"t":"advanced","item":"一条高级句式（英文例句 + 「· 中文点拨：……」，与上面 advancedSentences 的元素同格式）"}
+{"t":"bonus","item":"一条加分表达（英文 + 「· 中文说明：……」，与上面 bonusExpressions 的元素同格式）"}
+{"t":"done"}
+
+硬性要求（前端是**边收边显示**的，顺序错了学生就看到内容跳来跳去）：
+1. 顺序固定：meta → ai → overall → 每句 sentence → 每个 vocab → 每个 idiom → 每个 advanced → 每个 bonus → done。
+2. sentences 必须**一句一行**，覆盖中文提示里的每一句；不要合并成一行，也不要漏句。
+3. 词汇 / 习语 / 句式 / 加分表达都要**一条一行**；内容数量与质量要求同上（宁精勿滥，不得空数组占位）。
+4. 上面的内容要求（分析深度、六大维度、音标、词根词缀、等级匹配、findings 必须与 from 逐字不同等）全部照旧执行。`;
+
 export function buildUserMessage({ title, chinese, draft, original, level }) {
   const L = levelGuide(level);
   const wantMorphology = ['四六级', '考研/专四', '专八'].includes(L.key);
@@ -405,6 +436,30 @@ export const GRADE_PROMPT = `你是英语老师，正在批改学生的自测题
 4. 造句题：看是否用上了要求的词/短语、搭配是否正确、句子是否完整；用上了且没错 → right。
 5. 学生**没作答**（作答为空）→ wrong，comment 写"未作答"。
 6. comment 用中文、具体、可操作；不要复述题干，不要编造题目之外的知识点。`;
+
+/**
+ * 流式批改的系统提示词（stream=1）。
+ *
+ * 与 GRADE_PROMPT 的**规则完全一样**，只换输出格式：不要 JSON 数组，改成**一行一道题**
+ * （NDJSON）—— 数组要等 `]` 打完才能解析，等于没流式；一行一道题就能"批完一题贴一题"。
+ * 解析端见 server/gradeStream.mjs。
+ */
+export const GRADE_STREAM_PROMPT = `你是英语老师，正在批改学生的自测题作答。用户会给你若干道题：题干、题型、标准答案、参考答案解析，以及**学生的作答**。
+
+输出格式（非常重要）：**一行一道题的判定，每行一个独立的 JSON 对象**，按题号从小到大排列。
+不要数组、不要 markdown 围栏、不要任何解释性文字、每行末尾必须有换行：
+
+{"index":0,"verdict":"right | close | wrong","comment":"中文点评","better":"更好的表达（可选，没有就填空字符串）"}
+{"index":1,"verdict":"...","comment":"...","better":"..."}
+
+判分要求：
+1. **index 与输入里每道题的 index 一一对应**，一题都不能漏、不要多出题目，也不要合并成数组。
+2. 每行的 comment 必须写成**一行**（不能有换行符），否则这一行会被解析器丢掉。
+3. 尺度：意思对、语法对、搭配对 → right；方向对但有实打实的错（时态、单复数、冠词、介词、用词不当、拼写错）→ close；意思错、答非所问、用中文作答 → wrong。
+4. **翻译题允许多种译法**：只要意思与语域对，和标准答案不同也要给 right，并在 better 里给出更地道的说法。
+5. 造句题：看是否用上了要求的词/短语、搭配是否正确、句子是否完整；用上了且没错 → right。
+6. 学生**没作答**（作答为空）→ wrong，comment 写"未作答"。
+7. comment 用中文、具体、可操作；不要复述题干，不要编造题目之外的知识点。`;
 
 export function buildGradeMessage({ items, level }) {
   const list = Array.isArray(items) ? items : [];

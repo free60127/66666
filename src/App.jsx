@@ -410,6 +410,7 @@ function App() {
     lessonProgress, setLessonProgress,
     studyDays, setStudyDays,
     currentOriginal,
+    streaming, streamNote,
     runGenerate, cancelGenerate, openHistoryModal, loadHistoryJob,
     shareResult, copyAll, loadDemo,
   } = useGeneration({
@@ -1303,7 +1304,19 @@ function App() {
           </section>
         ) : (
           <section className="result">
-            {result && <ResultSheet result={result} onBack={backToEditorView} onCopy={copyAll} onShare={shareResult} shareTip={shareTip} fav={favHandlers} history={historyList} jobId={currentJobId} />}
+            {result && (
+              <ResultSheet
+                result={result}
+                onBack={backToEditorView}
+                onCopy={copyAll}
+                onShare={shareResult}
+                shareTip={shareTip}
+                fav={favHandlers}
+                history={historyList}
+                jobId={currentJobId}
+                streaming={{ active: streaming, note: streamNote, elapsed, onCancel: cancelGenerate }}
+              />
+            )}
           </section>
         )}
       </main>

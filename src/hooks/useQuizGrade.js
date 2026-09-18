@@ -20,6 +20,9 @@ export function useQuizGrade({ quiz, settings }) {
   const [answers, setAnswers] = useState({});     // 题号 → 作答（选择题存选项字母）
   const [verdicts, setVerdicts] = useState({});   // 题号 → { status, by, expected, comment, better }
   const [tip, setTip] = useState('');
+  // 这一批交给 AI 的题号 + 还没有拿到判定的那些（底部据此显示"已判 2/5 题"、题上显示"批改中"）
+  const [pendingAI, setPendingAI] = useState([]);
+  const [aiTotal, setAiTotal] = useState(0);
   const { busy: aiBusy, elapsed, run } = useJobRunner();
 
   // 回调里要读最新值，但又不想把它们放进依赖（每次输入都会重建回调）
@@ -31,7 +34,7 @@ export function useQuizGrade({ quiz, settings }) {
   const qs = useMemo(() => (Array.isArray(quiz && quiz.questions) ? quiz.questions : []), [quiz]);
 
   // 换了一份卷子（重新出题 / 换了方向）就清空作答：把上一份的答案贴到新题上是最糟的错
-  useEffect(() => { setAnswers({}); setVerdicts({}); setTip(''); }, [quiz]);
+  useEffect(() => { setAnswers({}); setVerdicts({}); setTip(''); setPendingAI([]); setAiTotal(0); }, [quiz]);
 
   const apply = useCallback((i, v) => setVerdicts((prev) => ({ ...prev, [i]: v })), []);
 
@@ -100,13 +103,36 @@ export function useQuizGrade({ quiz, settings }) {
       explanation: qs[i].explanation || '',
       userAnswer: String(answersRef.current[i] == null ? '' : answersRef.current[i]),
     }));
+    setPendingAI(batch);
+    setAiTotal(batch.length);
     try {
       await run({
         submit: () => quizApi({
           mode: 'grade', items, level: quiz.level,
+          // 流式：模型一行一道题地往外写，收到一条就贴一条（见 server/gradeStream.mjs）
+          stream: true,
           baseUrl: settings && settings.baseUrl, model: settings && settings.model, apiKey: settings && settings.apiKey,
         }),
         fetchJob: getQuizJob,
+        stream: {
+          path: (jid) => '/api/quiz/' + jid + '/stream',
+          onEvent: (name, payload) => {
+            if (name !== 'grade' || !payload || !payload.grade) return;
+            const qi = batch[payload.grade.index];      // 位置 → 卷子上的题号
+            if (qi == null) return;
+            setVerdicts((prev) => ({
+              ...prev,
+              [qi]: {
+                status: payload.grade.verdict || 'close',
+                by: 'ai',
+                expected: String((qs[qi] && qs[qi].answer) || ''),
+                comment: payload.grade.comment || '',
+                better: payload.grade.better || '',
+              },
+            }));
+            setPendingAI((prev) => prev.filter((x) => x !== qi));   // 这题已判，撤掉"批改中"
+          },
+        },
         intervalMs: POLL_QUIZ_MS,
         timeoutMs: TIMEOUT_QUIZ_MS,
         maxFailures: 8,
@@ -150,6 +176,8 @@ export function useQuizGrade({ quiz, settings }) {
         return next;
       });
       setTip('AI 批改暂时用不了（' + ((e && e.message) || '未知错误') + '）：主观题请对照下面的标准答案自己判一下。本地能判的题已经判完了。');
+    } finally {
+      setPendingAI([]);
     }
   }, [qs, quiz, settings, run]);
 
@@ -169,6 +197,8 @@ export function useQuizGrade({ quiz, settings }) {
 
   return {
     answers, verdicts, summary, tip, aiBusy, aiElapsed: elapsed,
+    // AI 批改进度：total = 这一批几道题，pending = 还在等的题号（逐题到达时实时收缩）
+    aiProgress: { total: aiTotal, pending: pendingAI, done: Math.max(0, aiTotal - pendingAI.length) },
     setAnswer, chooseOption, judgeOne, gradeAll, selfJudge, resetAll, clearOne,
     modeOf: (i) => gradingMode(qs[i]),
   };
