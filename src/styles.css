@@ -92,27 +92,35 @@ textarea, input { font: inherit; }
 
 .main { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
 .topbar { height: 56px; min-height: 56px; background: var(--panel); border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 12px; padding: 0 18px; }
-.topbar-left { display: flex; align-items: center; gap: 8px; font-weight: 600; }
-.status-chip { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); background: #f2f5f8; border: 1px solid var(--line); padding: 5px 10px; border-radius: 999px; }
+/* 方案A：作业标题直接住在顶栏里（无边框输入框，点了就能改）。
+   原来它在正文里占一整行「作业标题 [input]」；标题是唯一值得常驻顶栏的信息。 */
+.topbar-title { flex: 1 1 auto; min-width: 0; border: none; background: transparent; font-weight: 600; font-size: 15px; color: var(--text); padding: 7px 9px; border-radius: 8px; }
+.topbar-title::placeholder { color: #9aa6b1; font-weight: 500; }
+.topbar-title:focus { outline: none; background: #f2f5f8; box-shadow: 0 0 0 2px rgba(31, 111, 235, .18); }
+.status-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); background: #f2f5f8; border: 1px solid var(--line); padding: 5px 10px; border-radius: 999px; flex-shrink: 0; }
 .dot { width: 8px; height: 8px; border-radius: 50%; }
 .dot.ok { background: var(--green); }
 .dot.err { background: #e0a30a; }
 
-.editor { flex: 1; overflow-y: auto; padding: 20px; max-width: 1180px; width: 100%; margin: 0 auto; }
-.upload-strip { display: flex; align-items: center; gap: 11px; flex-wrap: wrap; margin-bottom: 12px; }
-.upload-name { color: var(--muted); font-size: 13px; }
-.match-banner { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; padding: 10px 12px; border: 1px solid #b9e1d8; border-left: 4px solid var(--teal); border-radius: 8px; background: #effaf7; color: #176b62; font-size: 13px; }
-.mode-tabs { display: inline-flex; background: #e9eef3; border-radius: 10px; padding: 4px; margin-bottom: 16px; }
-.mode-tabs button { display: inline-flex; align-items: center; gap: 7px; padding: 8px 16px; border-radius: 8px; color: var(--muted); font-weight: 600; }
-.mode-tabs button.active { background: #fff; color: var(--text); box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+/* flex 列 + 动作条 margin-top:auto：内容不满一屏时动作条也贴在窗口底部（而不是悬在半空），
+   内容超一屏时退化为普通流式排列，由 sticky 接管 */
+.editor { flex: 1; overflow-y: auto; padding: 20px; max-width: 1180px; width: 100%; margin: 0 auto; display: flex; flex-direction: column; }
+/* ---------- 模式条（方案A）----------
+   原来首屏有六块同级控件：上传条、课文/自由 tabs、方向 tabs、标题行、润色等级、识别模式。
+   现在收敛成一行白底条：高频的「模式 / 方向 / 难度 / 导入 DOCX」留在条上，
+   低频的「AI 素材 / 存课文库 / 识别模式」收进顶栏 ⋮ 菜单。 */
+.modebar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 8px 10px; margin-bottom: 12px; }
+.modebar-seg { display: inline-flex; background: #e9eef3; border-radius: 9px; padding: 3px; }
+.modebar-seg button { padding: 6px 13px; border-radius: 7px; color: var(--muted); font-weight: 600; font-size: 13px; white-space: nowrap; }
+.modebar-seg button.active { background: #fff; color: var(--text); box-shadow: 0 1px 4px rgba(0,0,0,.1); }
+.modebar-field { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); }
+.modebar-select { border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; font: inherit; font-size: 12.5px; color: var(--text); background: #fff; }
+.match-banner { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; padding: 7px 12px; border: 1px solid #b9e1d8; border-left: 4px solid var(--teal); border-radius: 8px; background: #effaf7; color: #176b62; font-size: 12.5px; }
 .editor-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 16px; }
 .panel-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; gap: 8px; }
 .panel-head h2 { margin: 0; font-size: 15px; }
 .hint { font-size: 12px; color: var(--muted); }
-.title-field { max-width: 620px; display: flex; align-items: center; gap: 12px; margin: 0 0 14px; }
-.title-field label { color: var(--muted); font-size: 13px; white-space: nowrap; }
-.title-field input { width: 100%; border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; background: #fff; }
 .big-textarea { width: 100%; min-height: 260px; border: 1px solid var(--line); border-radius: 10px; padding: 12px; resize: vertical; line-height: 1.75; color: var(--text); }
 .big-textarea:focus { outline: 2px solid var(--brand); outline-offset: -1px; }
 .error-banner { margin-top: 14px; background: #fdecec; border: 1px solid #f3c2c2; color: #a33; padding: 10px 14px; border-radius: 10px; display: flex; gap: 10px; align-items: center; }
@@ -120,7 +128,20 @@ textarea, input { font: inherit; }
 .error-banner .err-close { flex-shrink: 0; color: var(--red); }
 .error-banner .err-close:hover { background: #f8d9d9; }
 .error-banner .link { color: var(--brand); text-decoration: underline; }
-.actions-bar { margin-top: 16px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+/* ---------- 吸底动作条（方案A）----------
+   生成按钮 + 计时器常驻编辑器底部：写到哪都能直接生成（原来「生成」距首屏约 4 屏）。
+   负外边距抵消 .editor 的内边距，让它真正通栏；sticky 让它随滚动挂在底缘，
+   滚到底时正好落在内容末尾，不遮任何东西。 */
+.action-dock {
+  position: sticky; bottom: 0; z-index: 6;
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  margin: auto -20px -20px; padding: 10px 20px;
+  background: var(--panel); border-top: 1px solid var(--line);
+  box-shadow: 0 -6px 16px rgba(16, 34, 46, .06);
+}
+/* 内容超一屏时 auto 外边距归零，动作条会贴死上方内容 —— 给 .editor-grid 留出收尾间距 */
+.editor-grid { margin-bottom: 4px; }
+.action-dock .primary-btn.big { flex: 1 1 300px; }
 .spin { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
@@ -274,23 +295,16 @@ mark.hl { background: #ffe3e3; color: inherit; padding: 0 2px; border-radius: 2p
   .editor-grid { grid-template-columns: 1fr; }
   .sheet { padding: 16px 12px; border-radius: 12px; }
   .v-row { grid-template-columns: 52px 1fr; gap: 6px; }
-  .title-field { align-items: stretch; flex-direction: column; gap: 5px; }
 
   /* 顶部栏：允许换行，状态条独占一行，避免按钮被挤出屏幕 */
   .topbar { flex-wrap: wrap; height: auto; min-height: 0; padding: 8px 12px; gap: 8px; }
+  .topbar-title { padding: 7px 4px; }
 
-    /* ---------- 手机端「更多」菜单（⋮）----------
-     顶栏原来平铺 4 个按钮 + 状态条，换行后占掉 200px（约 1/4 屏幕，实测 390×844 与 320×568）；
-     侧栏底部还并排着「AI 设置 / 备份」。现在次要入口统一收进 ⋮，
-     低频设置（润色等级 / 识别模式）也从正文里挪进去 —— 这正是用户说的"主页杂七杂八"。 */
-  /* ⚠️ 必须写成 .topbar .more-wrap（0,2,0）：基础规则 `.more-wrap{display:none}` 在文件末尾，
-     同特异性下**后写的赢**，直接写 .more-wrap 会被它盖掉 —— ⋮ 按钮根本不出现。
-     这与之前 .fav-tip.toast 被拉伸那个坑是同一类（见 css-media-override-specificity）。 */
-  .topbar .more-wrap { display: block; margin-left: auto; }
-  .topbar .ghost-btn, .topbar .due-btn { display: none; }
+    /* ---------- 「更多」菜单（⋮）----------
+     方案A 之后桌面端也用它（顶栏统一只留「标题 + 状态 + ⋮」），
+     这里只剩手机端特有的布局微调。 */
+
   .side-footer { display: none; }
-  /* 低频设置挪进菜单后，正文里这两个下拉就不显示了（桌面端照旧显示） */
-  .upload-strip .ocr-mode-wrap { display: none; }
 
 /* ---------- 安全区（刘海 / 灵动岛 / 横屏挖孔 / home indicator）----------
      index.html 的 viewport 现在带 viewport-fit=cover，内容会铺满整屏，
@@ -312,9 +326,7 @@ mark.hl { background: #ffe3e3; color: inherit; padding: 0 2px; border-radius: 2p
   .sidebar-close { top: calc(10px + env(safe-area-inset-top, 0px)); right: calc(10px + env(safe-area-inset-right, 0px)); }
   /* 整页滚动的内容：最后一屏别被 home indicator 压住 */
   .editor, .result { padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px)); }
-  .topbar-left { flex: 1 1 auto; min-width: 0; }
-  .topbar-left strong { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: inline-block; max-width: 100%; vertical-align: middle; }
-  .topbar .ghost-btn { white-space: nowrap; }
+  .topbar-title { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .status-chip { margin-left: 0; order: 9; flex-basis: 100%; justify-content: center; max-width: 100%; padding: 5px 8px; font-size: 11px; }
   /* 手机上只留「AI 已配置」：模型名（deepseek-chat）与课数对学习者是无意义噪音，还占一整行 */
   .status-chip .chip-detail { display: none; }
@@ -353,6 +365,8 @@ mark.hl { background: #ffe3e3; color: inherit; padding: 0 2px; border-radius: 2p
   .app { display: block !important; height: auto !important; min-height: 0 !important; overflow: visible !important; }
   .main { display: block !important; height: auto !important; min-height: 0 !important; overflow: visible !important; }
   .sidebar, .topbar, .result-toolbar, .modal-mask { display: none !important; }
+  /* 模式条与吸底动作条是交互控件，不该印在纸上 */
+  .modebar, .action-dock { display: none !important; }
   body { background: #fff !important; color: #1c2733 !important; }
   html, body, #root, .app, .main, .result, .sheet, .sheet-section { background: #fff !important; }
   /* 这里原本还有一条 .editor { display: none }：但编辑视图与结果视图是互斥渲染的
@@ -550,8 +564,14 @@ mark.hl { background: #ffe3e3; color: inherit; padding: 0 2px; border-radius: 2p
 .vocab-head .phonetic, .syn-head .phonetic { margin-left: 2px; }
 
 @media screen and (max-width: 900px) {
-  .title-row { align-items: stretch; }
-  .timer-box { width: 100%; justify-content: space-between; }
+  /* 吸底动作条（手机端）：整页滚动下同样 sticky；负外边距抵消 .editor 的内边距与安全区，
+     让底栏真正贴到屏幕底缘，生成按钮不被 home indicator 压住 */
+  .action-dock {
+    margin: 16px -20px calc(-16px - env(safe-area-inset-bottom, 0px));
+    padding: 10px 16px calc(10px + env(safe-area-inset-bottom, 0px));
+  }
+  .action-dock .primary-btn.big { flex: 1 1 100%; }
+  .timer-box { margin-left: auto; }
   .timer-display { min-width: 56px; font-size: 17px; }
 }
 
@@ -807,15 +827,6 @@ mark.hl { background: #ffe3e3; color: inherit; padding: 0 2px; border-radius: 2p
 @media (max-width: 720px) {
   .auth-label input { font-size: 16px; }
 
-  /* 底部「生成」按钮**不再固定在屏幕上**：用户反馈固定底栏（加上常驻顶栏）视觉上太挤。
-     手机端整页滚动后（见 max-width:900px 的布局规则），按钮本来就在表单最末尾，
-     随内容滚到底即可，无需 sticky。 */
-  .actions-bar { margin-top: 16px; }
-  .actions-bar .primary-btn.big { flex: 1; justify-content: center; }
-  /* 手机上那行说明文字会把按钮挤窄，收到按钮下面单独一行 */
-  .actions-hint { width: 100%; font-size: 11.5px; line-height: 1.5; }
-  .progress-foot { gap: 8px; }
-
   /* 自测卷的批改条：手机上让"已批改 N 题 对 x 接近 y 错 z"独占一行，
      两个按钮在下一行各占一半 —— 默认的换行会把「批改」挤到第三行去。 */
   .quiz-grade-bar { gap: 8px; padding: 8px 10px; }
@@ -860,7 +871,7 @@ mark.hl { background: #ffe3e3; color: inherit; padding: 0 2px; border-radius: 2p
   .book-tabs button { min-height: 44px; }
   .lesson-item { min-height: 44px; padding: 10px 8px; }
   .lesson-search, .lesson-search input { min-height: 44px; }
-  .ocr-mode, .mode-tabs button, .fold-toggle { min-height: 44px; }
+  .ocr-mode, .modebar-seg button, .fold-toggle { min-height: 44px; }
   .lib-add { width: 44px; height: 44px; }
   /* 行内文字链接（如「改用自由模式」）撑高会破坏横幅排版，改用内边距扩大热区：19px → 35px */
   .link { padding: 8px 4px; }
@@ -1075,9 +1086,10 @@ mark.hl { background: #ffe3e3; color: inherit; padding: 0 2px; border-radius: 2p
   .drill-cats { width: 100%; }
 }
 
-/* ---------- 「更多」菜单（手机端）----------
-   桌面端整体隐藏：那边屏幕够宽，平铺更好用，不改动既有习惯。 */
-.more-wrap { position: relative; display: none; }
+/* ---------- 「更多」菜单（⋮）----------
+   方案A 之后是**全端统一**的次级入口容器：桌面端顶栏不再平铺按钮，历史 / 收藏 /
+   待复习 / AI 素材 / 存课文库 / 识别模式 / 设置 / 备份 都在这里。 */
+.more-wrap { position: relative; display: block; flex-shrink: 0; }
 .more-btn { color: var(--muted); }
 .more-menu {
   position: absolute; right: 0; top: calc(100% + 8px); z-index: 60;

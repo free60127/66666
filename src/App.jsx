@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { BookOpen, Camera, CheckCircle2, ChevronDown, ChevronRight, Cloud, Copy, Download, Flame, FolderPlus, History, ImagePlus, Languages, Library, LoaderCircle, PanelLeftClose, PanelLeftOpen, PenLine, Settings, Sparkles, Star, Timer, Upload, UserRound, WandSparkles, X } from 'lucide-react'
+import { BookOpen, Camera, CheckCircle2, ChevronDown, ChevronRight, Cloud, Copy, Download, Flame, ImagePlus, Library, LoaderCircle, PanelLeftClose, PanelLeftOpen, Settings, Sparkles, Timer, Upload, UserRound, WandSparkles, X } from 'lucide-react'
 // mammoth（894 KB 源码）只在"上传 DOCX"这一个功能里用到，
 // 改为 handleDocx 内动态 import，避免它被打进首屏主包。
 import { ensureLessonIds, mergeLibraries, saveLibraries } from './lessonLibrary.js'
@@ -1012,29 +1012,29 @@ function App() {
           <button className="icon-btn side-toggle" onClick={toggleSidebar} title={sidebarOpen ? '收起侧栏' : '展开侧栏'} aria-label={sidebarOpen ? '收起侧栏' : '展开侧栏'}>
             {sidebarOpen ? <PanelLeftClose size={18} /> : <PanelLeftOpen size={18} />}
           </button>
-          <div className="topbar-left"><BookOpen size={18} /><strong>{mode === 'lesson' ? '课文回译训练' : '自由回译训练'}</strong></div>
+          {/* 方案A（聚焦编辑）：顶栏只留「当前作业标题 + 状态 + ⋮」。
+              标题直接在顶栏里改（原来占正文一整行）；模式名在下方模式条里能看到，不再重复。
+              历史结果 / 收藏夹 / 今日待复习 / 编辑器 四个次级入口全部收进 ⋮（手机端一直如此，桌面端现在统一）。 */}
+          <input
+            className="topbar-title"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder={mode === 'lesson' ? '课文回译训练 · 作业标题' : '自由回译训练 · 作业标题'}
+            aria-label="作业标题"
+            title="作业标题"
+          />
           <div className="status-chip" title={status ? (status.model + ' @ ' + status.baseUrl) : '请先启动后端 npm run server'}>
             <span className={'dot ' + (status ? 'ok' : 'err')} />
             {status ? (hasAiKey ? 'AI 已配置' : '未配置 API Key') : '后端未连接'}
             {status ? <span className="chip-detail">{' · ' + status.model}</span> : null}
             {status?.corpusLessons ? <span className="chip-detail">{' · ' + status.corpusLessons + ' 课'}</span> : null}
           </div>
-          <button className="ghost-btn" onClick={backToEditor}><X size={15} />编辑器</button>
-          <button className="ghost-btn" onClick={openHistoryModal}><History size={15} />历史结果{historyList.length ? ` (${historyList.length})` : ''}</button>
-          <button className="ghost-btn" onClick={() => { setFavTip(''); setFavReview(null); setFavOpen(true); }}><Star size={15} />收藏夹{favorites.length ? ` (${favorites.length})` : ''}</button>
-          <button className={'ghost-btn due-btn' + (favDueCount ? ' has-due' : '')} onClick={startReview} title="按间隔重复安排：打开今天该复习的收藏">
-            <Flame size={15} />今日待复习{favDueCount ? ` (${favDueCount})` : ''}
-          </button>
-          {/* 手机端把上面这些次要入口收进 ⋮（桌面端由 CSS 隐藏本组件，一切照旧） */}
+          {/* 全端统一的 ⋮ 菜单：低频入口都在这里（桌面端不再平铺那四个按钮） */}
           <MoreMenu
             view={view}
             historyCount={historyList.length}
             favCount={favorites.length}
             dueCount={favDueCount}
-            directionName={directionMeta(dir).name}
-            onToggleDirection={() => chooseDirection(dir === 'en2cn' ? 'cn2en' : 'en2cn')}
-            polishLevel={polishLevel} levels={AI_LEVELS}
-            onPolishLevel={(lv) => { setPolishLevel(lv); safeSet(LEVEL_KEY, lv); }}
             ocrMode={ocrMode} onOcrMode={setOcrMode}
             onBackToEditor={backToEditor}
             hasQuiz={Boolean(quizData)}
@@ -1042,6 +1042,9 @@ function App() {
             onOpenHistory={openHistoryModal}
             onOpenFavs={() => { setFavTip(''); setFavReview(null); setFavOpen(true); }}
             onStartReview={startReview}
+            onOpenMaterial={() => { setMaterialOpen(true); setError(''); }}
+            materialBusy={materialBusy}
+            onOpenSaveToLib={openLibModal}
             onOpenSettings={openSettings}
             onOpenBackup={openBackup}
             info={status ? (hasAiKey ? 'AI 已配置 · ' + status.model : '未配置 API Key') : '后端未连接'}
@@ -1072,31 +1075,36 @@ function App() {
                 <button type="button" className="ghost-btn start-guide-close" onClick={dismissGuide}>知道了</button>
               </div>
             ) : null}
-            <div className="upload-strip">
+            {/* 方案A：模式条 —— 原来「上传条 + 两排模式 tabs + 润色等级 + 识别模式 + 标题行」六块,
+                收敛成一行。高频的「模式 / 方向 / 难度 / 导入 DOCX」留在条上;
+                低频的「AI 素材 / 存课文库 / 识别模式」收进顶栏 ⋮ 菜单。 */}
+            <div className="modebar">
               <input ref={fileRef} type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden onChange={handleDocx} />
-              <button className="primary-btn" onClick={() => fileRef.current?.click()} disabled={parsing}>
-                {parsing ? <LoaderCircle className="spin" size={16} /> : <Upload size={16} />}
-                {parsing ? '正在读取 DOCX…' : '上传 DOCX 作业'}
-              </button>
-              <span className="upload-name">{fileName || (dir === 'en2cn' ? '上传后自动读取标题、英文原文和中文译稿' : '上传后自动读取标题、中文和英文初稿')}</span>
-              <button className="ghost-btn" onClick={() => { setMaterialOpen(true); setError(''); }} disabled={materialBusy}>
-                <Sparkles size={16} />AI 生成训练素材
-              </button>
-              <button className="ghost-btn" onClick={openLibModal} title="把当前作业存进自建课文库，以后可以像课文一样选出来反复练习">
-                <FolderPlus size={16} />保存到课文库
-              </button>
-              <label className="ocr-mode-wrap">润色等级
-                <select className="ocr-mode" value={polishLevel} onChange={(e) => { setPolishLevel(e.target.value); safeSet(LEVEL_KEY, e.target.value); }} title="AI 润色版、高级句式与推荐表达都会匹配该考试难度">
+              <div className="modebar-seg" role="group" aria-label="练习模式">
+                <button className={mode === 'lesson' ? 'active' : ''} onClick={() => setMode('lesson')}>课文模式</button>
+                <button className={mode === 'free' ? 'active' : ''} onClick={() => setMode('free')}>自由模式</button>
+              </div>
+              {/* 练习方向：换方向会把编辑区的三栏标签一起换掉（见 switchDirection） */}
+              <div className="modebar-seg" role="group" aria-label="练习方向">
+                {DIRECTIONS.map((d) => (
+                  <button
+                    key={d}
+                    className={dir === d ? 'active' : ''}
+                    onClick={() => switchDirection(d)}
+                    title={directionMeta(d).blurb}
+                  >{directionMeta(d).name}</button>
+                ))}
+              </div>
+              <label className="modebar-field" title="AI 润色版、高级句式与推荐表达都会匹配该考试难度">
+                难度
+                <select className="modebar-select" value={polishLevel} onChange={(e) => { setPolishLevel(e.target.value); safeSet(LEVEL_KEY, e.target.value); }}>
                   {AI_LEVELS.map((lv) => <option key={lv} value={lv}>{lv}</option>)}
                 </select>
               </label>
-              <label className="ocr-mode-wrap">识别模式
-                <select className="ocr-mode" value={ocrMode} onChange={(e) => setOcrMode(e.target.value)} title="拍照 / 图片识别的模式">
-                  <option value="auto">自动（印刷体/手写体）</option>
-                  <option value="handwriting">手写体优先（更高清）</option>
-                  <option value="printed">印刷体优先</option>
-                </select>
-              </label>
+              <button className="ghost-btn sm" onClick={() => fileRef.current?.click()} disabled={parsing}
+                title={fileName ? `已导入：${fileName}` : '从 Word 文档导入作业（自动识别标题、中文与英文初稿）'}>
+                {parsing ? <LoaderCircle className="spin" size={14} /> : <Upload size={14} />}导入 DOCX
+              </button>
             </div>
             {matchedLesson && (
               <div className={'match-banner' + (mode === 'free' ? ' weak' : '')}>
@@ -1113,34 +1121,6 @@ function App() {
               </div>
             )}
             {generatedOriginal && <div className="match-banner"><Sparkles size={15} />已载入 AI 原创训练素材（无教材版权）：{title}{materialKeywords.length ? ` · 建议词汇：${materialKeywords.join('、')}` : ''}，请根据中文提示写出你的英文初稿</div>}
-            <div className="mode-tabs">
-              <button className={mode === 'lesson' ? 'active' : ''} onClick={() => setMode('lesson')}><BookOpen size={15} />课文模式</button>
-              <button className={mode === 'free' ? 'active' : ''} onClick={() => setMode('free')}><PenLine size={15} />自由模式</button>
-            </div>
-            {/* 练习方向：进站选过一次之后就在这儿随时切；换方向会把编辑区的三栏标签一起换掉 */}
-            <div className="mode-tabs dir-tabs" role="group" aria-label="练习方向">
-              {DIRECTIONS.map((d) => (
-                <button
-                  key={d}
-                  className={dir === d ? 'active' : ''}
-                  onClick={() => switchDirection(d)}
-                  title={directionMeta(d).blurb}
-                >
-                  <Languages size={15} />{directionMeta(d).name}
-                </button>
-              ))}
-            </div>
-            <div className="title-row">
-              <div className="title-field"><label htmlFor="bt-title">作业标题</label><input id="bt-title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="例如：第 2 册 lesson 11" /></div>
-              <div className={'timer-box' + (timer.running ? ' running' : '')}>
-                <Timer size={16} />
-                <strong className="timer-display" title="本次练习用时"><ElapsedDisplay timer={timer} /></strong>
-                <button className="ghost-btn sm" onClick={toggleTimer}>
-                  {timer.running ? '暂停' : (hasElapsed ? '继续' : '开始计时')}
-                </button>
-                <button className="ghost-btn sm" onClick={resetTimer} disabled={!hasElapsed}>重置</button>
-              </div>
-            </div>
             <div className="editor-grid">
               <div
                 className={'panel' + (dragOver === 'chinese' ? ' drag-on' : '')}
@@ -1160,9 +1140,8 @@ function App() {
                   </div>
                 </div>
                 <textarea className="big-textarea" value={chinese} onChange={(e) => setChinese(e.target.value)} placeholder={dt.sourcePlaceholder} />
-                <div className={'ocr-note' + (String(ocrNotes.chinese || '').startsWith('识别失败') ? ' err' : '')}>
-                  {ocrNotes.chinese || dt.sourceNote}
-                </div>
+                {/* 帮助文字只在实际有话可说时出现（OCR 结果/失败原因）；常驻的"支持：拍照…"噪音已删 */}
+                {ocrNotes.chinese ? <div className={'ocr-note' + (String(ocrNotes.chinese).startsWith('识别失败') ? ' err' : '')}>{ocrNotes.chinese}</div> : null}
                 <input ref={chineseCamRef} type="file" accept="image/*" capture="environment" hidden onChange={(e) => { const f = Array.from(e.target.files || []); e.target.value = ''; handleOcrFiles('chinese', f); }} />
                 <input ref={chineseFileRef} type="file" accept="image/*" multiple hidden onChange={(e) => { const f = Array.from(e.target.files || []); e.target.value = ''; handleOcrFiles('chinese', f); }} />
               </div>
@@ -1184,9 +1163,7 @@ function App() {
                   </div>
                 </div>
                 <textarea className="big-textarea" value={draft} onChange={(e) => setDraft(e.target.value)} placeholder={dt.draftPlaceholder} />
-                <div className={'ocr-note' + (String(ocrNotes.english || '').startsWith('识别失败') ? ' err' : '')}>
-                  {ocrNotes.english || '支持：拍照 / 导入图片 / 电脑端拖入图片；手写体建议把「识别模式」切到「手写体优先」'}
-                </div>
+                {ocrNotes.english ? <div className={'ocr-note' + (String(ocrNotes.english).startsWith('识别失败') ? ' err' : '')}>{ocrNotes.english}</div> : null}
                 <input ref={englishCamRef} type="file" accept="image/*" capture="environment" hidden onChange={(e) => { const f = Array.from(e.target.files || []); e.target.value = ''; handleOcrFiles('english', f); }} />
                 <input ref={englishFileRef} type="file" accept="image/*" multiple hidden onChange={(e) => { const f = Array.from(e.target.files || []); e.target.value = ''; handleOcrFiles('english', f); }} />
               </div>
@@ -1228,9 +1205,7 @@ function App() {
                     onChange={(e) => setManualOriginal(e.target.value)}
                     placeholder="把这一课的英文原文粘贴到这里（课文原文 / 你要对标的范文都行）；也可以拍照或导入图片识别。留空则使用内置语料或 AI 素材自带的原文。"
                   />
-                  <div className={'ocr-note' + (String(ocrNotes.original || '').startsWith('识别失败') ? ' err' : '')}>
-                    {ocrNotes.original || '支持：拍照 / 导入图片 / 电脑端把图片拖进这一栏'}
-                  </div>
+                  {ocrNotes.original ? <div className={'ocr-note' + (String(ocrNotes.original).startsWith('识别失败') ? ' err' : '')}>{ocrNotes.original}</div> : null}
                 </>
               )}
               <input ref={originalCamRef} type="file" accept="image/*" capture="environment" hidden onChange={(e) => { const f = Array.from(e.target.files || []); e.target.value = ''; handleOcrFiles('original', f); }} />
@@ -1255,14 +1230,6 @@ function App() {
                 </div>
               </div>
             )}
-            <div className="actions-bar">
-              <button className="primary-btn big" onClick={() => runGenerate()} disabled={busy || parsing}>
-                {busy ? <LoaderCircle className="spin" size={17} /> : <WandSparkles size={17} />}
-                {busy ? 'AI 正在后台生成（约1-2分钟）…' : dt.generateBtn}
-              </button>
-              {!hasAiKey && <button className="ghost-btn" onClick={loadDemo}><Sparkles size={15} />离线示例</button>}
-              <span className="muted actions-hint">{busy ? '已提交后台任务，请保持页面打开，完成后自动展示' : dt.generateHint}</span>
-            </div>
             {busy && (
               <div className="progress-box">
                 <div className="progress-steps">
@@ -1286,6 +1253,24 @@ function App() {
                 )}
               </div>
             )}
+            {/* 方案A：吸底动作条。生成按钮 + 计时器常驻底部（桌面端随编辑器滚动、手机端随页面滚动），
+                写到哪都能直接生成 —— 原来「生成」距首屏约 4 屏，关键动作埋得最深。
+                常驻的"生成顺序…"提示文字已删（结果页本身就有完整的四段对照）。 */}
+            <div className="action-dock">
+              <button className="primary-btn big" onClick={() => runGenerate()} disabled={busy || parsing}>
+                {busy ? <LoaderCircle className="spin" size={17} /> : <WandSparkles size={17} />}
+                {busy ? 'AI 正在后台生成（约1-2分钟）…' : dt.generateBtn}
+              </button>
+              {!hasAiKey && <button className="ghost-btn" onClick={loadDemo}><Sparkles size={15} />离线示例</button>}
+              <div className={'timer-box' + (timer.running ? ' running' : '')} title="本次练习用时">
+                <Timer size={16} />
+                <strong className="timer-display"><ElapsedDisplay timer={timer} /></strong>
+                <button className="ghost-btn sm" onClick={toggleTimer}>
+                  {timer.running ? '暂停' : (hasElapsed ? '继续' : '开始计时')}
+                </button>
+                <button className="ghost-btn sm" onClick={resetTimer} disabled={!hasElapsed}>重置</button>
+              </div>
+            </div>
           </section>
         ) : view === 'quiz' ? (
           <section className="result">

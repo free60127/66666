@@ -1,26 +1,25 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { BookOpen, Download, Flame, History, Languages, MoreVertical, Settings, Sparkles, Star } from 'lucide-react';
+import { BookOpen, Download, Flame, FolderPlus, History, MoreVertical, Settings, Sparkles, Star } from 'lucide-react';
 
 /**
- * 手机端的「更多」菜单（⋮）。
+ * 「更多」菜单（⋮）—— 全端统一（方案A 聚焦编辑）。
  *
- * 为什么要有它：手机端顶栏原来平铺了「编辑器 / 历史结果 / 收藏夹 / 今日待复习」四个按钮
- * 加一条状态条，换行后**占掉 200px、约 1/4 屏幕**（实测 390×844 与 320×568 都是 200px）；
- * 侧栏底部还并排着「AI 设置 / 备份」，而侧栏本来就挤。
- * 参考姊妹项目「单词本」的做法：次要入口统一收进右上角的 ⋮，顶栏只留"当前在哪 + 状态"。
+ * 演变：最初是手机端专属（顶栏平铺 4 个按钮 + 状态条要占 1/4 屏幕），桌面端平铺。
+ * 方案A 之后桌面端顶栏同样只留「标题 + 状态 + ⋮」，本组件成为**唯一**的次级入口容器：
+ *   - 历史结果 / 收藏夹 / 今日待复习 / 返回编辑器
+ *   - AI 生成训练素材 / 保存到课文库（仅编辑器视图；从原上传条挪来 —— 低频动作不占首屏）
+ *   - 识别模式（拍照/图片识别相关；练习方向与润色难度在编辑器的模式条上，不在这里重复）
+ *   - AI 设置 / 备份 / 状态信息
  *
  * 放在菜单里的都是**低频或与当前任务无关**的入口；高频动作（生成、拍照、导入图片、
- * 上传 DOCX）一律留在正文，不藏。
- *
- * 桌面端（>900px）由 CSS 隐藏整个组件 —— 那边屏幕够宽，平铺更好用，不改动既有习惯。
+ * 导入 DOCX）一律留在正文，不藏。
  */
 export default function MoreMenu({
   view, historyCount, favCount, dueCount,
-  directionName, onToggleDirection,
-  polishLevel, levels, onPolishLevel,
   ocrMode, onOcrMode,
   onBackToEditor, onOpenQuiz, hasQuiz,
   onOpenHistory, onOpenFavs, onStartReview,
+  onOpenMaterial, materialBusy, onOpenSaveToLib,
   onOpenSettings, onOpenBackup,
   info, infoSub,
 }) {
@@ -39,8 +38,8 @@ export default function MoreMenu({
   }, [open]);
 
   /** 菜单项：点完就收起菜单（不然还得再点一次外面） */
-  const Item = ({ icon, label, count, onClick, title }) => (
-    <button type="button" className="more-item" title={title || label}
+  const Item = ({ icon, label, count, onClick, title, disabled }) => (
+    <button type="button" className="more-item" title={title || label} disabled={disabled}
       onClick={() => { setOpen(false); if (onClick) onClick(); }}>
       {icon}
       <span>{label}</span>
@@ -62,18 +61,18 @@ export default function MoreMenu({
           <Item icon={<Star size={15} />} label="收藏夹" count={favCount} onClick={onOpenFavs} />
           <Item icon={<Flame size={15} />} label="今日待复习" count={dueCount} onClick={onStartReview}
             title="按间隔重复安排：打开今天该复习的收藏" />
+          {view === 'editor' ? (
+            <>
+              <div className="more-sep" />
+              <Item icon={<Sparkles size={15} />} label="AI 生成训练素材" disabled={materialBusy}
+                onClick={onOpenMaterial} title="AI 原创一篇短文 + 中文翻译，避开教材版权，直接用于回译训练" />
+              <Item icon={<FolderPlus size={15} />} label="保存到课文库" onClick={onOpenSaveToLib}
+                title="把当前作业存进自建课文库，以后可以像课文一样选出来反复练习" />
+            </>
+          ) : null}
 
           <div className="more-sep" />
 
-          <Item icon={<Languages size={15} />} label={'练习方向：' + directionName} onClick={onToggleDirection}
-            title="点一下切换汉译英 / 英译汉" />
-          <label className="more-field">
-            <span>润色等级</span>
-            <select className="ocr-mode" value={polishLevel} onChange={(e) => onPolishLevel(e.target.value)}
-              title="AI 润色版、高级句式与推荐表达都会匹配该考试难度">
-              {(levels || []).map((lv) => <option key={lv} value={lv}>{lv}</option>)}
-            </select>
-          </label>
           <label className="more-field">
             <span>识别模式</span>
             <select className="ocr-mode" value={ocrMode} onChange={(e) => onOcrMode(e.target.value)} title="拍照 / 图片识别的模式">
