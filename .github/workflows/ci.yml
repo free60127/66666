@@ -48,16 +48,16 @@ jobs:
       - name: 诊断：逐个跑测试文件（临时）
         if: failure()
         run: |
-          for f in server/*.test.mjs test/*.test.mjs; do
-            out=$(node "$f" 2>&1) || {
-              msg=$(printf '%s' "$out" | grep -aE "FAIL|失败|Error|error" | head -4 | tr '\n' '~' | tr -d '\r')
-              echo "::error title=DIAG-${f}::${msg}"
-            }
-          done
-          npx vitest run --reporter=verbose > /tmp/vitest.log 2>&1 || {
-            msg=$(grep -aE "×|✗|FAIL|Error:" /tmp/vitest.log | head -8 | tr '\n' '~' | tr -d '\r')
-            echo "::error title=DIAG-vitest::${msg}"
+          report() {
+            msg=$(printf '%s' "$2" | tr '\n' '~' | tr -d '\r' | cut -c1-1800)
+            echo "::error file=.github/workflows/ci.yml,line=1,title=DIAG-$1::${msg}"
           }
+          for f in server/*.test.mjs test/*.test.mjs; do
+            out=$(node "$f" 2>&1) || report "$f" "$(printf '%s' "$out" | grep -aE 'FAIL|Error:|❌' | head -8)"
+          done
+          if ! npx vitest run --reporter=verbose > /tmp/vitest.log 2>&1; then
+            report "vitest" "$(grep -aE '×|FAIL|Error|AssertionError|expected|Timeout' /tmp/vitest.log | head -25)"
+          fi
           echo "诊断完成"
 
       - name: 测试（账号服务 Worker，259 项断言）
