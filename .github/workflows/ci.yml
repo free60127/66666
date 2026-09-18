@@ -54,6 +54,10 @@ jobs:
               echo "::error title=DIAG-${f}::${msg}"
             }
           done
+          npx vitest run --reporter=verbose > /tmp/vitest.log 2>&1 || {
+            msg=$(grep -aE "×|✗|FAIL|Error:" /tmp/vitest.log | head -8 | tr '\n' '~' | tr -d '\r')
+            echo "::error title=DIAG-vitest::${msg}"
+          }
           echo "诊断完成"
 
       - name: 测试（账号服务 Worker，259 项断言）
