@@ -42,6 +42,20 @@ jobs:
       - name: 测试（账号 / 同步 / 任务清理 / 限流 / 收藏 / 同课对比）
         run: npm test
 
+      # 【临时诊断】npm test 是一条 && 长链，失败时看不出是哪个文件挂的。
+      # 这里逐个文件重跑，把失败的用例名用 ::error:: 发成**注解**（注解可匿名读取，
+      # 便于在没有仓库权限的环境里定位）。定位完就删掉这一步。
+      - name: 诊断：逐个跑测试文件（临时）
+        if: failure()
+        run: |
+          for f in server/*.test.mjs test/*.test.mjs; do
+            out=$(node "$f" 2>&1) || {
+              msg=$(printf '%s' "$out" | grep -aE "FAIL|失败|Error|error" | head -4 | tr '\n' '~' | tr -d '\r')
+              echo "::error title=DIAG-${f}::${msg}"
+            }
+          done
+          echo "诊断完成"
+
       - name: 测试（账号服务 Worker，259 项断言）
         run: npm run test:auth
 
