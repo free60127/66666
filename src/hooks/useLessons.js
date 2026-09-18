@@ -194,11 +194,15 @@ export function useLessons({
   };
 }
 
-/** 恢复上次打开的书册/课次；没有记录则默认该册第一课 */
+/** 恢复上次打开的书册/课次；没有记录则默认该册第一课。
+ *  ⚠️ 不要在这里硬编码册号白名单：书册状态本身恢复 1-9（四级/六级/英语一/英语二/专八是 5-9），
+ *  这里曾写死 [1,2,3,4]，四六级用户每次刷新都被强制跳回第 2 册（实测复现）。
+ *  现在改为：只要课表里确实存在该册号就恢复，否则才回落第 2 册。 */
 function pickInitialLesson(list) {
   const savedBook = Number(safeGet('bt-book', ''));
   const savedLesson = Number(safeGet('bt-lesson', ''));
-  const targetBook = [1, 2, 3, 4].includes(savedBook) ? savedBook : 2;
+  const hasSavedBook = Number.isInteger(savedBook) && savedBook >= 1 && list.some((l) => l.book === savedBook);
+  const targetBook = hasSavedBook ? savedBook : 2;
   const match = list.find((l) => l.book === targetBook && l.lesson === savedLesson);
   if (match) return match;
   return list.find((l) => l.book === targetBook) || list[0] || null;

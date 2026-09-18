@@ -363,8 +363,9 @@ mark.hl { background: #ffe3e3; color: inherit; padding: 0 2px; border-radius: 2p
   .example-line { flex-direction: column; gap: 2px; align-items: flex-start; }
   .example-line em { flex-shrink: 1; }
 
-  /* 弹窗占满手机宽度 */
-  .modal, .history-modal, .material-modal { width: calc(100vw - 24px); max-width: calc(100vw - 24px); }
+  /* 弹窗占满手机宽度；底部让出 home indicator（安全区），否则弹窗底部的
+     「保存 / 开始 / 清空」等按钮会被系统手势条压住点不到（带内滚的高弹窗尤其明显） */
+  .modal, .history-modal, .material-modal { width: calc(100vw - 24px); max-width: calc(100vw - 24px); padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px)); }
   .modal { padding: 16px; }
 }
 
