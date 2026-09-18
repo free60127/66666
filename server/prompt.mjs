@@ -252,10 +252,15 @@ export const STREAM_FORMAT_RULES = `
 {"t":"done"}
 
 硬性要求（前端是**边收边显示**的，顺序错了学生就看到内容跳来跳去）：
-1. 顺序固定：meta → ai → overall → 每句 sentence → 每个 vocab → 每个 idiom → 每个 advanced → 每个 bonus → done。
-2. sentences 必须**一句一行**，覆盖中文提示里的每一句；不要合并成一行，也不要漏句。
-3. 词汇 / 习语 / 句式 / 加分表达都要**一条一行**；内容数量与质量要求同上（宁精勿滥，不得空数组占位）。
-4. 上面的内容要求（分析深度、六大维度、音标、词根词缀、等级匹配、findings 必须与 from 逐字不同等）全部照旧执行。`;
+1. 顺序固定：meta → ai → **overall** → 每句 sentence → 每个 vocab → 每个 idiom → 每个 advanced → 每个 bonus → done。
+2. **overall 必须在逐句解析之前写完**（第 3 行）。逐句解析很长，写到后面容易没有余量；
+   反过来先写 overall，学生打开结果页第一眼就能看到评分与练习建议。
+3. **字段必须包在容器里**：overall 的所有字段装在 "overall" 对象里、逐句/词汇/习语装在 "item" 对象里
+   （不要平铺成 {"t":"overall","score":86} 或 {"t":"vocab","word":"pub"}）。每行都必须有 "t"。
+4. sentences 必须**一句一行**，覆盖中文提示里的每一句；不要合并成一行，也不要漏句。
+5. 词汇 / 习语 / 句式 / 加分表达都要**一条一行**；内容数量与质量要求同上（宁精勿滥，不得空数组占位）。
+   这几块**不能省**：它们是结果页上"词汇深度辨析 / 地道习语 / 学习总结"三个板块与跳转按钮的来源。
+6. 上面的内容要求（分析深度、六大维度、音标、词根词缀、等级匹配、findings 必须与 from 逐字不同等）全部照旧执行。`;
 
 export function buildUserMessage({ title, chinese, draft, original, level }) {
   const L = levelGuide(level);

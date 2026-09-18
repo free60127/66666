@@ -130,6 +130,8 @@ textarea, input { font: inherit; }
 .stream-banner { max-width: 960px; margin: 0 auto 10px; display: flex; align-items: center; gap: 9px; padding: 9px 13px; border: 1px solid #cfe0ff; background: #f2f7ff; color: var(--brand); border-radius: 10px; font-size: 13px; }
 .stream-banner .stream-text { flex: 1; min-width: 0; }
 @media print { .stream-banner { display: none !important; } }
+/* 截断提示：用警示色，与"正在生成"的蓝区分开 */
+.stream-banner.warn { border-color: #f0dca8; background: #fff8e6; color: #8a5a00; }
 .result-toolbar { max-width: 960px; margin: 0 auto 14px; display: flex; gap: 8px; }
 .sheet { max-width: 960px; margin: 0 auto; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 32px 38px; }
 .sheet-title { border-bottom: 2px solid var(--brand); padding-bottom: 14px; margin-bottom: 22px; }

@@ -103,6 +103,55 @@ console.log('=== 作业解析流式协议测试 ===\n');
   check('彻底没有结果时 mode=empty（调用方据此报错）', empty.mode === 'empty' && empty.parsed === null);
 }
 
+/* ---------- 7.5 ★ 形状漂移：真模型不照示例写时，内容不能整块丢 ----------
+ * 线上实测（2026-09-18）：真模型把 overall 平铺在段上、vocab 不带 item，
+ * 结果综合评分/练习建议/词汇/习语整块消失，界面上只表现为"这一块没生成"。
+ * 这一组用例就是把那次的真实形状钉住。 */
+{
+  const r = createResultReader();
+  const got = r.feed([
+    JSON.stringify({ t: 'overall', score: 86, summary: '整体不错', advice: ['复习过去完成时'], highlights: ['结构完整'], issues: 2 }),
+    JSON.stringify({ t: 'vocab', word: 'pub', phonetic: '/pʌb/', meaning: '酒馆' }),
+    JSON.stringify({ t: 'idiom', idiom: 'out of the blue', common: 'suddenly', explanation: '突然' }),
+    JSON.stringify({ t: 'advanced', text: 'Not until… · 中文点拨：倒装' }),
+    JSON.stringify({ t: 'bonus', value: 'at the mercy of · 中文说明：任凭摆布' }),
+    JSON.stringify({ cn: '包不见了。', draft: 'My bag was lost.', findings: [] }),        // 漏了 t → 按字段认成 sentence
+    JSON.stringify({ score: 90, advice: ['复习冠词'] }),                                  // 漏了 t 的 overall
+  ].join(String.fromCharCode(10)) + String.fromCharCode(10));
+  const folded = serverFold(got);
+  const oneOverall = serverFold(createResultReader().feed(JSON.stringify({ t: 'overall', score: 86, summary: '整体不错', advice: ['复习过去完成时'] }) + String.fromCharCode(10)));
+  check('★ 平铺的 overall（不带 overall 对象）照样收下', oneOverall.overall && oneOverall.overall.score === 86 && oneOverall.overall.advice.length === 1, JSON.stringify(oneOverall.overall));
+  check('★ 不带 item 的 vocab 照样收下', folded.vocabularyNotes.length === 1 && folded.vocabularyNotes[0].word === 'pub', JSON.stringify(folded.vocabularyNotes));
+  check('★ 不带 item 的 idiom 照样收下', folded.idiomHighlights.length === 1 && folded.idiomHighlights[0].idiom === 'out of the blue');
+  check('advanced / bonus 写成 text / value 也认', folded.advancedSentences.length === 1 && folded.bonusExpressions.length === 1);
+  check('★ 漏掉 t 的行按字段认类型（sentence / overall）', folded.sentences.length === 1 && folded.sentences[0].cn === '包不见了。', JSON.stringify(folded.sentences.map((x) => x.cn)));
+  check('同一类"单值段"后到者胜（模型自我更正时不会顶着旧值）', folded.overall.score === 90 && folded.overall.advice[0] === '复习冠词', JSON.stringify(folded.overall));
+  check('归一过的段会计入 repaired 统计（长期偏高说明提示词要再收）', r.stats.repaired >= 5, JSON.stringify(r.stats));
+
+  // 一整份完整结果（不是分段）不该被当成某一段
+  const r2 = createResultReader();
+  const one = r2.feed(JSON.stringify({ title: 'x', sentences: [{ cn: 'a' }], overall: { score: 80 } }) + String.fromCharCode(10));
+  check('整段 JSON 不会被误当成某一段（交给收尾兜底）', one.length === 0 && r2.stats.bad === 1, JSON.stringify(r2.stats));
+}
+
+/* ---------- 7.6 ★ 收尾补空：流式缺的块，用整段 JSON 补回来 ---------- */
+{
+  const parseLoose = (t) => JSON.parse(String(t).replace(/^[^{]*/, '').replace(/[^}]*$/, ''));
+  const whole = JSON.stringify({
+    title: 'Lesson 3', ai: 'Polished.', overall: { score: 88, advice: ['复习冠词'] },
+    vocabularyNotes: [{ word: 'pub' }], idiomHighlights: [{ idiom: 'out of the blue' }],
+    advancedSentences: ['Not until…'], bonusExpressions: ['at the mercy of'],
+    sentences: [{ cn: '第一句' }],
+  });
+  // 流式只拿到了一句逐句解析，其余块都没到
+  const merged = finalizeResult({ segments: [{ t: 'sentence', item: { cn: '第一句' }, __i: 0 }], rawText: whole, parseLoose });
+  check('★ 流式缺 overall 时用整段 JSON 补上（评分不再显示 "-"）', merged.mode === 'stream' && merged.parsed.overall.score === 88, JSON.stringify(merged.parsed.overall));
+  check('★ 词汇 / 习语 / 句式 / 加分表达也补回来（跳转按钮才不会再缺项）',
+    merged.parsed.vocabularyNotes.length === 1 && merged.parsed.idiomHighlights.length === 1
+    && merged.parsed.advancedSentences.length === 1 && merged.parsed.bonusExpressions.length === 1);
+  check('流式已有的内容优先（不被整段 JSON 覆盖）', merged.parsed.sentences.length === 1 && merged.parsed.sentences[0].cn === '第一句');
+}
+
 /* ---------- 8. 坏输入不炸 ---------- */
 {
   const r = createResultReader();

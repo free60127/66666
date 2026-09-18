@@ -822,13 +822,13 @@ async function callLLM({ baseUrl, model, apiKey, messages }) {
  *  · 每收到一段增量就回调 `onDelta`，调用方边解析边往界面上推。
  * 安全约定与 postChat 完全一致（不跟随重定向、超时、错误文案）。
  */
-async function callLLMStream({ baseUrl, model, apiKey, messages }, { onDelta, timeoutMs = STREAM_TIMEOUT_MS } = {}) {
+async function callLLMStream({ baseUrl, model, apiKey, messages }, { onDelta, timeoutMs = STREAM_TIMEOUT_MS, maxTokens = DEFAULT_MAX_TOKENS } = {}) {
   const url = baseUrl.replace(/\/+$/, '') + '/chat/completions';
   const headers = { 'Content-Type': 'application/json' };
   if (apiKey) headers['Authorization'] = 'Bearer ' + apiKey;
   const r = await postChat({
     url, headers, withFormat: false, timeoutMs,
-    body: { model, messages, temperature: 0.3, stream: true, max_tokens: DEFAULT_MAX_TOKENS },
+    body: { model, messages, temperature: 0.3, stream: true, max_tokens: maxTokens },
   });
   if (!r.ok) {
     const t = await r.text().catch(() => '');
@@ -879,7 +879,7 @@ async function callLLMStream({ baseUrl, model, apiKey, messages }, { onDelta, ti
       if (onDelta) onDelta(String(content));
       full = String(content);
       if (finishReason === 'length') console.warn('[stream] 输出被 max_tokens 截断，可能有内容不完整');
-      return full;
+      return { text: full, finishReason, streamed: false };
     }
     feedSse(text);
   } else {
@@ -888,7 +888,7 @@ async function callLLMStream({ baseUrl, model, apiKey, messages }, { onDelta, ti
   }
   if (!full.trim()) throw new Error('模型没有返回内容，请重试');
   if (finishReason === 'length') console.warn('[stream] 输出被 max_tokens 截断，可能有内容不完整');
-  return full;
+  return { text: full, finishReason, streamed: true };
 }
 
 /* ---------- 异步分析任务 ---------- */
@@ -952,7 +952,10 @@ async function runAnalyzeJob(jobId, { title, chinese, draft, original, lesson, l
     let segments = [];
     if (stream) {
       const reader = createResultReader();
-      raw = await callLLMStream({ baseUrl, model, apiKey, messages }, {
+      // 预算给到 32000：一行一段之后"逐句解析 + 词汇 + 习语 + 句式"的总量比一次性 JSON 更长，
+      // 用默认的 20000 容易在写完整段之前就被截断（表现是综合评分/词汇/习语整块没有）
+      const out = await callLLMStream({ baseUrl, model, apiKey, messages }, {
+        maxTokens: RETRY_MAX_TOKENS,
         onDelta: (delta) => {
           const got = reader.feed(delta);
           if (!got.length) return;
@@ -963,8 +966,18 @@ async function runAnalyzeJob(jobId, { title, chinese, draft, original, lesson, l
           job.updatedAt = Date.now();
         },
       });
+      raw = out.text;
       for (const seg of reader.flush()) segments.push(seg);
       job.streamStats = reader.stats;
+      // 被 max_tokens 截断：后面的块（整体评价 / 词汇 / 习语…）根本没写出来。
+      // 如实告诉用户，别让他以为"这些内容本来就不生成"。
+      if (out.finishReason === 'length') {
+        job.streamIncomplete = true;
+        console.warn(`[analyze/stream] 输出被截断（finish_reason=length）：已收 ${segments.length} 段，可能有整块内容缺失`);
+      }
+      if (job.streamStats && job.streamStats.repaired) {
+        console.warn(`[analyze/stream] ${job.streamStats.repaired} 段走了"形状归一"（模型没按示例写），内容已尽量救回`);
+      }
     } else {
       raw = await callLLM({ baseUrl, model, apiKey, messages });
     }
@@ -983,6 +996,7 @@ async function runAnalyzeJob(jobId, { title, chinese, draft, original, lesson, l
       }
     }
     job.data = buildAnalyzeData({ parsed, dir, title, chinese, draft, original, level, lesson, lessonNo });
+    if (job.streamIncomplete) job.data.incomplete = true;
     job.status = 'done';
     job.meta = { book: lesson?.book || null, lessonId: lesson?.lesson || lessonNo, baseUrl, model };
     job.updatedAt = Date.now();
@@ -1172,7 +1186,7 @@ async function runGradeJob(jobId, { items, level, baseUrl, model, apiKey, stream
     let stats = null;
     if (stream) {
       const reader = createGradeReader({ itemCount: items.length });
-      raw = await callLLMStream({ baseUrl, model, apiKey, messages }, {
+      const out = await callLLMStream({ baseUrl, model, apiKey, messages }, {
         onDelta: (delta) => {
           const got = reader.feed(delta);
           if (!got.length) return;
@@ -1183,6 +1197,7 @@ async function runGradeJob(jobId, { items, level, baseUrl, model, apiKey, stream
           job.updatedAt = Date.now();
         },
       });
+      raw = out.text;
       for (const g of reader.flush()) streamed.push(g);
       stats = reader.stats;
       job.streamStats = stats;

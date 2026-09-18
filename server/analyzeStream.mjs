@@ -8,114 +8,89 @@
  *   {"t":"meta","title":"…","chinese":"…","draft":"…","original":"…"}
  *   {"t":"ai","ai":"整体润色后的段落"}
  *   {"t":"overall","overall":{…与一次性 JSON 里的 overall 完全同构…}}
- *   {"t":"sentence","item":{…一句一个对象，字段与 sentences[] 的元素完全一致…}}
- *   {"t":"vocab","item":{…}}      {"t":"idiom","item":{…}}
- *   {"t":"advanced","item":"…"}   {"t":"bonus","item":"…"}
- *   {"t":"done"}
+ *   {"t":"sentence","item":{…一句一个对象…}}   {"t":"vocab","item":{…}}   {"t":"idiom","item":{…}}
+ *   {"t":"advanced","item":"…"}   {"t":"bonus","item":"…"}   {"t":"done"}
  *
- * 行切分与容错在 server/ndjson.mjs；这里只管"哪些段合法、怎么折成一份结果"。
- * 字段搬运规则必须与浏览器侧 src/resultFold.js **完全一致** ——
- * 否则会出现"边生成边看到的"和最后存下来的不是一个东西（test/resultFold.test.mjs 交叉钉住）。
+ * 行切分与容错在 server/ndjson.mjs；**段形状的归一与折叠直接复用浏览器侧那一份**
+ * （src/resultFold.js）—— 两端共用同一个函数，就不会出现"边生成边看到的"和
+ * 最后存下来的不是同一个东西。这里只补服务端特有的两件事：
+ *   1) createResultReader：把模型输出的行变成段（宽容走形写法，见 normalizeSegment）；
+ *   2) finalizeResult：收尾时用整段 JSON 再兜一次底，把流式期间没拿到的块补齐。
  */
 import { createNdjsonReader } from './ndjson.mjs';
+import { SEGMENT_TYPES, SEGMENT_LABEL, foldSegments, normalizeSegment, hasContent } from '../src/resultFold.js';
 
-/** 合法的段类型 → 前端进度条上显示的名字 */
-export const SEGMENT_LABEL = {
-  meta: '标题与原文',
-  ai: '整体润色',
-  overall: '整体评价',
-  sentence: '逐句解析',
-  vocab: '词汇深度辨析',
-  idiom: '地道习语',
-  advanced: '高级句式',
-  bonus: '加分表达',
-  done: '完成',
-};
-const TYPES = new Set(Object.keys(SEGMENT_LABEL));
+export { SEGMENT_LABEL, foldSegments, normalizeSegment };
 
-/** 逐块喂数据 → 新完成的段（已按 index 落位，重复到达的段覆盖旧的，不会长出两份） */
+const TYPES = new Set(SEGMENT_TYPES);
+
+/**
+ * 逐块喂数据 → 新完成的段（按 index 落位，重复到达的段不会长出两份）。
+ * 段形状在这里就归一：真模型会把 overall 平铺、把 vocab 写成不带 item 的样子、
+ * 偶尔漏掉 t —— 归一之后下游（折叠 / 落库）只面对一种形状。
+ */
+/** 这一段是不是"标准形状"（漏 t / 平铺 / 少一层容器都算走形） */
+function shapeOk(obj) {
+  const t = obj.t;
+  if (t === 'overall') return Boolean(obj.overall && typeof obj.overall === 'object' && !Array.isArray(obj.overall));
+  if (t === 'sentence' || t === 'vocab' || t === 'idiom') return Boolean(obj.item && typeof obj.item === 'object' && !Array.isArray(obj.item));
+  if (t === 'advanced' || t === 'bonus') return typeof obj.item === 'string';
+  if (t === 'ai') return typeof obj.ai === 'string';
+  if (t === 'meta') return typeof obj.title === 'string' || typeof obj.chinese === 'string' || typeof obj.draft === 'string';
+  return false;   // 认不出的 t 也算走形（其实已经被 guessType 拦下）
+}
+
 export function createResultReader() {
   let index = 0;
-  return createNdjsonReader({
+  const stats = { seg: 0, repaired: 0 };
+  const reader = createNdjsonReader({
     onObject: (obj) => {
-      if (!obj || typeof obj.t !== 'string' || !TYPES.has(obj.t)) return null;
-      const seg = { ...obj, __i: index };
+      if (!obj || typeof obj !== 'object') return null;
+      const canonical = normalizeSegment(obj);
+      if (!canonical) return null;
+      // 「走形」计数：漏 t、平铺 overall、item 没包起来、advanced 写成 text…都算。
+      // 长期偏高说明提示词要再收（或该换模型），但内容一条都不会丢。
+      if (!shapeOk(obj)) stats.repaired += 1;
+      stats.seg += 1;
+      const seg = { ...canonical, __i: index };
       index += 1;
       return seg;
     },
   });
-}
-
-/**
- * 把段折成一份（可能不完整的）结果对象 —— 与 src/resultFold.js 同构。
- * 只做字段搬运，**不做质量收敛**（收敛统一交给 sanitizeOverall / sanitizeSentences）。
- */
-export function foldSegments(segments) {
-  const out = { sentences: [], vocabularyNotes: [], idiomHighlights: [], advancedSentences: [], bonusExpressions: [] };
-  const sorted = (Array.isArray(segments) ? segments : [])
-    .filter(Boolean)
-    .slice()
-    .sort((a, b) => (Number(a.__i) || 0) - (Number(b.__i) || 0));
-  // 同一序号只认第一条：断线重连时服务端会重放，直接 push 会折出重复的句子
-  const seen = new Set();
-  const list = [];
-  for (const seg of sorted) {
-    const i = Number(seg.__i);
-    if (Number.isFinite(i)) {
-      if (seen.has(i)) continue;
-      seen.add(i);
-    }
-    list.push(seg);
-  }
-  for (const seg of list) {
-    switch (seg.t) {
-      case 'meta':
-        for (const k of ['title', 'chinese', 'draft', 'original']) {
-          if (typeof seg[k] === 'string' && seg[k] !== '') out[k] = seg[k];
-        }
-        break;
-      case 'ai':
-        if (typeof seg.ai === 'string') out.ai = seg.ai;
-        break;
-      case 'overall':
-        if (seg.overall && typeof seg.overall === 'object' && !Array.isArray(seg.overall)) out.overall = seg.overall;
-        break;
-      case 'sentence':
-        if (seg.item && typeof seg.item === 'object' && !Array.isArray(seg.item)) out.sentences.push(seg.item);
-        break;
-      case 'vocab':
-        if (seg.item && typeof seg.item === 'object' && !Array.isArray(seg.item)) out.vocabularyNotes.push(seg.item);
-        break;
-      case 'idiom':
-        if (seg.item && typeof seg.item === 'object' && !Array.isArray(seg.item)) out.idiomHighlights.push(seg.item);
-        break;
-      case 'advanced':
-        if (typeof seg.item === 'string' && seg.item.trim()) out.advancedSentences.push(seg.item);
-        break;
-      case 'bonus':
-        if (typeof seg.item === 'string' && seg.item.trim()) out.bonusExpressions.push(seg.item);
-        break;
-      default:
-        break;   // done 与认不出的段：忽略（后端以后加段类型也不会炸老前端）
-    }
-  }
-  return out;
+  return {
+    stats: {
+      get lines() { return reader.stats.lines; },
+      get bad() { return reader.stats.bad; },
+      get seg() { return stats.seg; },
+      get repaired() { return stats.repaired; },
+    },
+    feed: reader.feed,
+    flush: reader.flush,
+    get leftover() { return reader.leftover; },
+  };
 }
 
 /**
  * 收尾：决定这次解析的**最终内容**。
  *
- * 优先用流式收到的段（"看到的"就是"存下来的"）；一段都没认出来时
- * （模型没按一行一段来），退回把全文当整段 JSON 解析 —— 与出题/批改同一个兜底。
+ * 以流式收到的段为准（"看到的"就是"存下来的"）；然后把整段文本再当 JSON 解析一次，
+ * 只为**补空**（流式期间漏掉的 overall / 词汇 / 习语等）—— 真模型偶尔会把
+ * 一部分内容按"一行一段"写、另一部分又整体输出一遍，这里两边都不浪费。
  *
  * @returns {{parsed: object|null, mode: 'stream'|'fallback'|'empty'}}
  */
 export function finalizeResult({ segments, rawText, parseLoose }) {
   const folded = foldSegments(segments);
-  // "有效"的判据：至少有一句逐句解析，或有整体评价 —— 只有 meta 回显不算结果
-  if (folded.sentences.length || folded.overall) return { parsed: folded, mode: 'stream' };
-  let parsed = null;
-  try { parsed = parseLoose ? parseLoose(rawText) : null; } catch { parsed = null; }
-  if (parsed && typeof parsed === 'object') return { parsed, mode: 'fallback' };
-  return { parsed: null, mode: 'empty' };
+  const streamedOk = hasContent(folded.sentences) || hasContent(folded.overall);
+  let whole = null;
+  try { whole = parseLoose ? parseLoose(rawText) : null; } catch { whole = null; }
+  if (!whole || typeof whole !== 'object') return streamedOk ? { parsed: folded, mode: 'stream' } : { parsed: null, mode: 'empty' };
+  if (!streamedOk) return { parsed: whole, mode: 'fallback' };
+  const merged = { ...folded };
+  for (const k of ['title', 'chinese', 'draft', 'original', 'ai', 'overall', 'sentences', 'vocabularyNotes', 'idiomHighlights', 'advancedSentences', 'bonusExpressions']) {
+    if (!hasContent(merged[k]) && hasContent(whole[k])) merged[k] = whole[k];
+  }
+  return { parsed: merged, mode: 'stream' };
 }
+
+export { TYPES };

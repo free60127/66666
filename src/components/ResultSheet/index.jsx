@@ -7,7 +7,7 @@
  */import React from 'react';
 import { formatDuration } from '../../format.js'
 import { directionText } from '../../direction.js';
-import { ArrowLeft, CheckCircle2, ChevronDown, ClipboardCopy, Download, Link2, LoaderCircle } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, CheckCircle2, ChevronDown, ClipboardCopy, Download, Link2, LoaderCircle } from 'lucide-react';
 import { DraftText } from './bits.jsx';
 import { ErrorProfile, Section, SentenceCard, VocabularyNotes, IdiomHighlights, SummaryBlock } from './cards.jsx';
 import { PracticeCompare } from './Compare.jsx';
@@ -92,6 +92,14 @@ function ResultSheetImpl({ result, onBack, onCopy, onShare, shareTip, fav, histo
         <button className="ghost-btn" onClick={() => window.print()}><Download size={15} />导出 PDF</button>
         {shareTip ? <span className="share-tip" role="status" aria-live="polite">{shareTip}</span> : null}
       </div>
+      {/* 模型被 max_tokens 截断：内容较长时会发生，结果里可能有整块缺失（评分/词汇/习语）。
+          不能让它无声无息 —— 用户只会以为"这些内容本来就不生成"。 */}
+      {result.incomplete && !(streaming && streaming.active) ? (
+        <div className="stream-banner warn" role="status">
+          <AlertTriangle size={14} />
+          <span className="stream-text">这次输出被模型截断了（正文较长时会发生）：综合评分 / 词汇 / 习语等可能有缺失。建议「返回编辑」再生成一次。</span>
+        </div>
+      ) : null}
       {/* 流式进行中：告诉学生"还没完，但已经在出内容了"，并保留「取消等待」这条退路 */}
       {streaming && streaming.active ? (
         <div className="stream-banner" role="status" aria-live="polite">
