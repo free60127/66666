@@ -722,6 +722,20 @@ function App() {
     flashTip(setToast, `已切换到${directionMeta(nextDir).name}：题目与标准答案已对调`, 3200);
   }, [dir, chinese, draft, manualOriginal, generatedOriginal, chooseDirection, setChinese, setManualOriginal, setDraft, setGeneratedOriginal]);
 
+  /** 切到自由模式：一键清空课文带进来的内容（用户诉求：别再让自己手动删一遍）。
+   * 清的是「中文提示 / 初稿 / 标准答案 / 素材关键词」；标题与匹配到的课文保留 ——
+   * 顶栏横幅的「改用这个课文」和侧栏原课都还能一键回来。
+   * 初稿是自己写的、清了找不回，非空时先确认一句；课文材料反正能恢复，直接清不啰嗦。 */
+  const switchToFreeMode = useCallback(() => {
+    if (draft.trim() && !window.confirm('切换到自由模式会清空当前内容（含你写的初稿）。继续吗？')) return;
+    setMode('free');
+    setChinese('');
+    setDraft('');
+    setManualOriginal('');
+    setGeneratedOriginal('');
+    setMaterialKeywords([]);
+  }, [draft, setChinese, setDraft, setManualOriginal, setGeneratedOriginal, setMaterialKeywords]);
+
   /** 顶栏「编辑器」：只切回编辑视图，不动任何内容（只清 #job= 免得刷新跳回结果页）。 */
   const backToEditor = useCallback(() => {
     setView('editor');
@@ -1002,7 +1016,6 @@ function App() {
         mode={mode} lessonId={lessonId} onSelectLesson={pickLesson} onSelectMyLesson={pickMyLesson} onDeleteMyLesson={deleteMyLesson}
         onEditMyLesson={openLessonEdit} onRenumberLib={renumberMyLib}
         books={status?.books || []} directionName={directionMeta(dir).name}
-        onOpenSettings={openSettings} onOpenBackup={openBackup}
         lessonProgress={lessonProgress} studyDays={studyDays}
         drillReady={drillReady} onOpenDrill={openDrill}
       />
@@ -1082,7 +1095,7 @@ function App() {
               <input ref={fileRef} type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden onChange={handleDocx} />
               <div className="modebar-seg" role="group" aria-label="练习模式">
                 <button className={mode === 'lesson' ? 'active' : ''} onClick={() => setMode('lesson')}>课文模式</button>
-                <button className={mode === 'free' ? 'active' : ''} onClick={() => setMode('free')}>自由模式</button>
+                <button className={mode === 'free' ? 'active' : ''} onClick={switchToFreeMode} title="清空当前内容，从空白开始写">自由模式</button>
               </div>
               {/* 练习方向：换方向会把编辑区的三栏标签一起换掉（见 switchDirection） */}
               <div className="modebar-seg" role="group" aria-label="练习方向">

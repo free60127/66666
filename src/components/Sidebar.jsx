@@ -1,11 +1,12 @@
 import React from 'react';
-import { Download, Flame, FolderPlus, Library, ListOrdered, PenLine, Plus, Settings, Star, Target, Trash2, X } from 'lucide-react';
+import { Flame, FolderPlus, Library, ListOrdered, PenLine, Plus, Star, Target, Trash2, X } from 'lucide-react';
 import { doneSet, progressOf, summarize } from '../lessonProgress.js';
 import { summarizeStreak } from '../studyStreak.js';
 import { lessonKeyOf } from '../lessonLabel.js';
 
 /**
- * 左侧栏：课文库（内置 4 册 + 我的课文库）+ 搜课 + 课文列表 + 底部设置/备份入口。
+ * 左侧栏：课文库（内置 4 册 + 我的课文库）+ 搜课 + 课文列表。
+ * （原底部的「AI 设置 / 备份」已删：方案A 之后这两个入口统一收进顶栏 ⋮ 菜单。）
  *
  * 抽出来的原因：它是**纯展示 + 回调**（不持有任何状态），却占了 App 里最长的一段 JSX；
  * 留在 App 里既看不出编辑逻辑，也没法单独改样式（改侧栏要在一屏一屏地翻 3000 行）。
@@ -16,10 +17,9 @@ function Sidebar({
   onNewJob, myLibId, book, onBookChange, myLibs, onOpenLibModal, onSelectLib, onDeleteLib,
   lessonQuery, onLessonQuery, activeLib, lessons, visibleLessons,
   mode, lessonId, onSelectLesson, onSelectMyLesson, onDeleteMyLesson, onEditMyLesson, onRenumberLib,
-  onOpenSettings, onOpenBackup, lessonProgress, studyDays, books, directionName,
+  lessonProgress, studyDays, books, directionName,
   drillReady, onOpenDrill,
-}) {
-  // lessonKey 统一走 lessonLabel.lessonKeyOf —— 与生成/进度/错误训练用的是同一份实现，
+}) {  // lessonKey 统一走 lessonLabel.lessonKeyOf —— 与生成/进度/错误训练用的是同一份实现，
   // 各写一份只要漂移一处（自建库用 lid 还是序号），就会出现"练过却不打星"或"错题归错课"。
   const keyOf = (l) => lessonKeyOf(l, activeLib);
   const currentBookMeta = (books || []).find((b) => b.book === book) || null;
@@ -177,10 +177,6 @@ function Sidebar({
               );
             })}
           </div>
-        </div>
-        <div className="side-footer">
-          <button className="ghost-btn" onClick={onOpenSettings}><Settings size={15} />AI 设置</button>
-          <button className="ghost-btn" onClick={onOpenBackup} title="导出 / 导入本机数据备份（课文库、收藏夹、历史）"><Download size={15} />备份</button>
         </div>
       </aside>
     </>

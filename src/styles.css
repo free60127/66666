@@ -86,7 +86,6 @@ textarea, input { font: inherit; }
 .lesson-item.active { background: rgba(66,150,255,.18); color: #fff; }
 .lesson-no { font-size: 11px; color: #6f8b9c; width: 20px; }
 .lesson-title { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.side-footer { display: flex; gap: 6px; }
 .muted { color: var(--muted); }
 .muted.small { font-size: 12px; }
 
@@ -116,8 +115,12 @@ textarea, input { font: inherit; }
 .modebar-field { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); }
 .modebar-select { border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; font: inherit; font-size: 12.5px; color: var(--text); background: #fff; }
 .match-banner { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; padding: 7px 12px; border: 1px solid #b9e1d8; border-left: 4px solid var(--teal); border-radius: 8px; background: #effaf7; color: #176b62; font-size: 12.5px; }
-.editor-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 16px; }
+/* 面板网格吃掉编辑器剩余高度：中文提示/初稿两栏一直伸到底部动作条上沿，
+   不再留下大块空白（预览图的样子）。min-height 防止矮视口下被压没。 */
+.editor-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; flex: 1 1 auto; min-height: 320px; margin-bottom: 4px; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 16px; display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+/* 面板内的输入框在拉伸后的面板里自动填满剩余高度 */
+.panel > .big-textarea { flex: 1 1 auto; }
 .panel-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; gap: 8px; }
 .panel-head h2 { margin: 0; font-size: 15px; }
 .hint { font-size: 12px; color: var(--muted); }
@@ -139,8 +142,6 @@ textarea, input { font: inherit; }
   background: var(--panel); border-top: 1px solid var(--line);
   box-shadow: 0 -6px 16px rgba(16, 34, 46, .06);
 }
-/* 内容超一屏时 auto 外边距归零，动作条会贴死上方内容 —— 给 .editor-grid 留出收尾间距 */
-.editor-grid { margin-bottom: 4px; }
 .action-dock .primary-btn.big { flex: 1 1 300px; }
 .spin { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
@@ -303,8 +304,6 @@ mark.hl { background: #ffe3e3; color: inherit; padding: 0 2px; border-radius: 2p
     /* ---------- 「更多」菜单（⋮）----------
      方案A 之后桌面端也用它（顶栏统一只留「标题 + 状态 + ⋮」），
      这里只剩手机端特有的布局微调。 */
-
-  .side-footer { display: none; }
 
 /* ---------- 安全区（刘海 / 灵动岛 / 横屏挖孔 / home indicator）----------
      index.html 的 viewport 现在带 viewport-fit=cover，内容会铺满整屏，
@@ -564,9 +563,11 @@ mark.hl { background: #ffe3e3; color: inherit; padding: 0 2px; border-radius: 2p
 .vocab-head .phonetic, .syn-head .phonetic { margin-left: 2px; }
 
 @media screen and (max-width: 900px) {
-  /* 吸底动作条（手机端）：整页滚动下同样 sticky；负外边距抵消 .editor 的内边距与安全区，
-     让底栏真正贴到屏幕底缘，生成按钮不被 home indicator 压住 */
+  /* 手机端：动作条**不固定**在屏幕底部（用户此前明确反馈固定底栏视觉上太挤），
+     回归"随内容排在最后"，只是保持通栏样式与安全区内边距。
+     单列布局下输入框自动有自然高度，动作条就在初稿/原文栏下面。 */
   .action-dock {
+    position: static;
     margin: 16px -20px calc(-16px - env(safe-area-inset-bottom, 0px));
     padding: 10px 16px calc(10px + env(safe-area-inset-bottom, 0px));
   }
@@ -835,8 +836,6 @@ mark.hl { background: #ffe3e3; color: inherit; padding: 0 2px; border-radius: 2p
   .quiz-grade-running { flex: 1 1 100%; }
 }
 .sync-lost { margin: 4px 0 8px; font-size: 12.5px; line-height: 1.75; color: #8a5a00; background: #fff8e6; border: 1px solid #f0dca8; border-radius: 8px; padding: 9px 11px; }
-.side-footer { display: flex; gap: 6px; }
-.side-footer .ghost-btn { flex: 1; justify-content: center; }
 
 @media screen and (max-width: 900px) {
   .fold-note { margin-left: 0; width: 100%; text-align: left; order: 3; }
