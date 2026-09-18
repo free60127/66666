@@ -732,6 +732,7 @@ function App() {
    * 想练回原课：侧栏点同一课即可，内容会重新带入。
    * 初稿是自己写的、清了找不回，非空时先确认一句；课文材料反正能恢复，直接清不啰嗦。 */
   const switchToFreeMode = useCallback(() => {
+    if (mode === 'free') return; // 已是自由模式：再点按钮是无害的重复点击，绝不能把用户手打的内容清掉（夜间循环 R6 实测复现）
     if (draft.trim() && !window.confirm('切换到自由模式会清空当前内容和标题。继续吗？')) return;
     setMode('free');
     setTitle('');
@@ -743,7 +744,7 @@ function App() {
     setMatchedLesson(null);
     setMatchConfidence('');
     setMatchScore(null);
-  }, [draft, setTitle, setChinese, setDraft, setManualOriginal, setGeneratedOriginal, setMaterialKeywords, setMatchedLesson, setMatchConfidence, setMatchScore]);
+  }, [mode, draft, setTitle, setChinese, setDraft, setManualOriginal, setGeneratedOriginal, setMaterialKeywords, setMatchedLesson, setMatchConfidence, setMatchScore]);
 
   /** 顶栏「编辑器」：只切回编辑视图，不动任何内容（只清 #job= 免得刷新跳回结果页）。 */
   const backToEditor = useCallback(() => {
