@@ -276,6 +276,9 @@ const posInt = (raw, fallback) => {
   return Number.isFinite(n) && n >= 0 && String(raw ?? '').trim() !== '' ? Math.floor(n) : fallback;
 };
 const RATE_BUCKET_MAX = Math.max(1, posInt(process.env.RATE_BUCKET_MAX, 20000));
+// 音标兜底查询是全站唯一会**代表服务器**去打第三方接口的 GET 端点：
+// 独立桶 + 独立上限，别让人借服务器 IP 刷 dictionaryapi.dev，也别和「生成」抢配额
+const PHONETIC_RATE_MAX = Math.max(1, posInt(process.env.PHONETIC_RATE_LIMIT_PER_MIN, 60));
 
 function sweepRateBuckets(now) {
   for (const [k, v] of rateBuckets) if (now > v.resetAt) rateBuckets.delete(k);
@@ -313,6 +316,18 @@ function defaultVisionModel(baseUrl, model) {
 
 /* ---------- 音标兜底查询（模型没给 phonetic 时用，带内存缓存 + 熔断） ---------- */
 const phoneticCache = new Map();
+// 缓存必须**有界**（全站唯一一个曾经无界的内存结构）：单词组合空间近乎无限，
+// 随机单词打过来每条都会 set —— 实测风险与 rateBuckets 桶表无界是同一类问题。
+// 上限 2000 条（单条约 50 字节，合计 ~100KB），超限按插入顺序淘汰最旧的。
+const PHONETIC_CACHE_MAX = Math.max(100, posInt(process.env.PHONETIC_CACHE_MAX, 2000));
+function cachePhonetic(key, value) {
+  phoneticCache.set(key, value);
+  if (phoneticCache.size > PHONETIC_CACHE_MAX) {
+    const over = phoneticCache.size - PHONETIC_CACHE_MAX;
+    let i = 0;
+    for (const k of phoneticCache.keys()) { if (i++ >= over) break; phoneticCache.delete(k); }
+  }
+}
 let phoneticFailures = 0;
 let phoneticDown = false; // 词典接口不可达时（例如国内网络）直接放弃，避免每次页面都等超时
 async function lookupPhonetic(rawWord) {
@@ -320,8 +335,8 @@ async function lookupPhonetic(rawWord) {
   if (!key) return '';
   if (phoneticCache.has(key)) return phoneticCache.get(key);
   // 只查单个英文单词；含空格/斜杠的短语直接放弃，避免误查
-  if (!/^[a-z][a-z'’-]{0,40}$/.test(key)) { phoneticCache.set(key, ''); return ''; }
-  if (phoneticDown) { phoneticCache.set(key, ''); return ''; }
+  if (!/^[a-z][a-z'’-]{0,40}$/.test(key)) { cachePhonetic(key, ''); return ''; }
+  if (phoneticDown) { cachePhonetic(key, ''); return ''; }
   let phonetic = '';
   try {
     const controller = new AbortController();
@@ -345,7 +360,7 @@ async function lookupPhonetic(rawWord) {
     phoneticFailures += 1;
   }
   if (phoneticFailures >= 3) phoneticDown = true;
-  phoneticCache.set(key, phonetic);
+  cachePhonetic(key, phonetic);
   return phonetic;
 }
 
@@ -1594,6 +1609,8 @@ const server = http.createServer(async (req, res) => {
       });
     }
     if (p === '/api/phonetic' && req.method === 'GET') {
+      // 独立限流：这个端点会代表服务器去打第三方词典接口，单独给一个宽松但不设限的桶
+      if (rateLimited(req, 'phonetic', PHONETIC_RATE_MAX)) return json(res, 429, { error: '音标查询太频繁，请稍后再试' });
       const word = url.searchParams.get('word') || '';
       if (!word.trim()) return json(res, 400, { error: '缺少 word 参数' });
       const phonetic = await lookupPhonetic(word);
