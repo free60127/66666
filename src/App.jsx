@@ -202,6 +202,10 @@ function App() {
     // 必须用 useCallback 固定身份：内联箭头每次渲染都是新函数，会让 useModals 里的
     // effect 每次重渲染都重跑，进而抢走输入框焦点、打断中文输入法（实测 bug）。
     closeAuth: stableCloseAuth,
+    // 账号弹窗的开关在 useAccount（本 hook 之后），用 ref 读取「当下」状态：
+    // 没有它，账号弹窗开着时 open 算不出 'auth' —— Esc 关错成底下的备份弹窗、
+    // Tab 焦点圈也不包含账号弹窗（夜间循环 R3 实测复现后修复）
+    getAuthOpen: () => authOpenRef.current,
   });
   /* ---------- 拍照 / 图片识别（hooks/useOcr.js）----------
    * 状态、refs、摄像头生命周期、识别轮询都在那里；变量名沿用原来的，JSX 不用改。 */
@@ -1365,7 +1369,7 @@ function App() {
 
       {authOpen && (
         <div className="modal-mask auth-mask" onClick={() => !authBusy && setAuthOpen(false)}>
-          <div className="modal auth-modal" role="dialog" aria-modal="true" aria-label="账号" onClick={(e) => e.stopPropagation()}>
+          <div className="modal auth-modal" ref={(el) => { modalRefs.current.auth = el; }} role="dialog" aria-modal="true" aria-label="账号" onClick={(e) => e.stopPropagation()}>
             <div className="modal-head">
               <h2>{authMode === 'login' ? '登录' : authMode === 'register' ? '注册账号' : authMode === 'forgot' ? '找回密码' : '重置密码'}</h2>
               <button className="icon-btn" onClick={() => setAuthOpen(false)} disabled={authBusy} aria-label="关闭"><X size={16} /></button>

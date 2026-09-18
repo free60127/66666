@@ -43,7 +43,7 @@ export function useModals({ getCloseCamera, getMaterialBusy, getAuthOpen, closeA
    * 英文落进输入框。PoC 实测：敲 'w' 后 activeElement 从 textarea 变成关闭按钮。
    */
   const latest = useRef({});
-  latest.current = { getCloseCamera, getMaterialBusy, closeAuth };
+  latest.current = { getCloseCamera, getMaterialBusy, closeAuth, getAuthOpen };
 
   useEffect(() => {
     if (!open) return undefined;
@@ -65,7 +65,16 @@ export function useModals({ getCloseCamera, getMaterialBusy, getAuthOpen, closeA
       //  · Escape 在组合中是"取消候选词"，不该顺手把弹窗关掉（用户会丢掉正在填的内容）
       //  · isComposing / keyCode 229 是各浏览器通用的"这次按键已被输入法接管"标记
       if (e.isComposing || e.keyCode === 229) return;
-      if (e.key === 'Escape') { e.preventDefault(); const close = closers[open]; if (close) close(); return; }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        // 账号弹窗的开关不在本 hook 的 state 里（在 useAccount），render 期算出的
+        // `open` 可能落后一拍（打开它的那一次渲染里 ref 还没更新）——
+        // Esc 在**事件时刻**再问一次 getAuthOpen，保证关的是最上层的账号弹窗，
+        // 而不是压在它底下的备份弹窗（实测踩过：按 Esc 备份没了、登录框还悬着）。
+        const gAuth = latest.current.getAuthOpen;
+        if (gAuth && gAuth()) { const f = latest.current.closeAuth; if (f) f(); return; }
+        const close = closers[open]; if (close) close(); return;
+      }
       if (e.key !== 'Tab') return;
       const node = modalRefs.current[open];
       if (!node) return;
@@ -133,8 +142,8 @@ export function useModals({ getCloseCamera, getMaterialBusy, getAuthOpen, closeA
     };
   }, [anyModal]);
 
-  /** 有没有任何弹窗开着（用于全局快捷键 / 滚动锁定这类判断） */
-  const anyOpen = Boolean(camOpen || materialOpen || newJobOpen || libModalOpen || lessonEdit || backupOpen || historyOpen || favOpen || settingsOpen);
+  /** 有没有任何弹窗开着（用于全局快捷键 / 滚动锁定这类判断）；authOpen 虽然总开在备份之上，也要算数 */
+  const anyOpen = Boolean(camOpen || materialOpen || newJobOpen || libModalOpen || lessonEdit || backupOpen || historyOpen || favOpen || settingsOpen || authOpen);
 
   return {
     settingsOpen, setSettingsOpen,
