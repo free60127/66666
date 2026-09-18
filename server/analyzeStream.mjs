@@ -18,9 +18,9 @@
  *   2) finalizeResult：收尾时用整段 JSON 再兜一次底，把流式期间没拿到的块补齐。
  */
 import { createNdjsonReader } from './ndjson.mjs';
-import { SEGMENT_TYPES, SEGMENT_LABEL, foldSegments, normalizeSegment, hasContent } from '../src/resultFold.js';
+import { SEGMENT_TYPES, SEGMENT_LABEL, foldSegments, normalizeSegment, hasContent, usableOverall } from '../src/resultFold.js';
 
-export { SEGMENT_LABEL, foldSegments, normalizeSegment };
+export { SEGMENT_LABEL, foldSegments, normalizeSegment, usableOverall };
 
 const TYPES = new Set(SEGMENT_TYPES);
 
@@ -81,15 +81,18 @@ export function createResultReader() {
  */
 export function finalizeResult({ segments, rawText, parseLoose }) {
   const folded = foldSegments(segments);
-  const streamedOk = hasContent(folded.sentences) || hasContent(folded.overall);
+  // "有结果"的判据：有逐句解析，或有**可用的**整体评价（占位符不算，见 usableOverall）
+  const streamedOk = hasContent(folded.sentences) || usableOverall(folded.overall);
   let whole = null;
   try { whole = parseLoose ? parseLoose(rawText) : null; } catch { whole = null; }
   if (!whole || typeof whole !== 'object') return streamedOk ? { parsed: folded, mode: 'stream' } : { parsed: null, mode: 'empty' };
   if (!streamedOk) return { parsed: whole, mode: 'fallback' };
   const merged = { ...folded };
-  for (const k of ['title', 'chinese', 'draft', 'original', 'ai', 'overall', 'sentences', 'vocabularyNotes', 'idiomHighlights', 'advancedSentences', 'bonusExpressions']) {
+  for (const k of ['title', 'chinese', 'draft', 'original', 'ai', 'sentences', 'vocabularyNotes', 'idiomHighlights', 'advancedSentences', 'bonusExpressions']) {
     if (!hasContent(merged[k]) && hasContent(whole[k])) merged[k] = whole[k];
   }
+  // overall 单独判：占位符（{"…":"…"}）也算"没有"，让整段 JSON 里的真数据把它换掉
+  if (!usableOverall(merged.overall) && usableOverall(whole.overall)) merged.overall = whole.overall;
   return { parsed: merged, mode: 'stream' };
 }
 

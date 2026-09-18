@@ -23,7 +23,7 @@ const jumpTo = (sel) => {
 function SheetGlance({ overall, sentences, hasVocab, hasIdiom, hasSummary }) {
   return (
     <div className="sheet-glance">
-      <div className="glance-score"><strong>{overall.score ?? '-'}</strong><span>综合评分</span></div>
+      <div className="glance-score"><strong>{overall.score ?? '-'}</strong><span>{overall.local ? '本地估算' : '综合评分'}</span></div>
       <div className="glance-meta">
         <span>{sentences.length} 个句群</span>
         <span className="glance-dot">·</span>
@@ -128,7 +128,7 @@ function ResultSheetImpl({ result, onBack, onCopy, onShare, shareTip, fav, histo
         <section className="sheet-section analysis">
           <div className="section-heading"><span className="label-dot" /><h2>{dt.sentencesTitle}</h2><span className="muted small">{sentences.length} 个句群 · {overall.issues ?? 0} 项分析</span></div>
           <div className="overall-card">
-            <div className="score-ring"><strong>{overall.score ?? '-'}</strong><span>综合评分</span></div>
+            <div className="score-ring"><strong>{overall.score ?? '-'}</strong><span>{overall.local ? '本地估算' : '综合评分'}</span></div>
             <div className="overall-body">
               <p>{overall.summary || ''}</p>
               <div className="chips">{(overall.highlights || []).map((h, i) => <span key={'hl' + i} className="chip"><CheckCircle2 size={13} />{h}</span>)}</div>

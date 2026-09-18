@@ -28,6 +28,30 @@ const omitMeta = (o) => {
 /** 这个字段算不算"有内容"（收尾合并时判空用） */
 export const hasContent = (v) => (Array.isArray(v) ? v.length > 0 : (v && typeof v === 'object' ? Object.keys(v).length > 0 : Boolean(v)));
 
+/**
+ * overall 到底"算不算有"——**不能只看它是不是空对象**。
+ *
+ * 线上实测：模型有时把这一行写成占位符（{"t":"overall","overall":{"…":"…"}}）或者
+ * 只回一个无关字段，对象非空但里面没有评分、没有建议 —— 这时界面上就是"综合评分 -、
+ * 练习建议空"，而我们如果把它当成"已经有了"，后面的整段 JSON 补空与服务端补齐都不会触发。
+ * 所以判据是"有没有可用的内容"：分数 / 摘要 / 建议 / 亮点 / 分项，至少占一样。
+ * 占位符（`…`、`...`、`TBD`）一律不算。
+ */
+export function usableOverall(o) {
+  if (!o || typeof o !== 'object' || Array.isArray(o)) return false;
+  const text = (v) => (typeof v === 'string' ? v.trim() : '');
+  const meaningful = (v) => {
+    const t = text(v);
+    return t !== '' && !/^[…·—\s.-]+$/.test(t) && !/^(tbd|todo|n\/?a)$/i.test(t);
+  };
+  const list = (v) => (Array.isArray(v) ? v.filter((x) => meaningful(typeof x === 'string' ? x : (x && (x.label || x.comment)) || '')) : []);
+  return Number.isFinite(Number(o.score))
+    || meaningful(o.summary)
+    || list(o.advice).length > 0
+    || list(o.highlights).length > 0
+    || list(o.scoreBreakdown).length > 0;
+}
+
 /** 认不出 t 时按字段猜段类型；返回空串表示"不是段"（整段 JSON 或垃圾行） */
 function guessType(o) {
   // 一整份完整结果（不是分段）：交给收尾的"整段 JSON 兜底"处理，别当成某一段
@@ -107,7 +131,10 @@ export function foldSegments(segments) {
         }
         break;
       case 'ai': out.ai = s.ai; break;
-      case 'overall': out.overall = s.overall; break;
+      case 'overall':
+        // 占位符不许把已经拿到的真内容顶掉；反过来，真内容可以覆盖占位符
+        if (usableOverall(s.overall) || !usableOverall(out.overall)) out.overall = s.overall;
+        break;
       case 'sentence': out.sentences.push(s.item); break;
       case 'vocab': out.vocabularyNotes.push(s.item); break;
       case 'idiom': out.idiomHighlights.push(s.item); break;

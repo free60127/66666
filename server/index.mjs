@@ -4,11 +4,11 @@ import path from 'node:path';
 import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { promises as dnsLookup } from 'node:dns';
-import { SYSTEM_PROMPT, buildUserMessage, EN2CN_SYSTEM_PROMPT, buildEn2CnUserMessage, MATERIAL_PROMPT, buildMaterialMessage, QUIZ_PROMPT, buildQuizMessage, DRILL_PROMPT, buildDrillMessage, GRADE_PROMPT, GRADE_STREAM_PROMPT, buildGradeMessage, STREAM_FORMAT_RULES, AI_LEVEL_KEYS, DEFAULT_AI_LEVEL, normalizeLevel } from './prompt.mjs';
+import { SYSTEM_PROMPT, buildUserMessage, EN2CN_SYSTEM_PROMPT, buildEn2CnUserMessage, MATERIAL_PROMPT, buildMaterialMessage, QUIZ_PROMPT, buildQuizMessage, DRILL_PROMPT, buildDrillMessage, GRADE_PROMPT, GRADE_STREAM_PROMPT, buildGradeMessage, STREAM_FORMAT_RULES, OVERALL_REPAIR_PROMPT, buildOverallRepairMessage, AI_LEVEL_KEYS, DEFAULT_AI_LEVEL, normalizeLevel } from './prompt.mjs';
 import { MAX_DRILL_COUNT, MAX_DRILL_POINTS, MAX_GRADE_ITEMS } from './limits.mjs';
 import { sanitizeGrades, sanitizeQuestions } from './questionShape.mjs';
 import { createGradeReader, finalizeGrades } from './gradeStream.mjs';
-import { createResultReader, finalizeResult, SEGMENT_LABEL } from './analyzeStream.mjs';
+import { createResultReader, finalizeResult, SEGMENT_LABEL, usableOverall } from './analyzeStream.mjs';
 import { recognizeImage } from './ocr.mjs';
 import { MAX_SNAPSHOT_BYTES, createSyncStore, emptySnapshot, isValidSyncCode, newSyncCode, sanitizeSnapshot } from './sync.mjs';
 import { createUpstashKv, createFileKv } from './kv.mjs';
@@ -772,7 +772,7 @@ async function postChat({ url, headers, body, withFormat, timeoutMs = 120000 }) 
   return r;
 }
 
-async function callLLM({ baseUrl, model, apiKey, messages }) {
+async function callLLM({ baseUrl, model, apiKey, messages, timeoutMs }) {
   const url = baseUrl.replace(/\/+$/, '') + '/chat/completions';
   const headers = { 'Content-Type': 'application/json' };
   if (apiKey) headers['Authorization'] = 'Bearer ' + apiKey;
@@ -780,9 +780,9 @@ async function callLLM({ baseUrl, model, apiKey, messages }) {
 
   async function doPost(maxTokens) {
     const body = Object.assign({}, baseBody, { max_tokens: maxTokens });
-    let r = await postChat({ url, headers, body, withFormat: true });
+    let r = await postChat({ url, headers, body, withFormat: true, timeoutMs });
     if (!r.ok && /response_format|format/i.test(await r.clone().text())) {
-      r = await postChat({ url, headers, body, withFormat: false });
+      r = await postChat({ url, headers, body, withFormat: false, timeoutMs });
     }
     if (!r.ok) {
       const t = await r.text();
@@ -996,6 +996,22 @@ async function runAnalyzeJob(jobId, { title, chinese, draft, original, lesson, l
       }
     }
     job.data = buildAnalyzeData({ parsed, dir, title, chinese, draft, original, level, lesson, lessonNo });
+    // 整体评价缺失（模型整块没写 / 只写了占位符）→ 先补一次小请求，再退到本地估算。
+    // 这两步都只影响"有没有分数和建议"，不改变任何逐句批改内容。
+    // 只有在**有逐句批改可依据**时才补这一次请求：没有 findings 时既没有依据，
+    // 又会白白多花一次调用、把任务时长翻倍（并发名额测试就是这么被拖红的）。
+    const findingCount = (job.data.sentences || []).reduce((n, x) => n + ((x && Array.isArray(x.findings)) ? x.findings.length : 0), 0);
+    if (!usableOverall(job.data.overall) && findingCount > 0) {
+      try {
+        job.data.overall = await repairOverall({ baseUrl, model, apiKey, data: job.data });
+        job.overallRepaired = true;
+        console.warn('[analyze] 模型没给整体评价，已用一次补救请求补上');
+      } catch (e) {
+        job.data.overall = localOverall(job.data);
+        job.overallRepaired = false;
+        console.warn('[analyze] 整体评价补救失败，改用本地估算：' + (e && e.message));
+      }
+    }
     if (job.streamIncomplete) job.data.incomplete = true;
     job.status = 'done';
     job.meta = { book: lesson?.book || null, lessonId: lesson?.lesson || lessonNo, baseUrl, model };
@@ -1157,6 +1173,49 @@ async function runQuizJob(jobId, { points, count, level, baseUrl, model, apiKey,
   saveJob(job);
     scheduleForget(jobId); // 只清内存，KV 那份按 JOB_TTL 长期保留（分享链接靠它）
   }
+}
+
+/* ---------- 整体评价缺失时的兜底 ----------
+ * 线上实测：真模型偶尔整块不写 overall（或只写一个省略号占位），结果页就是
+ * "综合评分 - 、练习建议空"。先补一次**专门只问 overall**的小请求（几秒、几百 token），
+ * 补不到再用逐句批改的统计给一份**本地估算**并标注出来 —— 绝不假装这是 AI 的判断。
+ */
+function localOverall(data) {
+  const findings = (data.sentences || []).flatMap((x) => (Array.isArray(x.findings) ? x.findings : []));
+  const by = (lv) => findings.filter((f) => f && f.level === lv).length;
+  const errors = by('error'), improves = by('improve'), studies = by('study');
+  const cats = new Map();
+  for (const f of findings) {
+    const k = String((f && f.category) || '其它');
+    cats.set(k, (cats.get(k) || 0) + 1);
+  }
+  const top = [...cats].sort((a, b) => b[1] - a[1]).slice(0, 3);
+  const score = Math.max(40, Math.min(100, Math.round(100 - errors * 4 - improves * 1.5 - studies * 0.5)));
+  return {
+    local: true,
+    score,
+    issues: findings.length,
+    summary: '本次共 ' + findings.length + ' 处分析：必改 ' + errors + ' 处、可提升 ' + improves
+      + ' 处、对照学习 ' + studies + ' 处。' + (top.length ? '集中在' + top.map(([c, n]) => c + '（' + n + ' 处）').join('、') + '。' : ''),
+    highlights: [],
+    advice: top.map(([c, n]) => '重点复习「' + c + '」类问题（本次 ' + n + ' 处）'),
+    scoreBreakdown: [],
+  };
+}
+
+/** 补一次"只问 overall"的请求；失败返回 null（调用方退到本地估算） */
+async function repairOverall({ baseUrl, model, apiKey, data }) {
+  const findings = (data.sentences || []).flatMap((x) => (Array.isArray(x.findings) ? x.findings : []));
+  const messages = [
+    { role: 'system', content: OVERALL_REPAIR_PROMPT },
+    { role: 'user', content: buildOverallRepairMessage({ title: data.title, chinese: data.chinese, draft: data.draft, ai: data.ai, findings }) },
+  ];
+  // 短超时（45 秒）：补救只是"锦上添花"，绝不能因为它把任务拖住、占着并发名额
+  const raw = await callLLM({ baseUrl, model, apiKey, messages, timeoutMs: 45000 });
+  const parsed = parseJsonLoose(raw);
+  const overall = sanitizeOverall(parsed && parsed.overall && typeof parsed.overall === 'object' ? parsed.overall : parsed);
+  if (!usableOverall(overall)) throw new Error('补救请求也没给出可用的整体评价');
+  return overall;
 }
 
 /* ---------- 自测卷批改任务（mode=grade）----------

@@ -243,7 +243,7 @@ export const STREAM_FORMAT_RULES = `
 
 {"t":"meta","title":"标题","chinese":"中文提示（原样返回）","draft":"学生初稿（原样返回）","original":"课文原文（没有就空字符串）"}
 {"t":"ai","ai":"整体润色后的完整段落"}
-{"t":"overall","overall":{ …与上面 overall 完全相同的结构（score / scoreBreakdown / issues / summary / highlights / advice）… }}
+{"t":"overall","overall":{"score":86,"scoreBreakdown":[{"label":"词汇准确","score":17,"max":20,"comment":"一句话点评"}],"issues":12,"summary":"3-5 句中文整体评价","highlights":["写得好的地方"],"advice":["具体可操作的练习建议"]}}
 {"t":"sentence","item":{ …一句一行，字段与上面 sentences[] 的每个元素完全一致… }}
 {"t":"vocab","item":{ …一个词一行，字段与上面 vocabularyNotes[] 的每个元素完全一致… }}
 {"t":"idiom","item":{ …一条习语一行，字段与上面 idiomHighlights[] 的每个元素完全一致… }}
@@ -465,6 +465,45 @@ export const GRADE_STREAM_PROMPT = `你是英语老师，正在批改学生的�
 5. 造句题：看是否用上了要求的词/短语、搭配是否正确、句子是否完整；用上了且没错 → right。
 6. 学生**没作答**（作答为空）→ wrong，comment 写"未作答"。
 7. comment 用中文、具体、可操作；不要复述题干，不要编造题目之外的知识点。`;
+
+/** 整体评价缺失时的**补救提示词**：只补 overall 这一块（输出很小，一两秒就回来）。 */
+export const OVERALL_REPAIR_PROMPT = `你是「回译本」的英语导师。学生的回译作业已经逐句批改完毕，但**整体评价（overall）缺失**了。
+请根据给你的逐句批改记录，补出这份作业的整体评价。
+
+输出必须是严格 JSON（不要 markdown 包装、不要代码块、不要额外说明），结构如下：
+{
+  "score": 0-100 的整数（从语法、词汇、地道程度、忠实度四方面综合评分）,
+  "scoreBreakdown": [
+    { "label": "词汇准确", "score": 0-20, "max": 20, "comment": "一句话点评" },
+    { "label": "语法与时态", "score": 0-20, "max": 20, "comment": "一句话点评" },
+    { "label": "语境与逻辑", "score": 0-20, "max": 20, "comment": "一句话点评" },
+    { "label": "流畅度", "score": 0-20, "max": 20, "comment": "一句话点评" },
+    { "label": "地道程度", "score": 0-20, "max": 20, "comment": "一句话点评" }
+  ],
+  "issues": 逐句批改里的问题总数,
+  "summary": "3-5 句中文整体评价：先肯定亮点，再概括主要问题类型，再指出最值得改进的方向",
+  "highlights": ["学生写得好/用得出彩的地方，2-4 条"],
+  "advice": ["具体可操作的练习建议，2-4 条，如：重点复习过去完成时 / 冠词 a the / take 与 bring 的区别"]
+}
+
+要求：必须给出真实的 score 与 advice（不能留空、不能用省略号占位）；扣分要有依据，对应下面的批改记录。`;
+
+/** 补救请求的用户消息：把逐句批改压缩成一份"证据清单" */
+export function buildOverallRepairMessage({ title, chinese, draft, ai, findings }) {
+  const list = Array.isArray(findings) ? findings : [];
+  const lines = list.slice(0, 60).map((f, i) => (i + 1) + '. [' + (f.category || '其它') + '] '
+    + String(f.from || '').slice(0, 60) + ' → ' + String(f.to || '').slice(0, 60)
+    + (f.level ? '（' + f.level + '）' : '')
+    + (f.explanation ? '：' + String(f.explanation).replace(/\s+/g, ' ').slice(0, 80) : ''));
+  const NL = String.fromCharCode(10);
+  return '【作业】' + String(title || '').slice(0, 80)
+    + NL + '【中文提示（节选）】' + String(chinese || '').replace(/\s+/g, ' ').slice(0, 500)
+    + NL + '【学生初稿（节选）】' + String(draft || '').replace(/\s+/g, ' ').slice(0, 700)
+    + (ai ? NL + '【AI 润色版（节选）】' + String(ai).replace(/\s+/g, ' ').slice(0, 700) : '')
+    + NL + NL + '【逐句批改记录（共 ' + list.length + ' 条，这就是全部证据）】' + NL
+    + (lines.join(NL) || '（无）')
+    + NL + NL + '请只输出这一个 JSON 对象。';
+}
 
 export function buildGradeMessage({ items, level }) {
   const list = Array.isArray(items) ? items : [];

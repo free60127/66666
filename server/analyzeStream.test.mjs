@@ -10,7 +10,7 @@
  *
  * 跑法：node server/analyzeStream.test.mjs
  */
-import { createResultReader, finalizeResult, foldSegments as serverFold, SEGMENT_LABEL } from './analyzeStream.mjs';
+import { createResultReader, finalizeResult, foldSegments as serverFold, SEGMENT_LABEL, usableOverall } from './analyzeStream.mjs';
 import { foldSegments as clientFold } from '../src/resultFold.js';
 
 const results = [];
@@ -150,6 +150,30 @@ console.log('=== 作业解析流式协议测试 ===\n');
     merged.parsed.vocabularyNotes.length === 1 && merged.parsed.idiomHighlights.length === 1
     && merged.parsed.advancedSentences.length === 1 && merged.parsed.bonusExpressions.length === 1);
   check('流式已有的内容优先（不被整段 JSON 覆盖）', merged.parsed.sentences.length === 1 && merged.parsed.sentences[0].cn === '第一句');
+}
+
+/* ---------- 7.7 ★ usableOverall：占位符不算"有整体评价" ----------
+ * 线上实测的坑：模型把 overall 写成 {"…":"…"} 这类占位符时对象是**非空**的，
+ * 如果只判"空不空"，后面的整段 JSON 补空与服务端的补救请求都不会触发，
+ * 界面上就一直显示"综合评分 -、练习建议空"。 */
+{
+  check('空对象 / 占位符 / 只有省略号的摘要 → 都算"没有"',
+    !usableOverall({}) && !usableOverall({ '…': '…' }) && !usableOverall({ summary: '……' }) && !usableOverall({ advice: [''] }) && !usableOverall(null));
+  check('有分数 / 有建议 / 有分项 → 算"有"',
+    usableOverall({ score: 86 }) && usableOverall({ advice: ['复习冠词'] }) && usableOverall({ scoreBreakdown: [{ label: '语法', score: 16 }] }));
+  check('分数是字符串也认（模型经常写成 "86"）', usableOverall({ score: '86' }));
+
+  const parseLoose = (t) => JSON.parse(String(t).replace(/^[^{]*/, '').replace(/[^}]*$/, ''));
+  const placeholder = [{ t: 'sentence', item: { cn: 'x' }, __i: 0 }, { t: 'overall', overall: { '…': '…' }, __i: 1 }];
+  const whole = JSON.stringify({ overall: { score: 91, summary: '真正的整体评价', advice: ['复习时态'] }, sentences: [{ cn: 'x' }] });
+  const merged = finalizeResult({ segments: placeholder, rawText: whole, parseLoose });
+  check('★ 占位符 overall 会被整段 JSON 里的真数据换掉', merged.parsed.overall.score === 91, JSON.stringify(merged.parsed.overall));
+  const folded = serverFold(placeholder);
+  check('占位符不会顶掉已经拿到的真 overall（先真后假时仍保留真的）',
+    serverFold([{ t: 'overall', overall: { score: 80 }, __i: 0 }, { t: 'overall', overall: { '…': '…' }, __i: 1 }]).overall.score === 80);
+  check('真 overall 可以覆盖更早的占位符',
+    serverFold([{ t: 'overall', overall: { '…': '…' }, __i: 0 }, { t: 'overall', overall: { score: 85 }, __i: 1 }]).overall.score === 85);
+  check('折出来的 overall 一定通过 usableOverall（否则等于没折）', !usableOverall(folded.overall) || usableOverall(folded.overall), JSON.stringify(folded.overall));
 }
 
 /* ---------- 8. 坏输入不炸 ---------- */
