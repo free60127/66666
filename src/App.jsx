@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { BookOpen, Camera, CheckCircle2, ChevronDown, ChevronRight, Cloud, Copy, Download, Flame, ImagePlus, Library, LoaderCircle, PanelLeftClose, PanelLeftOpen, Settings, Sparkles, Timer, Upload, UserRound, WandSparkles, X } from 'lucide-react'
+import { BookOpen, Camera, CheckCircle2, ChevronDown, ChevronRight, Cloud, Copy, Download, FileText, Flame, ImagePlus, Library, LoaderCircle, PanelLeftClose, PanelLeftOpen, Settings, Sparkles, Timer, Upload, UserRound, WandSparkles, X } from 'lucide-react'
 // mammoth（894 KB 源码）只在"上传 DOCX"这一个功能里用到，
 // 改为 handleDocx 内动态 import，避免它被打进首屏主包。
 import { corpusToLibrary, ensureLessonIds, mergeLibraries, newLibraryId, renumberLibrary, saveLibraries } from './lessonLibrary.js'
+import { parseDocxText, textSimilarity, REFERENCE_SIM_THRESHOLD } from './docxParse.js'
 import { getOcrJob, getStatus, loadSettings, matchLesson, ocr, saveSettings } from './api.js'
 import { DELETED_FAVORITES_LIMIT, DELETED_LIBRARIES_LIMIT, DELETED_LESSONS_LIMIT, applyLibraryTombstones, mergeDeleted, mergeHistory } from './sync.js'
 import { mergeFavorites, saveFavorites } from './favorites.js'
@@ -64,36 +65,6 @@ function fingerprintOf(t, c, d, o) {
 /* ---------- 计时器：记录一篇课文/一次练习花了多久 ---------- */
 
 
-
-function isMarker(line) {
-  return /^(标题|中文|中文译文|译文|原稿|初稿|英文初稿|学生译本|AI\s*(润色|修正)|原文|原版|逐句|详细错误|分析)/i.test(line.trim());
-}
-
-function isMostlyEnglish(line) {
-  const words = (line.match(/[A-Za-z]+(?:['’-][A-Za-z]+)*/g) || []);
-  const letters = words.join('').length;
-  const han = (line.match(/[\u4e00-\u9fff]/g) || []).length;
-  // 短句也要能识别：至少 2 个英文单词、字母数 >=3，且英文显著多于中文
-  return words.length >= 2 && letters >= 3 && letters > han * 2;
-}
-
-function parseAssignmentText(raw) {
-  const lines = String(raw || '').split(/\r?\n/).map((line) => line.replace(/\u00a0/g, ' ').trim()).filter(Boolean);
-  if (lines.length < 3) throw new Error('DOCX 内容太少，至少需要标题、中文和英文初稿三部分');
-  const title = lines[0];
-  const draftStart = lines.findIndex((line, index) => index > 0 && !isMarker(line) && isMostlyEnglish(line));
-  if (draftStart < 0) throw new Error('没有识别到英文初稿，请确认 DOCX 中包含英文回译内容');
-  const chineseLines = lines.slice(1, draftStart).filter((line) => !isMarker(line));
-  const draftLines = [];
-  for (const line of lines.slice(draftStart)) {
-    if (isMarker(line)) break;
-    draftLines.push(line);
-  }
-  const chinese = chineseLines.join('\n').trim();
-  const draft = draftLines.join('\n').trim();
-  if (!chinese || !draft) throw new Error('未能同时识别出中文提示和英文初稿');
-  return { title, chinese, draft };
-}
 
 /**
  * 站名只在这里定义一次。
@@ -175,6 +146,16 @@ function App() {
   // 全局提示条：编辑器页也能看到（shareTip 只在结果页渲染，
   // 之前把"已保存课文/已新建作业"这类反馈发给了它，等于用户什么都看不到）
   const [toast, setToast] = useState('');
+  // DOCX 导入内容确认：解析器无法替用户判断“这段英文是初稿还是标准答案”时，
+  // 把决定权交给用户（kind: reference-vs-draft = 单段且与标准答案一致；assign-roles = 多段分配角色）
+  const [docxChoice, setDocxChoice] = useState(null);
+  const [docxRoles, setDocxRoles] = useState({ draftIdx: 0, refIdx: null });
+  // docxChoice 变化（新导入）时，把角色单选重置为解析器的默认猜测
+  useEffect(() => {
+    if (docxChoice && docxChoice.kind === 'assign-roles') {
+      setDocxRoles({ draftIdx: docxChoice.draftIdx, refIdx: docxChoice.refIdx });
+    }
+  }, [docxChoice]);
   const [sidebarOpen, setSidebarOpen] = useState(() => {
     if (typeof window !== 'undefined' && window.innerWidth <= 900) return false;
     return safeGet('bt-sidebar', '') !== 'collapsed';
@@ -393,8 +374,8 @@ function App() {
    * 修法放在这一层（而不是 useLessons 内部）：首屏自动选课也走 selectLesson，
    * 那种情况绝不能抢视图 —— 否则用 #job=xxx 分享链接打开时，
    * 迟到几秒的自动选课会把刚恢复出来的结果页顶掉。 */
-  const pickLesson = useCallback((b, l) => { setView('editor'); selectLesson(b, l); }, [selectLesson]);
-  const pickMyLesson = useCallback((libId, l) => { setView('editor'); selectMyLesson(libId, l); }, [selectMyLesson]);
+  const pickLesson = useCallback((b, l) => { setView('editor'); setDocxChoice(null); selectLesson(b, l); }, [selectLesson]);
+  const pickMyLesson = useCallback((libId, l) => { setView('editor'); setDocxChoice(null); selectMyLesson(libId, l); }, [selectMyLesson]);
   const pickBook = useCallback((b) => { setView('editor'); handleBookChange(b); }, [handleBookChange]);
 
   // 自建课文的 key 用**稳定 id**（lid）而不是序号：序号用户随时会改，
@@ -547,6 +528,7 @@ function App() {
   /** 真正开一份空白作业（调用前请先处理"当前作业要不要保存"）。 */
   const doStartNewJob = (closeSidebar) => {
     genTokenRef.current += 1;
+    setDocxChoice(null);
     if (closeSidebar) closeSidebarOnMobile();
     setView('editor');
     setResult(null);
@@ -798,6 +780,30 @@ function App() {
     window.history.replaceState(null, '', window.location.pathname + window.location.search);
   }, [setResult]);
 
+  /* ---------- DOCX 导入内容确认（见 docxChoice 状态）---------- */
+  const applyDocxAsLessonPractice = () => {
+    if (!docxChoice) return;
+    setChinese(docxChoice.sourceText);
+    setDraft('');
+    setManualOriginal(docxChoice.reference);
+    setDocxChoice(null);
+    flashTip(setToast, '已带入课文与标准答案：初稿已清空，现在写下你的回译吧', 5000);
+  };
+  const applyDocxAsDraft = () => {
+    setDocxChoice(null);
+    flashTip(setToast, '已按你的初稿导入：生成时会与标准答案逐句对照', 4500);
+  };
+  const applyDocxRoles = () => {
+    if (!docxChoice || docxChoice.kind !== 'assign-roles') return;
+    setDraft(docxChoice.blocks[docxRoles.draftIdx]?.text || '');
+    // 用户显式指定的原文优先；没指定（refIdx=null）时，命中课文才回退用词库标准答案
+    setManualOriginal(docxRoles.refIdx != null
+      ? (docxChoice.blocks[docxRoles.refIdx]?.text || '')
+      : (docxChoice.matched ? (docxChoice.reference || '') : ''));
+    setDocxChoice(null);
+    flashTip(setToast, '已按指定角色导入', 4000);
+  };
+
   /* ---------- 备份：课文库 + 收藏夹 + 历史 ---------- */
   const libraryLessonCount = myLibs.reduce((n, lib) => n + lib.lessons.length, 0);
   const backupSummary = `${myLibs.length} 个课文库（${libraryLessonCount} 篇课文） · ${favorites.length} 条收藏 · ${historyList.length} 条历史`;
@@ -949,8 +955,6 @@ function App() {
   authOpenRef.current = authOpen; // 供 useModals 的 Esc/焦点陷阱识别账号弹窗
   closeAuthRef.current = () => setAuthOpen(false);
 
-
-
   /** 打开「编辑课文」弹窗（改标题 / 改序号） */
   // 适配：调用点仍是 openLessonEdit(libId, lesson)，这里补上弹窗 setter
   const openLessonEdit = useCallback((libId, lesson) => openLessonEditRaw(libId, lesson, setLessonEdit), [openLessonEditRaw, setLessonEdit]);
@@ -967,26 +971,25 @@ function App() {
     event.target.value = '';
     if (!file) return;
     setError('');
+    setDocxChoice(null);
     setParsing(true);
     try {
       const mammoth = (await import('mammoth/mammoth.browser.js')).default;
       const raw = await mammoth.extractRawText({ arrayBuffer: await file.arrayBuffer() });
-      const parsed = parseAssignmentText(raw.value);
+      const parsed = parseDocxText(raw.value);
       setFileName(file.name);
       setTitle(parsed.title);
-      setChinese(parsed.chinese);
-      setDraft(parsed.draft);
       setGeneratedOriginal('');
       setManualOriginal(''); // 新作业：先清掉上一份的原文，等课文匹配结果出来再填
       setMaterialKeywords([]);
       const found = await matchLesson({ title: parsed.title, chinese: parsed.chinese });
-      if (found?.match && found.confidence && found.confidence !== 'none' && found.confidence !== 'low') {
+      const matched = Boolean(found?.match && found.confidence && found.confidence !== 'none' && found.confidence !== 'low');
+      // 匹配状态落盘（与原逻辑一致：高置信度进课文模式，低置信度先自由模式+候选展示）
+      if (found?.match && matched) {
         setBook(found.match.book);
         setLessonId(found.match.lesson);
         setMatchedLesson(found.match);
-        setMode('lesson');
         setTitle(lessonLabel(found.match));
-        setManualOriginal(found.match.english || ''); // DOCX 命中课文后，原文也填进「英文原文」栏
         setMatchConfidence(found.confidence);
         setMatchScore(found.score);
         try {
@@ -994,7 +997,6 @@ function App() {
           localStorage.setItem('bt-lesson', String(found.match.lesson));
         } catch { /* ignore */ }
       } else if (found?.match) {
-        // 低置信度：默认先用自由模式，但把候选课文展示出来，用户可一键切换
         setBook(found.match.book);
         setLessonId(found.match.lesson);
         setMatchedLesson(found.match);
@@ -1007,6 +1009,75 @@ function App() {
         setMatchConfidence('none');
         setMatchScore(null);
       }
+      if (dir === 'en2cn') {
+        // 英译汉：英文段是题目（chinese 槽），用户写的中文译稿是 draft 槽
+        const source = parsed.blocks[0]?.text || '';
+        if (parsed.blocks.length > 1) flashTip(setToast, '检测到多段英文，已使用第一段作为原文', 4500);
+        setChinese(source);
+        setDraft(parsed.chinese);
+        setManualOriginal(found?.match?.chinese || '');
+        setMode(matched ? 'lesson' : 'free');
+        if (!source && !parsed.chinese) throw new Error('没有识别到有效的中英文内容');
+        return;
+      }
+      // 汉译英（默认方向）：中文段=题目（chinese 槽），英文段=初稿候选
+      setChinese(parsed.chinese);
+      if (!parsed.blocks.length) {
+        // 只导入了中文：没有英文段——初稿让用户自己写（正好练回译）
+        setDraft('');
+        setMode(matched ? 'lesson' : 'free');
+        if (matched) setManualOriginal(found.match.english || '');
+        flashTip(setToast, '只识别到中文提示：请在「你的英文初稿」里写下你的回译，再点生成', 6000);
+        return;
+      }
+      if (parsed.blocks.length === 1) {
+        const block = parsed.blocks[0].text;
+        const reference = found?.match?.english || '';
+        const sim = matched ? textSimilarity(block, reference) : 0;
+        setDraft(block);
+        if (matched) {
+          setMode('lesson');
+          setManualOriginal(found.match.english || '');
+          if (sim >= REFERENCE_SIM_THRESHOLD) {
+            // 关键检测：导入的英文与标准答案基本一致——它更像参考译文而不是初稿，
+            // 初稿=答案会让批改失去意义。交给用户选择处理方式，而不是静默填错。
+            setDocxChoice({
+              kind: 'reference-vs-draft',
+              sourceText: parsed.chinese,
+              blocks: parsed.blocks,
+              reference,
+              similarity: sim,
+              lessonTitle: lessonLabel(found.match),
+            });
+            return;
+          }
+        } else {
+          setMode('free');
+        }
+        return;
+      }
+      // 多个英文段：无法替用户判断哪段是初稿哪段是原文——列出来让他指定
+      const sims = parsed.blocks.map((b) => (matched ? textSimilarity(b.text, found.match.english || '') : 0));
+      const maxSim = Math.max(...sims);
+      let draftIdx = 0;
+      let refIdx = parsed.blocks.length > 1 ? 1 : null;
+      if (matched && maxSim >= 0.5) {
+        refIdx = sims.indexOf(maxSim);
+        draftIdx = sims.findIndex((v, i) => i !== refIdx);
+        if (draftIdx < 0) draftIdx = refIdx === 0 ? 1 : 0;
+      }
+      setDraft(parsed.blocks[draftIdx]?.text || '');
+      setManualOriginal(matched ? (found.match.english || '') : (refIdx != null ? (parsed.blocks[refIdx].text || '') : ''));
+      setMode(matched ? 'lesson' : 'free');
+      setDocxChoice({
+        kind: 'assign-roles',
+        sourceText: parsed.chinese,
+        blocks: parsed.blocks,
+        draftIdx,
+        refIdx,
+        matched,
+        reference: found?.match?.english || '',
+      });
     } catch (e) {
       setFileName('');
       setError(e.message || 'DOCX 读取失败');
@@ -1187,6 +1258,45 @@ function App() {
                 {mode === 'free'
                   ? <button className="link" onClick={applyMatchedLesson}>改用这个课文</button>
                   : <button className="link" onClick={switchToFreeMode}>改用自由模式</button>}
+              </div>
+            )}
+            {/* DOCX 导入内容确认：解析器无法替用户判断英文段角色时，列出选项让用户指定 */}
+            {docxChoice && docxChoice.kind === 'reference-vs-draft' && (
+              <div className="match-banner import-review" role="alert">
+                <FileText size={15} />
+                <span className="match-text">
+                  检测到文档里的英文与《{docxChoice.lessonTitle}》的标准答案相似度 {Math.round(docxChoice.similarity * 100)}%——
+                  它更像<b>参考译文</b>而不是初稿（初稿和答案一样，批改就没有意义了）。
+                </span>
+                <div className="ir-actions">
+                  <button className="primary-btn sm" onClick={applyDocxAsLessonPractice}>按这篇课文练习：清空初稿，现场写</button>
+                  <button className="ghost-btn sm" onClick={applyDocxAsDraft}>它就是我的初稿，照样批改</button>
+                </div>
+              </div>
+            )}
+            {docxChoice && docxChoice.kind === 'assign-roles' && (
+              <div className="match-banner import-review" role="alert">
+                <FileText size={15} />
+                <span className="match-text">检测到文档里有 {docxChoice.blocks.length} 段英文——请指定哪段是<b>初稿</b>、哪段是<b>标准答案</b>。</span>
+                <div className="ir-blocks">
+                  {docxChoice.blocks.map((b, i) => (
+                    <div className="ir-block" key={i}>
+                      <span className="ir-no">第 {i + 1} 段</span>
+                      <span className="ir-preview">{b.text.slice(0, 72)}{b.text.length > 72 ? '…' : ''}</span>
+                      <label>
+                        <input type="radio" name="ir-draft" checked={docxRoles.draftIdx === i} onChange={() => setDocxRoles((r) => ({ ...r, draftIdx: i }))} />初稿
+                      </label>
+                      <label>
+                        <input type="radio" name="ir-ref" checked={docxRoles.refIdx === i} onChange={() => setDocxRoles((r) => ({ ...r, refIdx: i }))} />原文
+                      </label>
+                    </div>
+                  ))}
+                  <label className="ir-none">
+                    <input type="radio" name="ir-ref" checked={docxRoles.refIdx == null} onChange={() => setDocxRoles((r) => ({ ...r, refIdx: null }))} />
+                    不使用标准答案
+                  </label>
+                  <button className="primary-btn sm" onClick={applyDocxRoles}>按此导入</button>
+                </div>
               </div>
             )}
             {generatedOriginal && <div className="match-banner"><Sparkles size={15} />已载入 AI 原创训练素材（无教材版权）：{title}{materialKeywords.length ? ` · 建议词汇：${materialKeywords.join('、')}` : ''}，请根据中文提示写出你的英文初稿</div>}
