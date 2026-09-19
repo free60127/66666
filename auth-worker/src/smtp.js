@@ -9,7 +9,7 @@
  * 只有"用自己的邮箱当 SMTP"这条路是个人今天就能走通的。
  *
  * 配置（用 wrangler secret put，别写进代码）：
- *   SMTP_USER  例如 3338095791@qq.com
+ *   SMTP_USER  例如 your_mailbox@qq.com
  *   SMTP_PASS  QQ 邮箱「授权码」（在 QQ 邮箱设置→账户里开通，不是 QQ 密码）
  *   SMTP_HOST  缺省 smtp.qq.com
  *   SMTP_PORT  缺省 465（TLS）

@@ -49,7 +49,7 @@ Cloudflare Worker + D1，只做一件事：**账号与会话**。
 
 ```bash
 cd auth-worker
-npx wrangler secret put SMTP_USER   # 例如 3338095791@qq.com
+npx wrangler secret put SMTP_USER   # 例如 your_mailbox@qq.com
 npx wrangler secret put SMTP_PASS   # 上一步的授权码
 ```
 

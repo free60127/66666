@@ -9,7 +9,7 @@
  * 只有"用自己的邮箱当 SMTP"这条路是个人今天就能走通的。
  *
  * 配置（.env）：
- *   SMTP_USER  完整邮箱地址，例如 3338095791@qq.com
+ *   SMTP_USER  完整邮箱地址，例如 your_mailbox@qq.com
  *   SMTP_PASS  QQ 邮箱「授权码」（设置→账户→开启 IMAP/SMTP 服务 处生成，不是 QQ 密码）
  *   SMTP_HOST  缺省 smtp.qq.com
  *   SMTP_PORT  缺省 465；连不上会自动回退到 587（STARTTLS）
