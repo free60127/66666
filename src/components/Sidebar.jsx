@@ -1,5 +1,5 @@
-import React from 'react';
-import { Flame, FolderPlus, Library, ListOrdered, PenLine, Plus, Star, Target, Trash2, X } from 'lucide-react';
+import React, { useRef } from 'react';
+import { Flame, FolderPlus, Library, ListOrdered, PenLine, Plus, Star, Target, Trash2, Upload, X } from 'lucide-react';
 import { doneSet, progressOf, summarize } from '../lessonProgress.js';
 import { summarizeStreak } from '../studyStreak.js';
 import { lessonKeyOf } from '../lessonLabel.js';
@@ -15,6 +15,7 @@ import { lessonKeyOf } from '../lessonLabel.js';
 function Sidebar({
   sidebarOpen, onToggle, onCloseOnMobile,
   onNewJob, myLibId, book, onBookChange, myLibs, onOpenLibModal, onSelectLib, onDeleteLib,
+  onImportCorpus,
   lessonQuery, onLessonQuery, activeLib, lessons, visibleLessons,
   mode, lessonId, onSelectLesson, onSelectMyLesson, onDeleteMyLesson, onEditMyLesson, onRenumberLib,
   lessonProgress, studyDays, books, directionName,
@@ -26,6 +27,8 @@ function Sidebar({
   const done = doneSet(lessonProgress);
   const scopeStats = summarize(lessonProgress, visibleLessons.map(keyOf));
   const streak = summarizeStreak(studyDays);
+  // 语料 JSON 导入的文件选择器（不受控：选完即清空，同一文件可重复导入）
+  const corpusFileRef = useRef(null);
 
   return (
     <>
@@ -58,6 +61,15 @@ function Sidebar({
           <div className="my-libs">
             <div className="my-libs-head">
               <span className="side-title">我的课文库</span>
+              <input ref={corpusFileRef} type="file" accept=".json,application/json" hidden
+                onChange={(e) => { const f = e.target.files && e.target.files[0]; e.target.value = ''; if (f && onImportCorpus) onImportCorpus(f); }} />
+              {onImportCorpus && (
+                <button className="lib-add" onClick={() => corpusFileRef.current?.click()}
+                  title="导入语料 JSON：把 README「语料」格式的 JSON 文件转成我的课文库（导入后走云同步，其他设备同码可见）"
+                  aria-label="导入语料 JSON">
+                  <Upload size={14} />
+                </button>
+              )}
               {activeLib && activeLib.lessons.length > 0 && (
                 <button className="lib-add" onClick={() => onRenumberLib(activeLib.id)} title="重排序号：把每节课的序号补齐成 1、2、3…（删课留下的空档会补上）" aria-label="重排序号">
                   <ListOrdered size={14} />

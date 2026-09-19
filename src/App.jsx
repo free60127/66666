@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { BookOpen, Camera, CheckCircle2, ChevronDown, ChevronRight, Cloud, Copy, Download, Flame, ImagePlus, Library, LoaderCircle, PanelLeftClose, PanelLeftOpen, Settings, Sparkles, Timer, Upload, UserRound, WandSparkles, X } from 'lucide-react'
 // mammoth（894 KB 源码）只在"上传 DOCX"这一个功能里用到，
 // 改为 handleDocx 内动态 import，避免它被打进首屏主包。
-import { ensureLessonIds, mergeLibraries, saveLibraries } from './lessonLibrary.js'
+import { corpusToLibrary, ensureLessonIds, mergeLibraries, newLibraryId, renumberLibrary, saveLibraries } from './lessonLibrary.js'
 import { getOcrJob, getStatus, loadSettings, matchLesson, ocr, saveSettings } from './api.js'
 import { DELETED_FAVORITES_LIMIT, DELETED_LIBRARIES_LIMIT, DELETED_LESSONS_LIMIT, applyLibraryTombstones, mergeDeleted, mergeHistory } from './sync.js'
 import { mergeFavorites, saveFavorites } from './favorites.js'
@@ -462,6 +462,51 @@ function App() {
 
 
   /* ---------- 自建课文库：新建 / 保存 ---------- */
+
+  /**
+   * 导入语料 JSON（README「语料」格式）为「我的课文库」。
+   *
+   * 场景：内置语料（新概念 / 真题）可能因版权下架 —— 用户把手里保存的语料 JSON
+   * 导入成自建课文库，之后走自建库与云同步的全套机制（其他设备同同步码可见）。
+   * 同名库合并追加，按「标题+中文」指纹去重；序号冲突用 renumberLibrary 重排。
+   */
+  const handleImportCorpus = async (file) => {
+    if (!file) return;
+    try {
+      const json = JSON.parse(await file.text());
+      const fallbackName = String(file.name || '').replace(/\.[^.]+$/, '');
+      const { name, lessons } = corpusToLibrary(json, fallbackName);
+      const fingerprint = (l) => String(l.title_cn || '').trim() + '\u0001' + String(l.chinese || '').trim();
+      const existing = myLibs.find((l) => l.name === name);
+      const known = new Set(((existing && existing.lessons) || []).map(fingerprint));
+      const fresh = lessons.filter((l) => !known.has(fingerprint(l)));
+      if (!fresh.length) {
+        flashTip(setToast, `「${name}」已导入过：${lessons.length} 课全部与现有内容重复，未做改动`, 5000);
+        return;
+      }
+      let next;
+      let targetId;
+      if (existing) {
+        next = myLibs.map((l) => (l.id === existing.id ? { ...l, lessons: [...l.lessons, ...fresh] } : l));
+        targetId = existing.id;
+      } else {
+        const lib = { id: newLibraryId(), name, createdAt: Date.now(), lessons: fresh };
+        next = [...myLibs, lib];
+        targetId = lib.id;
+      }
+      next = renumberLibrary(next, targetId);
+      const withIds = ensureLessonIds(next).list;
+      if (!saveLibraries(withIds)) {
+        flashTip(setToast, '导入失败：写入本机存储失败（空间可能已满），请先清理浏览器数据', 5000);
+        return;
+      }
+      setMyLibs(withIds);
+      setMyLibId(targetId);
+      flashTip(setToast, `已导入「${name}」：新增 ${fresh.length} 课${lessons.length - fresh.length ? `，跳过重复 ${lessons.length - fresh.length} 课` : ''}。其他设备用同步码登录即可看到`, 6000);
+    } catch (e) {
+      flashTip(setToast, '导入失败：' + (e.message || '文件解析失败'), 5000);
+    }
+  };
 
   const openNewJobModal = () => {
     setLibPickId(myLibs[0]?.id || '');
@@ -1022,6 +1067,7 @@ function App() {
         sidebarOpen={sidebarOpen} onToggle={toggleSidebar} onCloseOnMobile={closeSidebarOnMobile}
         onNewJob={startNewJob} myLibId={myLibId} book={book} onBookChange={pickBook}
         myLibs={myLibs} onOpenLibModal={openLibModal} onSelectLib={selectMyLib} onDeleteLib={deleteLibrary}
+        onImportCorpus={handleImportCorpus}
         lessonQuery={lessonQuery} onLessonQuery={setLessonQuery} activeLib={activeLib} lessons={lessons} visibleLessons={visibleLessons}
         mode={mode} lessonId={lessonId} onSelectLesson={pickLesson} onSelectMyLesson={pickMyLesson} onDeleteMyLesson={deleteMyLesson}
         onEditMyLesson={openLessonEdit} onRenumberLib={renumberMyLib}

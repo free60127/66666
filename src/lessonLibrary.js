@@ -150,6 +150,42 @@ export function createLibrary(list, name) {
   return [...list, { id: newLibraryId(), name: clean, createdAt: Date.now(), lessons: [] }];
 }
 
+/**
+ * 语料 JSON（README「语料」一节的格式）→ 「我的课文库」课文数组 + 库名。
+ *
+ * 背景：内置语料（新概念 / 真题）部署在 public/corpus/，可能因版权原因下架；
+ * 导入功能让用户把手里保存的语料 JSON 转成**我的课文库**，之后走自建库与云同步的全套机制。
+ * 非法数据抛出带人话的错误，由调用方转成提示条。
+ */
+export function corpusToLibrary(json, fallbackName) {
+  if (!json || typeof json !== 'object' || !Array.isArray(json.lessons) || json.lessons.length === 0) {
+    throw new Error('不是语料 JSON：需要包含非空的 lessons 数组（格式见 README「语料」一节）');
+  }
+  const name = String(json.source || fallbackName || '导入语料').trim().slice(0, 40) || '导入语料';
+  const lessons = [];
+  let no = 0;
+  for (const raw of json.lessons) {
+    if (!raw || typeof raw !== 'object') continue;
+    const chinese = String(raw.chinese || '').trim();
+    const english = String(raw.english || raw.original || '').trim();
+    if (!chinese && !english) continue;
+    no += 1;
+    const num = Number(raw.lesson) || no;
+    lessons.push({
+      lid: newLessonId(),
+      lesson: num,
+      title_cn: String(raw.title_cn || '').trim() || String(raw.title || '').trim() || `Lesson ${num}`,
+      title_en: String(raw.title_en || '').trim(),
+      chinese,
+      english,
+      source: String(json.source || '导入语料'),
+      createdAt: Date.now(),
+    });
+  }
+  if (!lessons.length) throw new Error('语料 JSON 里没有可导入的课文（每课至少要有中文提示或英文原文）');
+  return { name, lessons };
+}
+
 export function removeLibrary(list, libId) {
   return list.filter((lib) => lib.id !== libId);
 }
