@@ -26,6 +26,19 @@ function isNoopFinding(f) {
   return sameExpression(from, to);
 }
 
+/**
+ * 亮点条目是否有据：亮点里引用的第一个英文短语（≥2 个连续英文单词）必须能在
+ * 学生初稿中找到——模型常把 AI 润色版/课文原文的表达（如 sell like crazy）错记成
+ * “学生尝试使用了……”，而初稿里根本没写。只核对**第一个**短语：亮点行文里常顺带
+ * 提到初稿的真实用词作对比（“比简单的 is popular 更有画面感”），任一命中会误放行。
+ * 没有引用具体英文的亮点（如“叙事顺序清晰”）无从证伪，保留。
+ */
+function highlightSupported(text, draftLower) {
+  const seqs = String(text || '').match(/[A-Za-z][A-Za-z'’-]*(?:\s+[A-Za-z][A-Za-z'’-]*)+/g) || [];
+  if (!seqs.length) return true;
+  return draftLower.includes(seqs[0].toLowerCase());
+}
+
 export function normalizeResult(data) {
   if (!data || typeof data !== 'object') return null;
   const overall = data.overall && typeof data.overall === 'object' && !Array.isArray(data.overall) ? data.overall : {};
@@ -44,12 +57,18 @@ export function normalizeResult(data) {
   // 过滤后重算"问题总数"：overall.issues 的口径就是"错误+改进点+学习点的总数"，
   // 不重算的话会出现"标题写 13 处、下面只列出 12 条"的不一致（用户会怀疑漏了内容）。
   const issuesTotal = sentences.reduce((n, s) => n + (s.findings ? s.findings.length : 0), 0);
+  // 过滤"无中生有"的亮点：亮点引用的英文短语必须能在学生初稿中找到。
+  // draftLower 用初稿全文（整体 draft + 各句 draft 拼接都会在里面，天然覆盖）。
+  const draftLower = String(data.draft || '').toLowerCase().replace(/[’‘]/g, "'");
+  const rawHighlights = Array.isArray(overall.highlights) ? overall.highlights : [];
+  const highlights = rawHighlights.filter((h) => typeof h === 'string' && highlightSupported(h, draftLower));
 
   return {
     ...data,
     overall: {
       ...overall,
       scoreBreakdown: asObjectArray(overall.scoreBreakdown),
+      highlights,
       issues: sentences.length ? issuesTotal : overall.issues,
     },
     sentences,

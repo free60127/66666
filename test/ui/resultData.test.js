@@ -83,4 +83,28 @@ describe('normalizeResult：原有的类型规整不受影响', () => {
     const r = normalizeResult({ sentences: [null, 'x', { cn: '好句子', findings: [] }] });
     expect(r.sentences).toHaveLength(1);
   });
+
+  it('亮点引用初稿中不存在的英文短语时被过滤（AI 版表达不能记成学生的）', () => {
+    const r = normalizeResult({
+      draft: "At two in the afternoon, no one cares my comics, but my neighbor stall's piano is popular.",
+      overall: {
+        highlights: [
+          '使用了 sell like crazy 这一地道习语，比简单的 is popular 更有画面感。',
+          '尝试使用 on the spot 表达“当场”，体现了一定的短语积累。',
+          '整体叙事顺序基本清晰，能按时间线推进故事。',
+        ],
+      },
+      sentences: [{ cn: '句', draft: 'd', findings: [] }],
+    });
+    expect(r.overall.highlights).toEqual(['整体叙事顺序基本清晰，能按时间线推进故事。']);
+  });
+
+  it('亮点引用初稿中真实存在的短语时保留', () => {
+    const r = normalizeResult({
+      draft: 'Yesterday I went to the flea market and bought three comic books.',
+      overall: { highlights: ['使用了 flea market 这一主题词汇，贴合语境。'] },
+      sentences: [{ cn: '句', draft: 'd', findings: [] }],
+    });
+    expect(r.overall.highlights).toHaveLength(1);
+  });
 });
