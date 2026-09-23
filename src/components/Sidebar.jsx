@@ -36,15 +36,16 @@ function Sidebar({
   const examCount = lessons.filter((l) => l.book >= 5 && l.book <= 9).length;
   const builtinCount = builtinTab === 'huiyi' ? huiyiCount : examCount;
 
-  // 组折叠（回译课文的级别组 / 真题的各考试组）：纯视图偏好，存 localStorage。
-  const [folded, setFolded] = useState(() => {
-    try { return new Set(JSON.parse(safeGet('bt-folded-groups', '') || '[]')); } catch { return new Set(); }
+  // 组开合（回译课文的级别组 / 真题的各考试组）：存**展开的组**而不是折叠的组 ——
+  // 空列表 = 全部折叠，所以「第一次进来」的默认态就是全折叠（2026-09-23 用户拍板）。
+  const [openGroups, setOpenGroups] = useState(() => {
+    try { return new Set(JSON.parse(safeGet('bt-open-groups', '') || '[]')); } catch { return new Set(); }
   });
   const toggleGroup = (key) => {
-    const next = new Set(folded);
+    const next = new Set(openGroups);
     if (next.has(key)) next.delete(key); else next.add(key);
-    setFolded(next);
-    safeSet('bt-folded-groups', JSON.stringify([...next]));
+    setOpenGroups(next);
+    safeSet('bt-open-groups', JSON.stringify([...next]));
   };
 
   return (
@@ -244,12 +245,12 @@ function Sidebar({
                   return text.includes(q);
                 };
                 const foldBtn = (key, label) => {
-                  const isFolded = !searching && folded.has(key);
+                  const isOpen = searching || openGroups.has(key);
                   return (
                     <button type="button" key={key}
-                      className={'lesson-group-title foldable' + (isFolded ? ' folded' : '')}
-                      onClick={() => toggleGroup(key)} aria-expanded={!isFolded}
-                      title={isFolded ? '展开这一组' : '折叠这一组'}>
+                      className={'lesson-group-title foldable' + (isOpen ? ' open' : '')}
+                      onClick={() => toggleGroup(key)} aria-expanded={isOpen}
+                      title={isOpen ? '折叠这一组' : '展开这一组'}>
                       <span className="lgt-name">{label}</span>
                       <ChevronDown size={12} className="fold-chevron" />
                     </button>
@@ -257,7 +258,7 @@ function Sidebar({
                 };
                 const pushGroup = (key, label, ls) => {
                   nodes.push(foldBtn(key, label));
-                  if (!searching && folded.has(key)) return;
+                  if (!searching && !openGroups.has(key)) return;
                   ls.forEach((l) => nodes.push(renderLessonRow(l)));
                 };
                 if (builtinTab === 'huiyi') {

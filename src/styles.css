@@ -92,14 +92,14 @@ textarea, input { font: inherit; }
   color: #bcd9f5; font-size: 11px; font-weight: 700; letter-spacing: .08em;
 }
 .lesson-group-title:first-child { margin-top: 0; }
-/* 组头可折叠（回译课文的级别组 / 真题的各考试组）：整行是按钮，右侧箭头随开合旋转 */
+/* 组头可折叠（回译课文的级别组 / 真题的各考试组）：整行是按钮，默认全折叠（箭头朝右），展开后朝下 */
 .lesson-group-title.foldable {
   display: flex; align-items: center; justify-content: space-between; gap: 6px;
   width: calc(100% - 4px); text-align: left; cursor: pointer;
 }
 .lesson-group-title.foldable:hover { background: rgba(66, 150, 255, .22); }
-.fold-chevron { flex-shrink: 0; transition: transform .15s ease; }
-.lesson-group-title.foldable.folded .fold-chevron { transform: rotate(-90deg); }
+.fold-chevron { flex-shrink: 0; transform: rotate(-90deg); transition: transform .15s ease; }
+.lesson-group-title.foldable.open .fold-chevron { transform: rotate(0); }
 /* 我的课文库的分组头：组名 + 悬停浮现的 改名/删除 操作 */
 .lesson-group-title.mylib-group { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
 .mylib-group .lgt-ops { display: inline-flex; gap: 2px; opacity: 0; transition: opacity .12s; }
@@ -115,6 +115,7 @@ textarea, input { font: inherit; }
 }
 .builtin-tab:hover { background: rgba(255, 255, 255, .06); }
 .builtin-tab.active { background: rgba(66, 150, 255, .18); border-color: rgba(66, 150, 255, .55); color: #fff; }
+.builtin-tab span { white-space: nowrap; }
 .builtin-tab i { font-style: normal; font-size: 11px; color: #8fa8b8; background: rgba(255, 255, 255, .08); border-radius: 999px; padding: 1px 7px; }
 .builtin-tab.active i { color: #dbe9ff; background: rgba(66, 150, 255, .28); }
 /* 360 课后课号会出现三位数：固定宽度改最小宽度 */
