@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { BookOpen, Camera, CheckCircle2, ChevronDown, ChevronRight, Cloud, Copy, Download, FileText, Flame, ImagePlus, Library, LoaderCircle, PanelLeftClose, PanelLeftOpen, Settings, Sparkles, Timer, Upload, UserRound, WandSparkles, X } from 'lucide-react'
 // mammoth（894 KB 源码）只在"上传 DOCX"这一个功能里用到，
 // 改为 handleDocx 内动态 import，避免它被打进首屏主包。
-import { addSection as addLibSection, corpusToLibrary, deleteSection as deleteLibSection, ensureLessonIds, mergeLibraries, newLibraryId, renameSection as renameLibSection, renumberLibrary, saveLibraries, sectionsOf } from './lessonLibrary.js'
+import { addSection as addLibSection, corpusToLibrary, deleteSection as deleteLibSection, ensureLessonIds, mergeLibraries, newLibraryId, renameSection as renameLibSection, renumberLibrary, saveLibraries } from './lessonLibrary.js'
 import { parseDocxText, textSimilarity, REFERENCE_SIM_THRESHOLD } from './docxParse.js'
 import { getOcrJob, getStatus, loadSettings, matchLesson, ocr, saveSettings } from './api.js'
 import { DELETED_FAVORITES_LIMIT, DELETED_LIBRARIES_LIMIT, DELETED_LESSONS_LIMIT, applyLibraryTombstones, mergeDeleted, mergeHistory } from './sync.js'
@@ -348,7 +348,7 @@ function App() {
   const {
     lessons, book, setBook, lessonId, setLessonId, matchedLesson, setMatchedLesson,
     lessonQuery, setLessonQuery, visibleLessons,
-    selectLesson, handleBookChange, selectMyLesson, applyMatchedLesson,
+    selectLesson, selectMyLesson, applyMatchedLesson,
   } = useLessons({
     direction: dir,
     activeLib, myLibs, setMyLibId,
@@ -378,7 +378,22 @@ function App() {
    * 迟到几秒的自动选课会把刚恢复出来的结果页顶掉。 */
   const pickLesson = useCallback((b, l) => { setView('editor'); setDocxChoice(null); selectLesson(b, l); }, [selectLesson]);
   const pickMyLesson = useCallback((libId, l) => { setView('editor'); setDocxChoice(null); selectMyLesson(libId, l); }, [selectMyLesson]);
-  const pickBook = useCallback((b) => { setView('editor'); handleBookChange(b); }, [handleBookChange]);
+
+  // 内置课文库的两个「库」卡片：回译课文（book 10）/ 真题（book 5-9）。
+  // 记住上次选的库；没有记录时按上次练的册子推断（5-9 是真题，否则回译课文）。
+  const [builtinTab, setBuiltinTab] = useState(() => {
+    const t = safeGet('bt-lib-tab', '');
+    if (t === 'huiyi' || t === 'exam') return t;
+    const b = Number(safeGet('bt-book', ''));
+    return b >= 5 && b <= 9 ? 'exam' : 'huiyi';
+  });
+  // 切内置库只换侧栏列表，不动编辑区 —— 正在写的初稿不能因为逛库被清掉；
+  // 同时退出自建库（与旧书册 tab 的行为一致）。
+  const pickBuiltinTab = useCallback((t) => {
+    setBuiltinTab(t);
+    safeSet('bt-lib-tab', t);
+    setMyLibId('');
+  }, [setMyLibId]);
 
   // 自建课文的 key 用**稳定 id**（lid）而不是序号：序号用户随时会改，
   // 而 key 决定了「同一课的两次练习对比」和计时归属 —— 用序号的话一改就断链。
@@ -593,19 +608,19 @@ function App() {
     if (error) { flashTip(setToast, error, 4000); return; }
     if (saveLibraries(list)) { setMyLibs(list); flashTip(setToast, `已新建分组「${name.trim()}」`, 3600); }
     else flashTip(setToast, '写入本机存储失败（空间可能已满）', 4200);
-  }, [myLibs, setToast]);
+  }, [myLibs, setMyLibs, setToast]);
   const handleRenameSection = useCallback((libId, oldName, newName) => {
     const { list, error } = renameLibSection(myLibs, libId, oldName, newName);
     if (error) { flashTip(setToast, error, 4000); return; }
     if (saveLibraries(list)) { setMyLibs(list); flashTip(setToast, `分组已改名为「${newName.trim()}」`, 3600); }
     else flashTip(setToast, '写入本机存储失败（空间可能已满）', 4200);
-  }, [myLibs, setToast]);
+  }, [myLibs, setMyLibs, setToast]);
   const handleDeleteSection = useCallback((libId, name) => {
     const { list, error } = deleteLibSection(myLibs, libId, name);
     if (error) { flashTip(setToast, error, 4000); return; }
     if (saveLibraries(list)) { setMyLibs(list); flashTip(setToast, `已删除分组「${name}」（组内课文已移到第一组）`, 4200); }
     else flashTip(setToast, '写入本机存储失败（空间可能已满）', 4200);
-  }, [myLibs, setToast]);
+  }, [myLibs, setMyLibs, setToast]);
 
   /* ---------- 错误训练 ----------
    * 第三条学习路径（前两条：按课文练、按收藏复习）：从**自己实际犯过的错**出发出题。
@@ -1176,7 +1191,7 @@ function App() {
     <div className="app">
       <Sidebar
         sidebarOpen={sidebarOpen} onToggle={toggleSidebar} onCloseOnMobile={closeSidebarOnMobile}
-        onNewJob={startNewJob} myLibId={myLibId} book={book} onBookChange={pickBook}
+        onNewJob={startNewJob} myLibId={myLibId} book={book} builtinTab={builtinTab} onBuiltinTab={pickBuiltinTab}
         myLibs={myLibs} onOpenLibModal={openLibModal} onSelectLib={selectMyLib} onDeleteLib={deleteLibrary}
         onImportCorpus={handleImportCorpus}
         onAddSection={handleAddSection} onRenameSection={handleRenameSection} onDeleteSection={handleDeleteSection}

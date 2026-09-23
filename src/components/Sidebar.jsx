@@ -1,20 +1,21 @@
-import React, { useRef } from 'react';
-import { Flame, FolderPlus, Library, ListOrdered, PenLine, Plus, Star, Target, Trash2, Upload, X } from 'lucide-react';
+import React, { useRef, useState } from 'react';
+import { ChevronDown, Flame, FolderPlus, Library, ListOrdered, PenLine, Plus, Star, Target, Trash2, Upload, X } from 'lucide-react';
 import { doneSet, progressOf, summarize } from '../lessonProgress.js';
 import { summarizeStreak } from '../studyStreak.js';
 import { lessonKeyOf } from '../lessonLabel.js';
+import { safeGet, safeSet } from '../storage.js';
 
 /**
- * 左侧栏：课文库（内置 4 册 + 我的课文库）+ 搜课 + 课文列表。
+ * 左侧栏：课文库（内置「回译课文 / 真题」两库 + 我的课文库）+ 搜课 + 课文列表。
  * （原底部的「AI 设置 / 备份」已删：方案A 之后这两个入口统一收进顶栏 ⋮ 菜单。）
  *
- * 抽出来的原因：它是**纯展示 + 回调**（不持有任何状态），却占了 App 里最长的一段 JSX；
+ * 抽出来的原因：它是**纯展示 + 回调**（几乎不持有状态），却占了 App 里最长的一段 JSX；
  * 留在 App 里既看不出编辑逻辑，也没法单独改样式（改侧栏要在一屏一屏地翻 3000 行）。
- * 所有状态仍由 App 持有，这里只接收值 + 回调 —— 拆出去不改变任何行为。
+ * 所有业务状态仍由 App 持有；这里唯一的本地状态是「组折叠」，纯视图偏好所以留在本地。
  */
 function Sidebar({
   sidebarOpen, onToggle, onCloseOnMobile,
-  onNewJob, myLibId, book, onBookChange, myLibs, onOpenLibModal, onSelectLib, onDeleteLib,
+  onNewJob, myLibId, book, builtinTab, onBuiltinTab, myLibs, onOpenLibModal, onSelectLib, onDeleteLib,
   onImportCorpus, onAddSection, onRenameSection, onDeleteSection,
   lessonQuery, onLessonQuery, activeLib, lessons, visibleLessons,
   mode, lessonId, onSelectLesson, onSelectMyLesson, onDeleteMyLesson, onEditMyLesson, onRenumberLib,
@@ -30,6 +31,22 @@ function Sidebar({
   // 语料 JSON 导入的文件选择器（不受控：选完即清空，同一文件可重复导入）
   const corpusFileRef = useRef(null);
 
+  // 两个内置库的课文数（卡片上的角标，也是搜索框文案）
+  const huiyiCount = lessons.filter((l) => l.book === 10).length;
+  const examCount = lessons.filter((l) => l.book >= 5 && l.book <= 9).length;
+  const builtinCount = builtinTab === 'huiyi' ? huiyiCount : examCount;
+
+  // 组折叠（回译课文的级别组 / 真题的各考试组）：纯视图偏好，存 localStorage。
+  const [folded, setFolded] = useState(() => {
+    try { return new Set(JSON.parse(safeGet('bt-folded-groups', '') || '[]')); } catch { return new Set(); }
+  });
+  const toggleGroup = (key) => {
+    const next = new Set(folded);
+    if (next.has(key)) next.delete(key); else next.add(key);
+    setFolded(next);
+    safeSet('bt-folded-groups', JSON.stringify([...next]));
+  };
+
   return (
     <>
       {sidebarOpen && <div className="sidebar-backdrop" onClick={onToggle} aria-hidden="true" />}
@@ -39,7 +56,18 @@ function Sidebar({
         <button className="primary-btn" onClick={() => onNewJob(true)}><Plus size={16} />新建{directionName === '英译汉' ? '翻译' : '回译'}作业</button>
         <div className="side-section">
           <div className="side-title">课文库</div>
-          {/* 方案A·两大分组：内置册 tab 已撤（新概念语料下架 + 真题并入「真题」分组） */}
+          {/* 内置库选择卡片（原来是一排书册 tab）：新概念语料下架后合并成两个库 ——
+              回译课文（分级课内语料）和真题（四六级/考研/专八）。 */}
+          <div className="builtin-tabs">
+            <button type="button" className={'builtin-tab' + (builtinTab === 'huiyi' ? ' active' : '')}
+              onClick={() => onBuiltinTab('huiyi')} aria-pressed={builtinTab === 'huiyi'}>
+              <Library size={13} /><span>回译课文</span><i>{huiyiCount}</i>
+            </button>
+            <button type="button" className={'builtin-tab' + (builtinTab === 'exam' ? ' active' : '')}
+              onClick={() => onBuiltinTab('exam')} aria-pressed={builtinTab === 'exam'}>
+              <Library size={13} /><span>真题</span><i>{examCount}</i>
+            </button>
+          </div>
 
           <div className="my-libs">
             <div className="my-libs-head">
@@ -89,7 +117,11 @@ function Sidebar({
             <input
               value={lessonQuery}
               onChange={(e) => onLessonQuery(e.target.value)}
-              placeholder={activeLib ? '搜索本库课文' : `搜索第 ${book} 册（共 ${lessons.filter((l) => l.book === book).length} 课）`}
+              placeholder={activeLib
+                ? '搜索本库课文'
+                : (builtinTab === 'huiyi'
+                  ? `搜索回译课文（共 ${builtinCount} 课）`
+                  : `搜索真题（共 ${builtinCount} 课）`)}
               aria-label="搜索课文"
             />
             {lessonQuery ? (
@@ -124,7 +156,7 @@ function Sidebar({
           {scopeStats.total > 0 ? (
             <div className="book-progress" title={`已练 ${scopeStats.done} 课 · 共 ${scopeStats.total} 课${scopeStats.attempts ? ` · 累计 ${scopeStats.attempts} 次` : ''}`}>
               <div className="book-progress-head">
-                <span>{activeLib ? '本库进度' : `第 ${book} 册进度`}</span>
+                <span>{activeLib ? '本库进度' : book === 10 ? '回译课文进度' : (((books || []).find((x) => x.book === book) || {}).label || `第 ${book} 册`) + '进度'}</span>
                 <strong>{scopeStats.done}<i>/{scopeStats.total}</i></strong>
               </div>
               <div className="book-progress-track">
@@ -182,12 +214,6 @@ function Sidebar({
               };
               const nodes = [];
               let lastSec = '';
-              const topHeader = (label) => nodes.push(
-                <div key={'top-' + label} className="top-group-title">{label}</div>
-              );
-              const pushSectionHeader = (label, cls) => nodes.push(
-                <div key={'sec-' + nodes.length} className={'lesson-group-title' + (cls ? ' ' + cls : '')}>{label}</div>
-              );
               if (activeLib) {
                 // 我的课文库：自建库的分组也渲染组头（组内改名/删除）
                 visibleLessons.forEach((l) => {
@@ -206,33 +232,49 @@ function Sidebar({
                   nodes.push(renderLessonRow(l));
                 });
               } else {
-                // 内置课文库（方案A·两大分组）：回译课文（360 课，按六个级别小标题）
-                // + 真题（四级/六级/英一/英二/专八，各年真题）；搜索跨全部 530 课
+                // 内置课文库：只显示顶部选中的「库」卡片 —— 回译课文（book 10，按级别分组）
+                // 或真题（book 5-9，各考试一组）。组名点击可折叠；搜索时忽略折叠
+                //（否则匹配到的课文在折叠组里会"看起来没搜到"）。
                 const q = lessonQuery.trim().toLowerCase();
+                const searching = q.length > 0;
                 const matchQ = (l) => {
                   if (!q) return true;
                   const text = `${l.lesson} ${l.title_cn || ''} ${l.title_en || ''}`.toLowerCase();
                   if (/^\d{1,3}$/.test(q)) { const n = Number(q); return l.lesson === n || text.includes(q); }
                   return text.includes(q);
                 };
-                const huiyi = lessons.filter((l) => l.book === 10 && matchQ(l));
-                if (huiyi.length) {
-                  topHeader('回译课文');
-                  let sec = '';
-                  huiyi.forEach((l) => {
-                    if (l.section && l.section !== sec) { pushSectionHeader(l.section); sec = l.section; }
-                    nodes.push(renderLessonRow(l));
+                const foldBtn = (key, label) => {
+                  const isFolded = !searching && folded.has(key);
+                  return (
+                    <button type="button" key={key}
+                      className={'lesson-group-title foldable' + (isFolded ? ' folded' : '')}
+                      onClick={() => toggleGroup(key)} aria-expanded={!isFolded}
+                      title={isFolded ? '展开这一组' : '折叠这一组'}>
+                      <span className="lgt-name">{label}</span>
+                      <ChevronDown size={12} className="fold-chevron" />
+                    </button>
+                  );
+                };
+                const pushGroup = (key, label, ls) => {
+                  nodes.push(foldBtn(key, label));
+                  if (!searching && folded.has(key)) return;
+                  ls.forEach((l) => nodes.push(renderLessonRow(l)));
+                };
+                if (builtinTab === 'huiyi') {
+                  // 回译课文：按 section 顺序分组（小初 / 初中 / 高中 / …）
+                  const groups = [];
+                  let cur = null;
+                  lessons.filter((l) => l.book === 10 && matchQ(l)).forEach((l) => {
+                    const s = l.section || '其他';
+                    if (!cur || cur.label !== s) { cur = { label: s, ls: [] }; groups.push(cur); }
+                    cur.ls.push(l);
                   });
-                }
-                const examGroups = [5, 6, 7, 8, 9]
-                  .map((b) => ({ label: ((books || []).find((x) => x.book === b) || {}).label || '', ls: lessons.filter((l) => l.book === b && matchQ(l)) }))
-                  .filter((g) => g.ls.length);
-                if (examGroups.length) {
-                  topHeader('真题');
-                  examGroups.forEach((g) => {
-                    pushSectionHeader(g.label);
-                    g.ls.forEach((l) => nodes.push(renderLessonRow(l)));
-                  });
+                  groups.forEach((g) => pushGroup('huiyi:' + g.label, g.label, g.ls));
+                } else {
+                  [5, 6, 7, 8, 9]
+                    .map((b) => ({ label: ((books || []).find((x) => x.book === b) || {}).label || `第 ${b} 册`, ls: lessons.filter((l) => l.book === b && matchQ(l)) }))
+                    .filter((g) => g.ls.length)
+                    .forEach((g) => pushGroup('exam:' + g.label, g.label, g.ls));
                 }
               }
               return nodes;

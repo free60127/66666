@@ -39,7 +39,7 @@ export function useLessons({
   const [lessons, setLessons] = useState([]);
   const [book, setBook] = useState(() => {
     const b = Number(safeGet('bt-book', ''));
-    return Number.isInteger(b) && b >= 1 && b <= 9 ? b : 2;
+    return Number.isInteger(b) && b >= 1 && b <= 10 ? b : 10;
   });
   const [lessonId, setLessonId] = useState(() => {
     const n = Number(safeGet('bt-lesson', ''));
@@ -141,13 +141,6 @@ export function useLessons({
 
   // 探活 effect 里要调 selectLesson，但它自己会随依赖变化 → 用 ref 取最新那份
 
-  const handleBookChange = useCallback((nextBook) => {
-    setMyLibId(''); // 切回内置册
-    const first = lessons.find((l) => l.book === nextBook);
-    if (first) selectLesson(nextBook, first.lesson);
-    else setBook(nextBook);
-  }, [lessons, selectLesson, setMyLibId]);
-
   /** 从自建库载入一节课（本地数据，不发请求） */
   const selectMyLesson = useCallback((libId, lessonNo) => {
     const lib = myLibs.find((x) => x.id === libId);
@@ -190,7 +183,7 @@ export function useLessons({
   return {
     lessons, setLessons, book, setBook, lessonId, setLessonId, matchedLesson, setMatchedLesson,
     lessonQuery, setLessonQuery, visibleLessons,
-    selectLesson, handleBookChange, selectMyLesson, applyMatchedLesson,
+    selectLesson, selectMyLesson, applyMatchedLesson,
   };
 }
 

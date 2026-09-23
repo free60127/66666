@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif; background: #f4f6f8; color: #1c2733; height: 100vh; overflow: hidden; }
+.app { display: flex; height: 100vh; }
+.sidebar { width: 240px; min-width: 240px; background: #10222e; color: #dfe9f0; display: flex; flex-direction: column; padding: 16px 12px; gap: 14px; }
+.brand { display: flex; align-items: center; gap: 10px; padding: 4px 6px; }
+.brand-mark { width: 36px; height: 36px; border-radius: 10px; background: linear-gradient(135deg, #2aa7ff, #1164d8); display: grid; place-items: center; font-weight: 700; color: #fff; }
+.brand strong { display: block; font-size: 16px; }
+.brand span { font-size: 9px; color: #8fa6b5; letter-spacing: .08em; }
+.new-btn { background: #1f6feb; color: #fff; padding: 10px; border-radius: 10px; font-weight: 600; text-align: center; font-size: 14px; }
+.side-label { font-size: 10px; letter-spacing: .12em; color: #7f99aa; padding: 4px 6px; }
+.book-tabs { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; margin: 0 2px 8px; }
+.book-tabs div { border: 1px solid #3a4f5e; border-radius: 7px; color: #a9bdc9; padding: 5px 2px; font-size: 11px; text-align: center; }
+.book-tabs div.on { background: #2d81d7; border-color: #2d81d7; color: #fff; }
+.lesson-list { overflow: hidden; display: flex; flex-direction: column; gap: 2px; }
+.lesson-item { display: flex; gap: 8px; padding: 7px 8px; border-radius: 8px; color: #c7d6df; font-size: 12.5px; }
+.lesson-item .no { color: #6f8b9c; width: 18px; font-size: 11px; }
+.lesson-item.on { background: rgba(66,150,255,.18); color: #fff; }
+.side-footer { margin-top: auto; display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.side-footer div { border: 1px solid #3a4f5e; border-radius: 9px; padding: 8px 0; text-align: center; font-size: 12.5px; color: #b9cad6; }
+
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.topbar { height: 52px; min-height: 52px; background: #fff; border-bottom: 1px solid #e6eaf0; display: flex; align-items: center; gap: 10px; padding: 0 16px; }
+.topbar .title { font-weight: 600; font-size: 15px; }
+.status-dot { margin-left: auto; display: flex; align-items: center; gap: 6px; font-size: 12px; color: #74808d; }
+.status-dot i { width: 8px; height: 8px; border-radius: 50%; background: #2f9e44; }
+.kebab { width: 32px; height: 32px; border-radius: 8px; display: grid; place-items: center; color: #74808d; font-weight: 700; letter-spacing: 1px; }
+
+.editor { flex: 1; overflow-y: auto; padding: 16px 22px; max-width: 1020px; width: 100%; margin: 0 auto; display: flex; flex-direction: column; gap: 11px; }
+
+/* 单行工具条：原上传区+下拉+模式 tabs 全部合并 */
+.toolbar { display: flex; align-items: center; gap: 8px; background: #fff; border: 1px solid #e6eaf0; border-radius: 10px; padding: 7px 10px; }
+.toolbar .primary { background: #1f6feb; color: #fff; border-radius: 8px; padding: 7px 13px; font-size: 12.5px; font-weight: 600; }
+.toolbar .ghost { font-size: 12.5px; color: #4a5561; border: 1px solid #e6eaf0; border-radius: 8px; padding: 6px 11px; display: flex; gap: 5px; align-items: center; }
+.toolbar .adv { margin-left: auto; color: #74808d; font-size: 12.5px; display: flex; gap: 5px; align-items: center; }
+
+.match { display: flex; align-items: center; gap: 8px; background: #effaf7; border-left: 3px solid #0f9d8f; border-radius: 8px; padding: 7px 12px; font-size: 12.5px; color: #176b62; }
+.match a { margin-left: auto; color: #1f6feb; text-decoration: none; }
+
+.panels { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; flex: 1; min-height: 0; }
+.panel { background: #fff; border: 1px solid #e6eaf0; border-radius: 14px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+.panel-head { display: flex; align-items: center; gap: 6px; }
+.panel-head h2 { font-size: 14px; margin-right: auto; }
+.title-in { border: none; outline: none; font-size: 13px; color: #74808d; background: #f6f8fa; border-radius: 7px; padding: 5px 10px; width: 180px; }
+.icon-btn { border: 1px solid #e6eaf0; border-radius: 7px; font-size: 12px; color: #74808d; padding: 4px 8px; }
+.panel textarea { flex: 1; border: 1px solid #e6eaf0; border-radius: 10px; padding: 11px; font: inherit; font-size: 13.5px; line-height: 1.8; resize: none; color: #1c2733; min-height: 0; }
+
+.actions { display: flex; align-items: center; gap: 12px; }
+.generate { background: #1f6feb; color: #fff; border-radius: 12px; padding: 12px 34px; font-weight: 700; font-size: 14.5px; }
+.timer { display: flex; align-items: center; gap: 7px; color: #4a5561; font-size: 13px; }
+.timer b { font-size: 15px; font-variant-numeric: tabular-nums; }
+.timer .ctl { border: 1px solid #e6eaf0; background: #fff; border-radius: 7px; padding: 3px 9px; font-size: 12px; color: #74808d; }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand"><div class="brand-mark">回</div><div><strong>回译本</strong><span>BACK-TRANSLATE STUDIO</span></div></div>
+    <div class="new-btn">＋ 新建回译作业</div>
+    <div class="side-label">课文库</div>
+    <div class="book-tabs"><div>1</div><div class="on">2</div><div>3</div><div>4</div><div>…</div></div>
+    <div class="lesson-list">
+      <div class="lesson-item"><span class="no">03</span>请给我寄一张明信片</div>
+      <div class="lesson-item"><span class="no">04</span>激动人心的旅行</div>
+      <div class="lesson-item on"><span class="no">05</span>无错号之虞</div>
+      <div class="lesson-item"><span class="no">06</span>珀西·巴顿斯</div>
+      <div class="lesson-item"><span class="no">07</span>为时太晚</div>
+      <div class="lesson-item"><span class="no">08</span>最好的和最差的</div>
+    </div>
+    <div class="side-footer"><div>⚙ AI 设置</div><div>⭳ 备份</div></div>
+  </aside>
+  <div class="main">
+    <div class="topbar">
+      <div class="title">课文回译训练</div>
+      <div class="status-dot"><i></i>AI 已配置 · deepseek-chat</div>
+      <div class="kebab">⋮</div>
+    </div>
+    <div class="editor">
+      <div class="toolbar">
+        <div class="primary">⬆ 上传 DOCX</div>
+        <div class="ghost">✨ AI 生成素材</div>
+        <div class="ghost">📥 存入课文库</div>
+        <div class="adv">⚙ 练习选项：汉译英 · 四六级 ▾</div>
+      </div>
+      <div class="match">📖 已带入 Lesson 5 原文对照<a>改用自由模式</a></div>
+      <div class="panels">
+        <div class="panel">
+          <div class="panel-head"><h2>中文提示</h2><span class="icon-btn">📷</span><span class="icon-btn">🖼</span></div>
+          <textarea>上星期我去看戏。我的座位很好，戏很有意思，但我却无法欣赏。一青年男子和一青年女子坐在我的身后，大声地说着话。我非常生气，因为我听不见演员在说什么……</textarea>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h2>你的英文初稿</h2><span class="icon-btn">📷</span><span class="icon-btn">🖼</span><span class="icon-btn">📄</span></div>
+          <textarea></textarea>
+        </div>
+      </div>
+      <div class="actions">
+        <div class="generate">✨ 生成完整回译训练作业</div>
+        <div class="timer">⏱ <b>00:00</b> <span class="ctl">开始</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>
