@@ -1554,6 +1554,7 @@ const server = http.createServer(async (req, res) => {
       }
       const lessons = allLessons(book).map((l) => ({
         book: l.book, lesson: l.lesson, title_en: l.title_en, title_cn: l.title_cn,
+        section: l.section || '', // 小标题分组（回译课文库的 六个级别段）——侧栏分组标题靠它
         pdf_page: l.pdf_page, englishLen: l.english.length, chineseLen: l.chinese.length,
       }));
       return json(res, 200, { book, lessons });

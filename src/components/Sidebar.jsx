@@ -157,9 +157,12 @@ function Sidebar({
                       : '正在加载语料…'))}
               </div>
             )}
-            {visibleLessons.map((l) => {
-              const isActive = mode === 'lesson' && lessonId === l.lesson && (activeLib ? myLibId === activeLib.id : (book === l.book && !myLibId));
-              return (
+            {(() => {
+              // 小标题分组：带 section 字段的库（如「回译课文」）在分组变化处插入小标题行，
+              // 搜索过滤后同样按过滤结果的分组边界渲染
+              const renderLessonRow = (l) => {
+                const isActive = mode === 'lesson' && lessonId === l.lesson && (activeLib ? myLibId === activeLib.id : (book === l.book && !myLibId));
+                return (
                 <div key={`${l.book}-${l.lesson}`} className={'lesson-row' + (isActive ? ' active' : '')}>
                   <button className="lesson-item" onClick={() => { onCloseOnMobile(); if (activeLib) onSelectMyLesson(activeLib.id, l.lesson); else onSelectLesson(l.book, l.lesson); }}>
                     <span className="lesson-no">{String(l.lesson).padStart(2, '0')}</span>
@@ -186,8 +189,21 @@ function Sidebar({
                     </button>
                   )}
                 </div>
-              );
-            })}
+                );
+              };
+              const nodes = [];
+              let lastSec = '';
+              visibleLessons.forEach((l) => {
+                if (l.section && l.section !== lastSec) {
+                  lastSec = l.section;
+                  nodes.push(
+                    <div key={'sec-' + l.section} className="lesson-group-title">{l.section}</div>
+                  );
+                }
+                nodes.push(renderLessonRow(l));
+              });
+              return nodes;
+            })()}
           </div>
         </div>
       </aside>

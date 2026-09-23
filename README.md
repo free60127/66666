@@ -130,7 +130,7 @@
 
 | 库 | book | 期望的文件 |
 | --- | --- | --- |
-| 第 1–4 册（新概念） | 1–4 | `new-concept-1-full.json` / `new-concept-2-full.json` / `new-concept-3.json` / `new-concept-4.json` |
+| 回译课文（小初—高中—四六级—考研—专四—专八，带小标题分组） | 10 | `huiyi.json` |
 | 四级 | 5 | `cet4.json` |
 | 六级 | 6 | `cet6.json` |
 | 英语（一） | 7 | `english-1.json` |

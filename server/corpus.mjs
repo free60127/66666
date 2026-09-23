@@ -24,6 +24,7 @@ function normalizeLesson(raw, book, source) {
     lesson: Number(raw.lesson),
     title_en: String(raw.title_en || raw.title || '').trim(),
     title_cn: String(raw.title_cn || '').trim(),
+    section: String(raw.section || '').trim(), // 小标题分组（如「回译课文」库的 六个级别段）
     pdf_page: raw.pdf_page ?? null,
     chinese: String(raw.chinese || '').trim(),
     english,
@@ -40,20 +41,19 @@ function normalizeLesson(raw, book, source) {
  *
  * label 会随 /api/status 的 books 下发给前端做侧栏标签 —— 语料有无都能显示出来。 */
 export const BOOK_META = {
-  1: { label: '第 1 册', source: '第 1 册语料', file: 'new-concept-1-full.json' },
-  2: { label: '第 2 册', source: '第 2 册语料', file: 'new-concept-2-full.json' },
-  3: { label: '第 3 册', source: '第 3 册语料', file: 'new-concept-3.json' },
-  4: { label: '第 4 册', source: '第 4 册语料', file: 'new-concept-4.json' },
+  // 新概念 1-4 册语料已于 2026-09 正式下架（版权原因）：库位 1-4 移除，
+  // 用户手里的语料 JSON 可用侧栏「导入语料 JSON」转成自建课文库继续使用。
   5: { label: '四级', source: '四级语料', file: 'cet4.json' },
   6: { label: '六级', source: '六级语料', file: 'cet6.json' },
   7: { label: '英语（一）', source: '英语（一）语料', file: 'english-1.json' },
   8: { label: '英语（二）', source: '英语（二）语料', file: 'english-2.json' },
   9: { label: '专八', source: '专八语料', file: 'tem8.json' },
+  10: { label: '回译课文', source: '回译课文语料', file: 'huiyi.json' },
 };
 export const BOOK_IDS = Object.keys(BOOK_META).map(Number);
 export const isValidBook = (n) => BOOK_IDS.includes(Number(n));
 /** 每个库推荐的润色等级（前端切库时可以据此给个默认值；用户仍可自己改） */
-export const BOOK_LEVEL_HINT = { 1: '小初', 2: '高考英语', 3: '四六级', 4: '考研/专四', 5: '四六级', 6: '四六级', 7: '考研/专四', 8: '考研/专四', 9: '专八' };
+export const BOOK_LEVEL_HINT = { 5: '四六级', 6: '四六级', 7: '考研/专四', 8: '考研/专四', 9: '专八', 10: '四六级' };
 export function loadBook(book) {
   const meta = BOOK_META[Number(book)];
   if (!meta) return { book: Number(book), label: '', source: '', lessons: [] };

@@ -84,7 +84,16 @@ textarea, input { font: inherit; }
 .lesson-item { display: flex; align-items: center; gap: 8px; padding: 7px 8px; border-radius: 8px; color: #c7d6df; text-align: left; width: 100%; }
 .lesson-item:hover { background: rgba(255,255,255,.06); }
 .lesson-item.active { background: rgba(66,150,255,.18); color: #fff; }
-.lesson-no { font-size: 11px; color: #6f8b9c; width: 20px; }
+.lesson-no { font-size: 11px; color: #6f8b9c; width: 20px; flex-shrink: 0; }
+/* 小标题分组行（「回译课文」库的 六个级别段）：浅色带状标签，比课文行轻一档 */
+.lesson-group-title {
+  margin: 8px 2px 2px; padding: 4px 9px;
+  background: rgba(66, 150, 255, .13); border-radius: 6px;
+  color: #bcd9f5; font-size: 11px; font-weight: 700; letter-spacing: .08em;
+}
+.lesson-group-title:first-child { margin-top: 0; }
+/* 360 课后课号会出现三位数：固定宽度改最小宽度 */
+.lesson-row .lesson-no, .lesson-item .lesson-no { min-width: 20px; width: auto; }
 .lesson-title { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .muted { color: var(--muted); }
 .muted.small { font-size: 12px; }
