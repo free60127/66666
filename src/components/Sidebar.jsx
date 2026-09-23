@@ -48,6 +48,21 @@ function Sidebar({
     safeSet('bt-open-groups', JSON.stringify([...next]));
   };
 
+  // 搜索匹配与「没有匹配」空态：必须和**实际渲染的列表**同一个口径 ——
+  // 内置库渲染的是「所选库卡片」的课文（回译课文=book 10 / 真题=book 5-9），
+  // 若用 visibleLessons（旧书册口径）判断空态，会出现"上面挂着没有匹配、
+  // 下面却列着匹配结果"的精分现场。自建库仍渲染 visibleLessons，口径不变。
+  const q = lessonQuery.trim().toLowerCase();
+  const searchMatches = (l) => {
+    if (!q) return true;
+    const text = `${l.lesson} ${l.title_cn || ''} ${l.title_en || ''}`.toLowerCase();
+    if (/^\d{1,3}$/.test(q)) { const n = Number(q); return l.lesson === n || text.includes(q); }
+    return text.includes(q);
+  };
+  const listEmpty = activeLib
+    ? visibleLessons.length === 0
+    : !lessons.some((l) => (builtinTab === 'huiyi' ? l.book === 10 : l.book >= 5 && l.book <= 9) && searchMatches(l));
+
   return (
     <>
       {sidebarOpen && <div className="sidebar-backdrop" onClick={onToggle} aria-hidden="true" />}
@@ -167,7 +182,7 @@ function Sidebar({
           ) : null}
 
           <div className="lesson-list">
-            {visibleLessons.length === 0 && (
+            {listEmpty && (
               <div className="muted">
                 {lessonQuery
                   ? `没有匹配「${lessonQuery}」的课文`
@@ -235,15 +250,8 @@ function Sidebar({
               } else {
                 // 内置课文库：只显示顶部选中的「库」卡片 —— 回译课文（book 10，按级别分组）
                 // 或真题（book 5-9，各考试一组）。组名点击可折叠；搜索时忽略折叠
-                //（否则匹配到的课文在折叠组里会"看起来没搜到"）。
-                const q = lessonQuery.trim().toLowerCase();
+                //（否则匹配到的课文在折叠组里会"看起来没搜到"）。匹配口径用外层的 searchMatches。
                 const searching = q.length > 0;
-                const matchQ = (l) => {
-                  if (!q) return true;
-                  const text = `${l.lesson} ${l.title_cn || ''} ${l.title_en || ''}`.toLowerCase();
-                  if (/^\d{1,3}$/.test(q)) { const n = Number(q); return l.lesson === n || text.includes(q); }
-                  return text.includes(q);
-                };
                 const foldBtn = (key, label) => {
                   const isOpen = searching || openGroups.has(key);
                   return (
@@ -265,7 +273,7 @@ function Sidebar({
                   // 回译课文：按 section 顺序分组（小初 / 初中 / 高中 / …）
                   const groups = [];
                   let cur = null;
-                  lessons.filter((l) => l.book === 10 && matchQ(l)).forEach((l) => {
+                  lessons.filter((l) => l.book === 10 && searchMatches(l)).forEach((l) => {
                     const s = l.section || '其他';
                     if (!cur || cur.label !== s) { cur = { label: s, ls: [] }; groups.push(cur); }
                     cur.ls.push(l);
@@ -273,7 +281,7 @@ function Sidebar({
                   groups.forEach((g) => pushGroup('huiyi:' + g.label, g.label, g.ls));
                 } else {
                   [5, 6, 7, 8, 9]
-                    .map((b) => ({ label: ((books || []).find((x) => x.book === b) || {}).label || `第 ${b} 册`, ls: lessons.filter((l) => l.book === b && matchQ(l)) }))
+                    .map((b) => ({ label: ((books || []).find((x) => x.book === b) || {}).label || `第 ${b} 册`, ls: lessons.filter((l) => l.book === b && searchMatches(l)) }))
                     .filter((g) => g.ls.length)
                     .forEach((g) => pushGroup('exam:' + g.label, g.label, g.ls));
                 }
