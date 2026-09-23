@@ -17,6 +17,9 @@ export function sanitizeLibrary(raw) {
     id: raw.id,
     name: String(raw.name || '未命名库'),
     createdAt: Number(raw.createdAt) || Date.now(),
+    // 分组名单（小标题）。没有显式分组的老库 = null（列表平铺不分组）；
+    // 一旦用户建过分组，这里就是有序名字数组，课文按 section 字段归到各组。
+    sections: Array.isArray(raw.sections) ? raw.sections.map((x) => String(x || '').trim()).filter(Boolean) : null,
     lessons: raw.lessons
       .filter((l) => l && typeof l === 'object')
       .map((l) => ({
@@ -27,6 +30,7 @@ export function sanitizeLibrary(raw) {
         lesson: Number(l.lesson) || 1,
         title_cn: String(l.title_cn || ''),
         title_en: String(l.title_en || ''),
+        section: String(l.section || '').trim(),
         chinese: String(l.chinese || ''),
         english: String(l.english || ''),
         source: String(l.source || '自建'),
@@ -163,6 +167,7 @@ export function corpusToLibrary(json, fallbackName) {
   }
   const name = String(json.source || fallbackName || '导入语料').trim().slice(0, 40) || '导入语料';
   const lessons = [];
+  const sections = [];
   let no = 0;
   for (const raw of json.lessons) {
     if (!raw || typeof raw !== 'object') continue;
@@ -171,11 +176,14 @@ export function corpusToLibrary(json, fallbackName) {
     if (!chinese && !english) continue;
     no += 1;
     const num = Number(raw.lesson) || no;
+    const section = String(raw.section || '').trim();
+    if (section && !sections.includes(section)) sections.push(section);
     lessons.push({
       lid: newLessonId(),
       lesson: num,
       title_cn: String(raw.title_cn || '').trim() || String(raw.title || '').trim() || `Lesson ${num}`,
       title_en: String(raw.title_en || '').trim(),
+      section,
       chinese,
       english,
       source: String(json.source || '导入语料'),
@@ -183,11 +191,74 @@ export function corpusToLibrary(json, fallbackName) {
     });
   }
   if (!lessons.length) throw new Error('语料 JSON 里没有可导入的课文（每课至少要有中文提示或英文原文）');
-  return { name, lessons };
+  return { name, lessons, sections };
 }
 
 export function removeLibrary(list, libId) {
   return list.filter((lib) => lib.id !== libId);
+}
+
+/* ---------- 分组（小标题）管理 ----------
+ * 设计约定：sections 是**有序名字数组**挂在库上；课文用 section 字段归组；
+ * 没有匹配分组的课文显示在第一组。删除分组 = 它的课文全部归入第一组（绝不删课文）。 */
+const DEFAULT_SECTION = '默认分组';
+
+export function sectionsOf(lib) {
+  if (!lib) return [];
+  if (Array.isArray(lib.sections) && lib.sections.length) return lib.sections;
+  return [DEFAULT_SECTION];
+}
+
+export function addSection(list, libId, name) {
+  const clean = String(name || '').trim();
+  if (!clean) return { list, error: '分组名不能为空' };
+  return { list: mapLib(list, libId, (x) => {
+    const secs = sectionsOf(x);
+    if (secs.includes(clean)) return { ...x, error: '已有同名分组' };
+    return { ...x, sections: [...secs, clean] };
+  }) };
+}
+
+export function renameSection(list, libId, oldName, newName) {
+  const clean = String(newName || '').trim();
+  if (!clean) return { list, error: '分组名不能为空' };
+  return { list: mapLib(list, libId, (x) => {
+    const secs = sectionsOf(x);
+    if (!secs.includes(oldName)) return { ...x, error: '分组不存在' };
+    if (secs.includes(clean)) return { ...x, error: '已有同名分组' };
+    return {
+      ...x,
+      sections: secs.map((n) => (n === oldName ? clean : n)),
+      lessons: x.lessons.map((l) => (l.section === oldName ? { ...l, section: clean } : l)),
+    };
+  }) };
+}
+
+export function deleteSection(list, libId, name) {
+  const target = sectionsOfLib(list, libId);
+  if (target && target.length <= 1) return { list, error: '至少要保留一个分组' };
+  const fallback = target.find((n) => n !== name) || DEFAULT_SECTION;
+  return { list: mapLib(list, libId, (x) => ({
+    ...x,
+    sections: sectionsOf(x).filter((n) => n !== name),
+    lessons: x.lessons.map((l) => (l.section === name ? { ...l, section: fallback } : l)),
+  })) };
+}
+
+function sectionsOfLib(list, libId) {
+  const lib = (Array.isArray(list) ? list : []).find((x) => x.id === libId);
+  return lib ? sectionsOf(lib) : [];
+}
+
+/** 给课文库补齐 sections 字段（老库迁移：第一次用到分组功能时初始化） */
+export function ensureSections(list) {
+  let changed = false;
+  const next = (Array.isArray(list) ? list : []).map((lib) => {
+    if (Array.isArray(lib.sections) && lib.sections.length) return lib;
+    changed = true;
+    return { ...lib, sections: [DEFAULT_SECTION] };
+  });
+  return { list: changed ? next : list, changed };
 }
 
 /**

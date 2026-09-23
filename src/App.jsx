@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { BookOpen, Camera, CheckCircle2, ChevronDown, ChevronRight, Cloud, Copy, Download, FileText, Flame, ImagePlus, Library, LoaderCircle, PanelLeftClose, PanelLeftOpen, Settings, Sparkles, Timer, Upload, UserRound, WandSparkles, X } from 'lucide-react'
 // mammoth（894 KB 源码）只在"上传 DOCX"这一个功能里用到，
 // 改为 handleDocx 内动态 import，避免它被打进首屏主包。
-import { corpusToLibrary, ensureLessonIds, mergeLibraries, newLibraryId, renumberLibrary, saveLibraries } from './lessonLibrary.js'
+import { addSection as addLibSection, corpusToLibrary, deleteSection as deleteLibSection, ensureLessonIds, mergeLibraries, newLibraryId, renameSection as renameLibSection, renumberLibrary, saveLibraries, sectionsOf } from './lessonLibrary.js'
 import { parseDocxText, textSimilarity, REFERENCE_SIM_THRESHOLD } from './docxParse.js'
 import { getOcrJob, getStatus, loadSettings, matchLesson, ocr, saveSettings } from './api.js'
 import { DELETED_FAVORITES_LIMIT, DELETED_LIBRARIES_LIMIT, DELETED_LESSONS_LIMIT, applyLibraryTombstones, mergeDeleted, mergeHistory } from './sync.js'
@@ -146,6 +146,8 @@ function App() {
   // 全局提示条：编辑器页也能看到（shareTip 只在结果页渲染，
   // 之前把"已保存课文/已新建作业"这类反馈发给了它，等于用户什么都看不到）
   const [toast, setToast] = useState('');
+  // 「保存到课文库」弹窗里选中的分组（跟随所选目标库的第一个分组初始化）
+  const [saveSection, setSaveSection] = useState('');
   // DOCX 导入内容确认：解析器无法替用户判断“这段英文是初稿还是标准答案”时，
   // 把决定权交给用户（kind: reference-vs-draft = 单段且与标准答案一致；assign-roles = 多段分配角色）
   const [docxChoice, setDocxChoice] = useState(null);
@@ -467,11 +469,15 @@ function App() {
       }
       let next;
       let targetId;
+      const newSections = [];
+      for (const l of fresh) { const sc = String(l.section || '').trim(); if (sc && !newSections.includes(sc)) newSections.push(sc); }
       if (existing) {
-        next = myLibs.map((l) => (l.id === existing.id ? { ...l, lessons: [...l.lessons, ...fresh] } : l));
+        const mergedSections = [...(Array.isArray(existing.sections) ? existing.sections : [])];
+        for (const sc of newSections) if (!mergedSections.includes(sc)) mergedSections.push(sc);
+        next = myLibs.map((l) => (l.id === existing.id ? { ...l, sections: mergedSections, lessons: [...l.lessons, ...fresh] } : l));
         targetId = existing.id;
       } else {
-        const lib = { id: newLibraryId(), name, createdAt: Date.now(), lessons: fresh };
+        const lib = { id: newLibraryId(), name, createdAt: Date.now(), sections: newSections.length ? newSections : null, lessons: fresh };
         next = [...myLibs, lib];
         targetId = lib.id;
       }
@@ -501,7 +507,11 @@ function App() {
    * 保存成功返回 true；失败时把原因写进 libTip 并返回 false。
    */
   // 「保存到课文库」：重置弹窗里的选择 + 打开弹窗（开关归 useModals，字段归 useLibraries）
-  const openLibModal = useCallback(() => { resetLibModalFields(); setLibModalOpen(true); }, [resetLibModalFields, setLibModalOpen]);
+  const openLibModal = useCallback(() => {
+    resetLibModalFields();
+    setSaveSection('');
+    setLibModalOpen(true);
+  }, [resetLibModalFields, setLibModalOpen]);
 
   /** 把当前作业存进课文库（编辑区内容在这里取，建库/去重/落盘交给 useLibraries） */
   const persistToLibrary = () => {
@@ -511,7 +521,7 @@ function App() {
       english: currentOriginal.trim(),
     };
     if (!entry.chinese) { setLibTip(`${dt.sourceTitle}还是空的：至少要有${dt.sourceTitle}才能存成课文`); return false; }
-    const r = saveToLibrary({ name: newLibName, pickId: libPickId, entry });
+    const r = saveToLibrary({ name: newLibName, pickId: libPickId, entry, section: saveSection });
     if (!r.ok) { setLibTip(r.error); return false; }
     savedSnapshotRef.current = fingerprintOf(title, chinese, draft, manualOriginal);
     return true;
@@ -575,6 +585,27 @@ function App() {
   const historyModalRef = useCallback((el) => { modalRefs.current.history = el; }, [modalRefs]);
   const lessonEditModalRef = useCallback((el) => { modalRefs.current.lessonEdit = el; }, [modalRefs]);
   const closeFavorites = useCallback(() => { setFavOpen(false); setFavReview(null); }, [setFavOpen, setFavReview]);
+
+  /* ---------- 我的课文库：分组（小标题）管理 ----------
+   * 增 / 改名 / 删 都走 useLibraries 的同一套持久化；删分组 = 课文归入第一组（绝不删课文）。 */
+  const handleAddSection = useCallback((libId, name) => {
+    const { list, error } = addLibSection(myLibs, libId, name);
+    if (error) { flashTip(setToast, error, 4000); return; }
+    if (saveLibraries(list)) { setMyLibs(list); flashTip(setToast, `已新建分组「${name.trim()}」`, 3600); }
+    else flashTip(setToast, '写入本机存储失败（空间可能已满）', 4200);
+  }, [myLibs, setToast]);
+  const handleRenameSection = useCallback((libId, oldName, newName) => {
+    const { list, error } = renameLibSection(myLibs, libId, oldName, newName);
+    if (error) { flashTip(setToast, error, 4000); return; }
+    if (saveLibraries(list)) { setMyLibs(list); flashTip(setToast, `分组已改名为「${newName.trim()}」`, 3600); }
+    else flashTip(setToast, '写入本机存储失败（空间可能已满）', 4200);
+  }, [myLibs, setToast]);
+  const handleDeleteSection = useCallback((libId, name) => {
+    const { list, error } = deleteLibSection(myLibs, libId, name);
+    if (error) { flashTip(setToast, error, 4000); return; }
+    if (saveLibraries(list)) { setMyLibs(list); flashTip(setToast, `已删除分组「${name}」（组内课文已移到第一组）`, 4200); }
+    else flashTip(setToast, '写入本机存储失败（空间可能已满）', 4200);
+  }, [myLibs, setToast]);
 
   /* ---------- 错误训练 ----------
    * 第三条学习路径（前两条：按课文练、按收藏复习）：从**自己实际犯过的错**出发出题。
@@ -1110,6 +1141,8 @@ function App() {
   };
 
   // 课文库选择区（「保存到课文库」和「新建作业」两个弹窗共用）
+  // 选中已有库时追加“分组”选择：存进该库的某个小标题分组（默认第一组）
+  const pickedLib = myLibs.find((l) => l.id === libPickId && !newLibName.trim()) || null;
   const libPickerFields = (
     <>
       {myLibs.length > 0 && (
@@ -1129,6 +1162,13 @@ function App() {
         </div>
       )}
       <label>或新建一个课文库<input value={newLibName} onChange={(e) => setNewLibName(e.target.value)} placeholder="例如：我的第二册 / 高考真题精读" /></label>
+      {pickedLib && (pickedLib.sections || []).length > 0 && (
+        <label>存入分组
+          <select value={saveSection} onChange={(e) => setSaveSection(e.target.value)}>
+            {pickedLib.sections.map((n) => <option key={n} value={n}>{n}</option>)}
+          </select>
+        </label>
+      )}
     </>
   );
 
@@ -1139,6 +1179,7 @@ function App() {
         onNewJob={startNewJob} myLibId={myLibId} book={book} onBookChange={pickBook}
         myLibs={myLibs} onOpenLibModal={openLibModal} onSelectLib={selectMyLib} onDeleteLib={deleteLibrary}
         onImportCorpus={handleImportCorpus}
+        onAddSection={handleAddSection} onRenameSection={handleRenameSection} onDeleteSection={handleDeleteSection}
         lessonQuery={lessonQuery} onLessonQuery={setLessonQuery} activeLib={activeLib} lessons={lessons} visibleLessons={visibleLessons}
         mode={mode} lessonId={lessonId} onSelectLesson={pickLesson} onSelectMyLesson={pickMyLesson} onDeleteMyLesson={deleteMyLesson}
         onEditMyLesson={openLessonEdit} onRenumberLib={renumberMyLib}

@@ -91,7 +91,7 @@ export function useLibraries({ toast, setLibTip, onLessonEdited, getSelectedLess
    * 实测踩过：界面上点了保存、弹窗不关、库里什么都没有。
    * @returns {{ok: boolean, lesson?: object, error?: string}}
    */
-  const saveToLibrary = useCallback(({ name, pickId, entry }) => {
+  const saveToLibrary = useCallback(({ name, pickId, entry, section }) => {
     let list = myLibs;
     let targetId = pickId;
     const clean = String(name || '').trim();
@@ -101,7 +101,16 @@ export function useLibraries({ toast, setLibTip, onLessonEdited, getSelectedLess
       else { list = createLibrary(myLibs, clean); targetId = list[list.length - 1].id; }
     }
     if (!targetId) return { ok: false, error: '请先选择或输入一个课文库名称' };
-    const { list: next, replaced, lesson } = upsertLesson(list, targetId, entry);
+    // 分组归属：调用方指定 > 目标库已有分组保留 > 无分组库自动初始化「默认分组」
+    const target = list.find((l) => l.id === targetId);
+    const sec = String(section || '').trim()
+      || (target && Array.isArray(target.sections) && target.sections[0]) || '';
+    const entryWithSec = sec ? { ...entry, section: sec } : entry;
+    let needsSections = target && !(Array.isArray(target.sections) && target.sections.length);
+    if (needsSections) {
+      list = list.map((l) => (l.id === targetId ? { ...l, sections: [sec || '默认分组'] } : l));
+    }
+    const { list: next, replaced, lesson } = upsertLesson(list, targetId, entryWithSec);
     if (!persist(next)) return { ok: false, error: '写入本机存储失败（空间可能已满），请先清理浏览器数据' };
     setMyLibId(targetId);
     toast((replaced ? '已更新课文：' : '已保存课文：') + entry.title_cn

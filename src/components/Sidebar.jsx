@@ -15,7 +15,7 @@ import { lessonKeyOf } from '../lessonLabel.js';
 function Sidebar({
   sidebarOpen, onToggle, onCloseOnMobile,
   onNewJob, myLibId, book, onBookChange, myLibs, onOpenLibModal, onSelectLib, onDeleteLib,
-  onImportCorpus,
+  onImportCorpus, onAddSection, onRenameSection, onDeleteSection,
   lessonQuery, onLessonQuery, activeLib, lessons, visibleLessons,
   mode, lessonId, onSelectLesson, onSelectMyLesson, onDeleteMyLesson, onEditMyLesson, onRenumberLib,
   lessonProgress, studyDays, books, directionName,
@@ -39,24 +39,7 @@ function Sidebar({
         <button className="primary-btn" onClick={() => onNewJob(true)}><Plus size={16} />新建{directionName === '英译汉' ? '翻译' : '回译'}作业</button>
         <div className="side-section">
           <div className="side-title">课文库</div>
-          {/* 内置库：1-4 是新概念册次，5-9 是考试向的库（四级/六级/英语一/英语二/专八）。
-              列表来自服务端 /api/status 的 books（带中文名与课数），**没有语料也照样显示**，
-              只是标成灰色并在悬停时说明该放哪个文件 —— 空着比藏起来更容易让人以为坏了。 */}
-          <div className="book-tabs">
-            {(books && books.length ? books : [1, 2, 3, 4].map((n) => ({ book: n, label: `第 ${n} 册`, lessons: null })))
-              .map((b) => (
-                <button
-                  key={b.book}
-                  className={(!myLibId && book === b.book ? 'active' : '') + (b.lessons === 0 ? ' empty' : '')}
-                  onClick={() => onBookChange(b.book)}
-                  title={b.lessons === 0
-                    ? `${b.label}：还没有语料。把文件放到 public/corpus/${b.file || ''} 即可（格式见 README）`
-                    : `${b.label}${b.lessons != null ? ` · ${b.lessons} 课` : ''}`}
-                >
-                  {b.label}
-                </button>
-              ))}
-          </div>
+          {/* 方案A·两大分组：内置册 tab 已撤（新概念语料下架 + 真题并入「真题」分组） */}
 
           <div className="my-libs">
             <div className="my-libs-head">
@@ -68,6 +51,12 @@ function Sidebar({
                   title="导入语料 JSON：把 README「语料」格式的 JSON 文件转成我的课文库（导入后走云同步，其他设备同码可见）"
                   aria-label="导入语料 JSON">
                   <Upload size={14} />
+                </button>
+              )}
+              {activeLib && onAddSection && (
+                <button className="lib-add" onClick={() => { const n = window.prompt('新分组名称'); if (n && n.trim()) onAddSection(activeLib.id, n.trim()); }}
+                  title="新建分组" aria-label="新建分组">
+                  <Plus size={14} />
                 </button>
               )}
               {activeLib && activeLib.lessons.length > 0 && (
@@ -193,15 +182,59 @@ function Sidebar({
               };
               const nodes = [];
               let lastSec = '';
-              visibleLessons.forEach((l) => {
-                if (l.section && l.section !== lastSec) {
-                  lastSec = l.section;
-                  nodes.push(
-                    <div key={'sec-' + l.section} className="lesson-group-title">{l.section}</div>
-                  );
+              const topHeader = (label) => nodes.push(
+                <div key={'top-' + label} className="top-group-title">{label}</div>
+              );
+              const pushSectionHeader = (label, cls) => nodes.push(
+                <div key={'sec-' + nodes.length} className={'lesson-group-title' + (cls ? ' ' + cls : '')}>{label}</div>
+              );
+              if (activeLib) {
+                // 我的课文库：自建库的分组也渲染组头（组内改名/删除）
+                visibleLessons.forEach((l) => {
+                  if (l.section && l.section !== lastSec) {
+                    nodes.push(
+                      <div key={'sec-' + l.section} className="lesson-group-title mylib-group">
+                        <span className="lgt-name">{l.section}</span>
+                        <span className="lgt-ops">
+                          <button className="lgt-btn" onClick={(e) => { e.stopPropagation(); const n = window.prompt('修改分组名称', l.section); if (n && n.trim() && n.trim() !== l.section) onRenameSection(activeLib.id, l.section, n.trim()); }} title="重命名此分组" aria-label="重命名此分组"><PenLine size={11} /></button>
+                          <button className="lgt-btn" onClick={(e) => { e.stopPropagation(); if (window.confirm(`删除分组「${l.section}」？组内课文会移动到第一组，不会删除课文。`)) onDeleteSection(activeLib.id, l.section); }} title="删除此分组（课文移到第一组）" aria-label="删除此分组"><Trash2 size={11} /></button>
+                        </span>
+                      </div>
+                    );
+                    lastSec = l.section;
+                  }
+                  nodes.push(renderLessonRow(l));
+                });
+              } else {
+                // 内置课文库（方案A·两大分组）：回译课文（360 课，按六个级别小标题）
+                // + 真题（四级/六级/英一/英二/专八，各年真题）；搜索跨全部 530 课
+                const q = lessonQuery.trim().toLowerCase();
+                const matchQ = (l) => {
+                  if (!q) return true;
+                  const text = `${l.lesson} ${l.title_cn || ''} ${l.title_en || ''}`.toLowerCase();
+                  if (/^\d{1,3}$/.test(q)) { const n = Number(q); return l.lesson === n || text.includes(q); }
+                  return text.includes(q);
+                };
+                const huiyi = lessons.filter((l) => l.book === 10 && matchQ(l));
+                if (huiyi.length) {
+                  topHeader('回译课文');
+                  let sec = '';
+                  huiyi.forEach((l) => {
+                    if (l.section && l.section !== sec) { pushSectionHeader(l.section); sec = l.section; }
+                    nodes.push(renderLessonRow(l));
+                  });
                 }
-                nodes.push(renderLessonRow(l));
-              });
+                const examGroups = [5, 6, 7, 8, 9]
+                  .map((b) => ({ label: ((books || []).find((x) => x.book === b) || {}).label || '', ls: lessons.filter((l) => l.book === b && matchQ(l)) }))
+                  .filter((g) => g.ls.length);
+                if (examGroups.length) {
+                  topHeader('真题');
+                  examGroups.forEach((g) => {
+                    pushSectionHeader(g.label);
+                    g.ls.forEach((l) => nodes.push(renderLessonRow(l)));
+                  });
+                }
+              }
               return nodes;
             })()}
           </div>
