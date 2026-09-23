@@ -61,11 +61,11 @@ function Sidebar({
           <div className="builtin-tabs">
             <button type="button" className={'builtin-tab' + (builtinTab === 'huiyi' ? ' active' : '')}
               onClick={() => onBuiltinTab('huiyi')} aria-pressed={builtinTab === 'huiyi'}>
-              <Library size={13} /><span>回译课文</span><i>{huiyiCount}</i>
+              <span>回译课文</span><i>{huiyiCount}</i>
             </button>
             <button type="button" className={'builtin-tab' + (builtinTab === 'exam' ? ' active' : '')}
               onClick={() => onBuiltinTab('exam')} aria-pressed={builtinTab === 'exam'}>
-              <Library size={13} /><span>真题</span><i>{examCount}</i>
+              <span>真题</span><i>{examCount}</i>
             </button>
           </div>
 
