@@ -255,3 +255,121 @@ td a {
     padding:6px
   }
 }
+
+.teacher-tabs {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+.teacher-tabs button {
+  flex: 0 0 auto;
+  border: 1px solid #b8cae0;
+  border-radius: 9px;
+  padding: 9px 13px;
+  color: #33536f;
+  background: white;
+}
+.teacher-tabs button.active {
+  color: white;
+  border-color: #1f68e5;
+  background: #1f68e5;
+}
+.teacher-extension h3 {
+  margin: 20px 0 10px;
+  font-size: 1rem;
+}
+.teacher-form {
+  display: grid;
+  gap: 12px;
+  max-width: 700px;
+}
+.teacher-form label {
+  display: grid;
+  gap: 5px;
+  font-weight: 600;
+  font-size: .92rem;
+}
+.teacher-form input,.teacher-form select,.teacher-form textarea,.teacher-comment-form textarea {
+  width: 100%;
+  border: 1px solid #b8c9d8;
+  border-radius: 9px;
+  padding: 10px 12px;
+  background: white;
+  color: #172a39;
+}
+.teacher-form textarea,.teacher-comment-form textarea {
+  min-height: 100px;
+  resize: vertical;
+}
+.teacher-form-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.teacher-form .teacher-primary {
+  justify-self: start;
+}
+.teacher-hw {
+  margin: 10px 0;
+  border: 1px solid #dbe5ef;
+  border-radius: 10px;
+}
+.teacher-hw summary {
+  cursor: pointer;
+  padding: 12px;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+.teacher-hw summary span {
+  color: #64758a;
+}
+.teacher-hw-inner {
+  padding: 0 12px 14px;
+}
+.teacher-hw-inner button,.teacher-team-row button {
+  border: 1px solid #adc6e8;
+  border-radius: 7px;
+  color: #1558ad;
+  background: #f0f6ff;
+  padding: 7px 10px;
+}
+.teacher-corpus-list > div,.teacher-team-row {
+  border-top: 1px solid #e5ebf1;
+  padding: 12px 0;
+}
+.teacher-corpus-list span {
+  display: block;
+  margin: 5px 0;
+  color: #64758a;
+}
+.teacher-stats-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+  gap: 20px;
+}
+.teacher-stats-grid > div {
+  min-width: 0;
+}
+.teacher-team-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+.teacher-comment-form {
+  margin-top: 20px;
+  padding: 15px;
+  background: #f5f9ff;
+  border-radius: 10px;
+}
+.teacher-comment-form h3 {
+  margin: 0 0 10px;
+  font-size: 1rem;
+}
+@media(max-width:760px) {
+  .teacher-stats-grid { grid-template-columns: 1fr; }
+  .teacher-hw summary { display: block; }
+  .teacher-hw summary span { display: block; margin-top: 5px; }
+}

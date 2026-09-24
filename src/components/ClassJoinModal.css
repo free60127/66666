@@ -10,3 +10,11 @@
 .class-joined-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 7px 0; }
 .class-joined-row button { border: 0; background: transparent; color: #b42318; cursor: pointer; }
 .class-join-note { font-size: .85rem; color: #64748b; }
+.class-joined-head,.class-task-row { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+.class-joined-head h3 { margin:0; }
+.class-joined-head button,.class-task-row button { border:1px solid #abc7ea; border-radius:7px; background:#f0f6ff; color:#1558ad; padding:6px 9px; white-space:nowrap; }
+.class-task-row { padding:8px 0; border-top:1px solid #e5eaf0; }
+.class-task-row small { display:block; color:#64748b; margin-top:3px; }
+.class-task-row button:disabled { opacity:.5; cursor:not-allowed; }
+.class-room-card { margin-top:12px; border:1px solid #dce5ef; border-radius:10px; padding:12px; }
+.class-room-card h4 { margin:12px 0 7px; }

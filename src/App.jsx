@@ -44,6 +44,7 @@ import HistoryModal from './components/modals/HistoryModal.jsx'
 import BackToTop from './components/BackToTop.jsx'
 import MoreMenu from './components/MoreMenu.jsx'
 import ClassJoinModal from './components/ClassJoinModal.jsx'
+import { activateHomework, clearActiveHomework } from './classroom.js'
 import LessonEditModal from './components/modals/LessonEditModal.jsx'
 const AI_LEVELS = ['小初', '高考英语', '四六级', '考研/专四', '专八'];
 const DEFAULT_AI_LEVEL = '四六级';
@@ -391,8 +392,27 @@ function App() {
    * 修法放在这一层（而不是 useLessons 内部）：首屏自动选课也走 selectLesson，
    * 那种情况绝不能抢视图 —— 否则用 #job=xxx 分享链接打开时，
    * 迟到几秒的自动选课会把刚恢复出来的结果页顶掉。 */
-  const pickLesson = useCallback((b, l) => { initialLessonCancelledRef.current = true; setView('editor'); setDocxChoice(null); selectLesson(b, l); }, [selectLesson]);
-  const pickMyLesson = useCallback((libId, l) => { initialLessonCancelledRef.current = true; setView('editor'); setDocxChoice(null); selectMyLesson(libId, l); }, [selectMyLesson]);
+  const pickLesson = useCallback((b, l) => { clearActiveHomework(); initialLessonCancelledRef.current = true; setView('editor'); setDocxChoice(null); selectLesson(b, l); }, [selectLesson]);
+  const pickMyLesson = useCallback((libId, l) => { clearActiveHomework(); initialLessonCancelledRef.current = true; setView('editor'); setDocxChoice(null); selectMyLesson(libId, l); }, [selectMyLesson]);
+  const startClassTask = (task) => {
+    initialLessonCancelledRef.current = true;
+    cancelPendingLesson();
+    clearActiveHomework();
+    if (task.hwId) activateHomework(task.classId, task.hwId);
+    setMyLibId('');
+    setMatchedLesson(null);
+    chooseDirection('cn2en');
+    setMode('free');
+    setTitle(task.title || '班级练习');
+    setChinese(task.prompt || '');
+    setDraft('');
+    setManualOriginal(task.reference || '');
+    setGeneratedOriginal('');
+    setMaterialKeywords([]);
+    setError('');
+    setView('editor');
+    setClassJoinOpen(false);
+  };
 
   // 内置课文库的两个「库」卡片：回译课文（book 10）/ 真题（book 5-9）。
   // 记住上次选的库；没有记录时按上次练的册子推断（5-9 是真题，否则回译课文）。
@@ -602,6 +622,7 @@ function App() {
 
   /** 真正开一份空白作业（调用前请先处理"当前作业要不要保存"）。 */
   const doStartNewJob = (closeSidebar) => {
+    clearActiveHomework();
     initialLessonCancelledRef.current = true;
     genTokenRef.current += 1;
     setDocxChoice(null);
@@ -1791,7 +1812,7 @@ function App() {
 
       <BackToTop />
 
-      {classJoinOpen && <ClassJoinModal onClose={() => setClassJoinOpen(false)} />}
+      {classJoinOpen && <ClassJoinModal onClose={() => setClassJoinOpen(false)} onStart={startClassTask} />}
       {settingsOpen && (
         <div className="modal-mask" onClick={() => setSettingsOpen(false)}>
           <div className="modal" ref={(el) => { modalRefs.current.settings = el; }} role="dialog" aria-modal="true" aria-label="AI 接入设置" onClick={(e) => e.stopPropagation()}>

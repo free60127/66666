@@ -116,6 +116,10 @@ function ResultSheetImpl({ result, onBack, onCopy, onShare, shareTip, fav, histo
           {result.aiLevel ? <span className="sheet-duration">润色等级 {result.aiLevel}</span> : null}
           {result.durationMs ? <span className="sheet-duration">本次练习用时 {formatDuration(result.durationMs)}</span> : null}
         </header>
+        {(result.teacherComments || []).length > 0 && <section className="teacher-comments" aria-label="教师评语">
+          <h2>教师评语</h2>
+          {result.teacherComments.map((entry, index) => <div className="teacher-comment" key={index}><strong>{entry.className} · {entry.teacher}</strong><p>{entry.text}</p></div>)}
+        </section>}
         <SheetGlance
           overall={overall}
           sentences={sentences}

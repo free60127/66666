@@ -33,7 +33,11 @@ async function request(path, options = {}, timeoutMs = TIMEOUT.normal) {
 export async function api(path, options = {}, timeoutMs = TIMEOUT.normal) {
   const res = await request(path, { headers: { 'Content-Type': 'application/json' }, ...options }, timeoutMs);
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || ('请求失败: ' + res.status));
+  if (!res.ok) {
+    const error = new Error(data.error || ('请求失败: ' + res.status));
+    error.status = res.status;
+    throw error;
+  }
   return data;
 }
 

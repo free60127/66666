@@ -66,11 +66,11 @@ const kv = (() => {
 const kvDurable = kv.durable || !HOSTED;
 const accountsOn = kvDurable;
 const accounts = accountsOn ? createAccounts({ kv, mail: sendMail }) : null;
-const classrooms = accountsOn ? createClassrooms({ kv, accounts, findJob }) : null;
 
 /* 语料 / 内置库 / 课文匹配拆到 server/corpus.mjs（原先这一节占 118 行，
    与 HTTP、任务、限流无关）。导出名保持不变，下面的调用点一行都不用改。 */
 import { BOOK_META, BOOK_IDS, BOOK_LEVEL_HINT, allLessons, findLesson, getCorpora, getCorpus, isValidBook, matchLesson, resolveLesson } from './corpus.mjs';
+const classrooms = accountsOn ? createClassrooms({ kv, accounts, findJob, lessonLookup: findLesson }) : null;
 
 /* ---------- API Key 归一化 ----------
  * 真实踩坑（线上实测）：在部署平台的环境变量框里粘贴 Key 时，很容易把界面上的说明文字
@@ -1545,10 +1545,20 @@ const server = http.createServer(async (req, res) => {
       else if (p === '/api/classes/join' && req.method === 'POST') result = await classrooms.join({ ...body, ip });
       else if (p === '/api/classes/submit' && req.method === 'POST') result = await classrooms.submit({ ...body, ip });
       else {
-        const match = p.match(/^\/api\/classes\/([a-f0-9]{32})(?:\/(archive))?$/);
+        const match = p.match(/^\/api\/classes\/([a-f0-9]{32})(?:\/(.*))?$/);
         if (!match) return json(res, 404, { error: 'unknown class api' });
-        if (match[2] === 'archive' && req.method === 'POST') result = await classrooms.archive(token, match[1]);
-        else if (!match[2] && req.method === 'GET') result = await classrooms.detail(token, match[1]);
+        const [, classId, action = ''] = match;
+        if (action === 'archive' && req.method === 'POST') result = await classrooms.archive(token, classId);
+        else if (!action && req.method === 'GET') result = await classrooms.detail(token, classId);
+        else if (action === 'student-dashboard' && req.method === 'POST') result = await classrooms.studentDashboard(classId, body.studentKey);
+        else if (action === 'teachers' && req.method === 'POST') result = await classrooms.addTeacher(token, classId, body.email);
+        else if (/^teachers\/[a-f0-9]{32}$/.test(action) && req.method === 'DELETE') result = await classrooms.removeTeacher(token, classId, action.split('/')[1]);
+        else if (action === 'homeworks' && req.method === 'POST') result = await classrooms.createHomework(token, classId, body);
+        else if (/^homeworks\/[a-f0-9]{24}$/.test(action) && req.method === 'POST') result = await classrooms.updateHomework(token, classId, action.split('/')[1], body);
+        else if (action === 'corpus' && req.method === 'POST') result = await classrooms.saveCorpusLesson(token, classId, null, body);
+        else if (/^corpus\/[a-f0-9]{24}$/.test(action) && req.method === 'POST') result = await classrooms.saveCorpusLesson(token, classId, action.split('/')[1], body);
+        else if (/^corpus\/[a-f0-9]{24}$/.test(action) && req.method === 'DELETE') result = await classrooms.removeCorpusLesson(token, classId, action.split('/')[1]);
+        else if (action === 'comments' && req.method === 'POST') result = await classrooms.comment(token, classId, body);
         else return json(res, 405, { error: 'method not allowed' });
       }
       if (!result.ok) return json(res, result.status || 400, { error: result.error });
@@ -1865,7 +1875,7 @@ const server = http.createServer(async (req, res) => {
       // stream=1：模型一行一段地往外写，结果页边收边画（见 GET /api/analyze/:id/stream）。
       // 默认仍是关的 —— 老前端不带这个字段，行为一个字都不变。
       const stream = body.stream === true || body.stream === 1 || body.stream === '1';
-      saveJob({ jobId, kind: 'analyze', title, status: 'pending', createdAt: Date.now(), data: null, error: null, deleteToken });
+      saveJob({ jobId, kind: 'analyze', title, prompt: chinese, direction, status: 'pending', createdAt: Date.now(), data: null, error: null, deleteToken });
       registerJob(jobId);
       // 立即返回任务号，后台再调用模型；手机端/弱网不会因长时间占用请求而卡死
       safeRun('analyze', jobId, () => runAnalyzeJob(jobId, {
@@ -1941,9 +1951,10 @@ const server = http.createServer(async (req, res) => {
     if (jobMatch && req.method === 'GET') {
       const job = await findJob(jobMatch[1]);
       if (!job) return json(res, 404, { error: '任务不存在或已过期，请重新提交' });
+      const teacherComments = classrooms && job.status === 'done' ? await classrooms.comments(job.jobId) : [];
       return json(res, 200, {
         ok: true,
-        job: { jobId: job.jobId, status: job.status, data: job.data || null, error: job.error || null },
+        job: { jobId: job.jobId, status: job.status, data: job.data ? { ...job.data, teacherComments } : null, error: job.error || null },
       });
     }
     // 删除某次作业（历史记录里的「删除」）：服务端记录一并删掉，分享链接随即失效

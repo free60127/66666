@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { analyze, deleteAnalyzeJob, getAnalyzeJob } from '../api.js'
-import { reportCompletedJob, retryClassReports } from '../classroom.js'
+import { activeHomework, reportCompletedJob, retryClassReports } from '../classroom.js'
 import { DEMO_LESSON_18 } from '../demo.js'
 import { formatDuration } from '../format.js'
 import { normalizeDirection } from '../direction.js'
@@ -188,6 +188,11 @@ export function useGeneration({
       setView('result');
       setError('');
       window.history.replaceState(null, '', '#job=' + jobId);
+      // 本机缓存可能早于教师评语；页面先秒开，再从服务端补最新评语。
+      getAnalyzeJob(jobId).then((r) => {
+        if (reqId !== historyReqRef.current || !r.job?.data) return;
+        setResult((current) => current ? { ...current, teacherComments: r.job.data.teacherComments || [] } : current);
+      }).catch(() => {});
       return;
     }
     try {
@@ -272,6 +277,7 @@ export function useGeneration({
   }, []);
 
   const runGenerate = async (overrideLessonId) => {
+    const classHomework = activeHomework();
     const id = overrideLessonId ?? lessonId;
     const dir = normalizeDirection(directionRef.current);
     const cn = chinese.trim();
@@ -363,7 +369,7 @@ export function useGeneration({
           if (!cancelled && myToken === genTokenRef.current && !streamViewRef.current) setView('result');
           if (jobId) {
             addToHistory(jobId, (data && data.title) || title, enriched, durationMs, deleteToken);
-            void reportCompletedJob(jobId, deleteToken);
+            void reportCompletedJob(jobId, deleteToken, classHomework);
             bumpProgress(lessonKey, enriched, durationMs);
             bumpStudyDay();
             window.history.replaceState(null, '', '#job=' + jobId);

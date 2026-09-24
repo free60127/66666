@@ -74,5 +74,6 @@ export function normalizeResult(data) {
     sentences,
     vocabularyNotes: asObjectArray(data.vocabularyNotes),
     idiomHighlights: asObjectArray(data.idiomHighlights),
+    teacherComments: asObjectArray(data.teacherComments).filter((entry) => typeof entry.text === 'string'),
   };
 }

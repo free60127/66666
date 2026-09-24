@@ -278,6 +278,16 @@ export function createAccounts({ kv, mail, env = process.env, sent }) {
       return { ok: true, status: 200, user: publicUser(u) };
     },
 
+    /** 仅供教师班级服务调用，HTTP 层不公开邮箱查找接口。 */
+    async findTeacherByEmail(email) {
+      const u = await loadUserByEmail(String(email || '').trim().toLowerCase());
+      return u?.role === 'teacher' ? publicUser(u) : null;
+    },
+    async publicUserById(id) {
+      const u = await loadUserById(id);
+      return u ? publicUser(u) : null;
+    },
+
     /* ---------- 绑定 / 更新同步码保险箱 ---------- */
     async setSync(token, sync) {
       const u = await sessionUser(token);
