@@ -107,7 +107,7 @@ export function sanitizeSync(value) {
   return { salt, iv, c };
 }
 
-const publicUser = (u) => ({ id: u.id, email: u.email, nickname: u.nickname || '' });
+const publicUser = (u) => ({ id: u.id, email: u.email, nickname: u.nickname || '', role: u.role || 'student' });
 const readJson = (raw, fb = null) => { try { return raw ? JSON.parse(raw) : fb; } catch { return fb; } };
 
 /**
@@ -163,7 +163,7 @@ export function createAccounts({ kv, mail, env = process.env, sent }) {
 
   return {
     /* ---------- 注册 ---------- */
-    async register({ email, password, nickname, sync, ip }) {
+    async register({ email, password, nickname, sync, ip, role }) {
       const v = validate({ email, password, nickname });
       if (v.error) return { ok: false, status: 400, error: v.error };
 
@@ -182,6 +182,7 @@ export function createAccounts({ kv, mail, env = process.env, sent }) {
         id: randomBytes(16).toString('hex'),
         email: v.email,
         nickname: v.nickname,
+        role: role === 'teacher' ? 'teacher' : 'student',
         passwordHash: await makeHash(v.password),
         syncEnc,
         sessionEpoch: 1,
@@ -263,6 +264,18 @@ export function createAccounts({ kv, mail, env = process.env, sent }) {
       const u = await sessionUser(token);
       if (!u) return { ok: false, status: 401, error: 'unauthorized' };
       return { ok: true, status: 200, user: publicUser(u), sync: u.syncEnc || null };
+    },
+
+    /** 开放教师身份：已有账号登录后也可启用，无需重复注册邮箱。 */
+    async becomeTeacher(token) {
+      const u = await sessionUser(token);
+      if (!u) return { ok: false, status: 401, error: '请先登录账号' };
+      if (u.role !== 'teacher') {
+        u.role = 'teacher';
+        u.updatedAt = Date.now();
+        await kv.set(K_USER(u.id), JSON.stringify(u));
+      }
+      return { ok: true, status: 200, user: publicUser(u) };
     },
 
     /* ---------- 绑定 / 更新同步码保险箱 ---------- */

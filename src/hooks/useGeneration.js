@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { analyze, deleteAnalyzeJob, getAnalyzeJob } from '../api.js'
+import { reportCompletedJob, retryClassReports } from '../classroom.js'
 import { DEMO_LESSON_18 } from '../demo.js'
 import { formatDuration } from '../format.js'
 import { normalizeDirection } from '../direction.js'
@@ -67,6 +68,7 @@ export function useGeneration({
   directionRef.current = direction;
   const [result, setResult] = useState(null);
   const [currentJobId, setCurrentJobId] = useState('');
+  useEffect(() => { void retryClassReports(); }, []);
   const [historyList, setHistoryList] = useState(loadHistory);
   // 已删除作业号（墓碑）：云同步的历史合并是并集，没有它会"删了又出现"
   const [deletedHistory, setDeletedHistory] = useState(loadDeletedHistory);
@@ -361,6 +363,7 @@ export function useGeneration({
           if (!cancelled && myToken === genTokenRef.current && !streamViewRef.current) setView('result');
           if (jobId) {
             addToHistory(jobId, (data && data.title) || title, enriched, durationMs, deleteToken);
+            void reportCompletedJob(jobId, deleteToken);
             bumpProgress(lessonKey, enriched, durationMs);
             bumpStudyDay();
             window.history.replaceState(null, '', '#job=' + jobId);

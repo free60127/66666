@@ -123,6 +123,8 @@ const authPost = (path, payload, token, timeoutMs) => apiRaw('/api/auth/' + path
 
 export const getAuthConfig = () => api('/api/auth/config', {}, TIMEOUT.fast);
 export const authRegister = (p) => authPost('register', p);
+export const authTeacherRegister = (p) => authPost('teacher-register', p);
+export const authBecomeTeacher = (token) => authPost('become-teacher', {}, token);
 export const authLogin = (p) => authPost('login', p);
 export const authLogout = (token) => authPost('logout', {}, token);
 export const authLogoutAll = (token) => authPost('logout-all', {}, token);

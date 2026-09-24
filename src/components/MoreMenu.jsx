@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { BookOpen, Download, Flame, FolderPlus, History, MoreVertical, Settings, Sparkles, Star } from 'lucide-react';
+import { BookOpen, Download, Flame, FolderPlus, GraduationCap, History, MoreVertical, Settings, Sparkles, Star } from 'lucide-react';
 
 /**
  * 「更多」菜单（⋮）—— 全端统一（方案A 聚焦编辑）。
@@ -21,6 +21,7 @@ export default function MoreMenu({
   onOpenHistory, onOpenFavs, onStartReview,
   onOpenMaterial, materialBusy, onOpenSaveToLib,
   onOpenSettings, onOpenBackup,
+  onOpenClass,
   info, infoSub,
 }) {
   const [open, setOpen] = useState(false);
@@ -87,6 +88,8 @@ export default function MoreMenu({
           <Item icon={<Settings size={15} />} label="AI 设置" onClick={onOpenSettings} />
           <Item icon={<Download size={15} />} label="备份 / 恢复" onClick={onOpenBackup}
             title="导出 / 导入本机数据备份（课文库、收藏夹、历史）" />
+          <Item icon={<GraduationCap size={15} />} label="加入教师班级" onClick={onOpenClass} />
+          <Item icon={<GraduationCap size={15} />} label="教师后台" onClick={() => { window.location.href = import.meta.env.BASE_URL + 'teacher.html'; }} />
 
           {info ? (
             <div className="more-info">

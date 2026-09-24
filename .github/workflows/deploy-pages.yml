@@ -19,6 +19,7 @@ on:
     paths:
       - 'src/**'
       - 'index.html'
+      - 'teacher.html'
       - 'vite.config.js'
       - 'package.json'
       - 'package-lock.json'
@@ -92,6 +93,7 @@ jobs:
             echo "::error::产物里找不到后端地址 $API —— VITE_API_BASE 没生效，页面会调自己的域名然后 404"
             exit 1
           fi
+          test -f dist/teacher.html
           echo "自检通过"
 
       - uses: actions/configure-pages@v5

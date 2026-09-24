@@ -217,6 +217,14 @@
 
 存储体积参考：一条完整结果约 15–60 KB（`src/demo.js` 里那份完整结果实测 13.7 KB），2000 条 ≈ 30–120 MB。当前保留期 / 上限 / 已保留条数随时可在 `/api/status` 的 `jobs` 字段里查到，服务端启动日志也会打印存储键数。链接真打不开时页面会明确提示，并建议改用「导出 PDF」长期留存。
 
+### 教师后台（阶段 1）
+
+打开 `/teacher.html` 可开放注册教师账号；已有普通账号登录后也能启用教师身份。教师建立班级，把 6 位邀请码发给学生。学生在主页面「更多 → 加入教师班级」填邀请码、姓名和学号，无需注册。此后完成的回译批改会自动上报；网络失败的上报保存在本机，下一次打开页面重试。教师后台可查看名单、最近活跃、按课文排列的成绩、完整批改链接，支持 CSV 导出和班级归档。归档后不再接收新学生或成绩，已有记录保留。
+
+班级数据与个人加密同步码分开存储；教师列表接口按账号权限校验，上报要求本次练习的创建凭据。托管平台必须配置 `UPSTASH_REDIS_REST_URL` 和 `UPSTASH_REDIS_REST_TOKEN` 才会启用账号及班级功能。本机或自托管服务器可使用 `data/kv/`。学生身份以姓名和学号自报，同班同学号换设备可重新加入；这不是考试防冒名机制。完整批改链接仍受 `JOB_MAX_COUNT` 和 `JOB_TTL_DAYS` 限制，班级使用量较大时需根据存储容量调整。阶段 2 的布置作业与教师评语尚未实现。
+
+开发验证可运行 `node server/classrooms.test.mjs`（班级权限与数据测试）、`npm run build` 后运行 `node tools/qa-teacher.mjs`（教师、学生、安卓与 iPhone 尺寸浏览器流程）。
+
 `/api/analyze/:jobId` 在 status=done 时 job.data 结构：{ title, chinese, draft, ai, original, aiLevel, overall{score,scoreBreakdown[{label,score,max,comment}],issues,summary,highlights,advice}, sentences[{cn,draft,ai,original,findings[{category,from,to,level,explanation,dimensions,synonyms[{word,phonetic,meaning,register,tone,strength,usage,example}],examples,idiom}]}], vocabularyNotes[{word,phonetic,type,meaning,morphology{parts,image,family},dimensions,synonyms,examples,note}], idiomHighlights, advancedSentences, bonusExpressions }。
 
 ### 润色等级梯度

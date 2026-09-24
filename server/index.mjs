@@ -14,6 +14,7 @@ import { MAX_SNAPSHOT_BYTES, createSyncStore, emptySnapshot, isValidSyncCode, ne
 import { createUpstashKv, createFileKv } from './kv.mjs';
 import { resolveClientIp, trustProxyHops, trustCloudflareHeader } from './client-ip.mjs';
 import { createAccounts } from './accounts.mjs';
+import { createClassrooms } from './classrooms.mjs';
 import { sanitizeOverall, sanitizeSentences } from './resultShape.mjs';
 import { staleMsFor } from './job-stale.mjs';
 // 方向常量与前端共用一份（src/direction.js 是纯常量模块，不碰 DOM）
@@ -65,6 +66,7 @@ const kv = (() => {
 const kvDurable = kv.durable || !HOSTED;
 const accountsOn = kvDurable;
 const accounts = accountsOn ? createAccounts({ kv, mail: sendMail }) : null;
+const classrooms = accountsOn ? createClassrooms({ kv, accounts, findJob }) : null;
 
 /* 语料 / 内置库 / 课文匹配拆到 server/corpus.mjs（原先这一节占 118 行，
    与 HTTP、任务、限流无关）。导出名保持不变，下面的调用点一行都不用改。 */
@@ -1511,7 +1513,9 @@ const server = http.createServer(async (req, res) => {
       const body = req.method === 'POST' ? await readBody(req, 64 * 1024) : {};
 
       const handlers = {
-        register: () => accounts.register({ ...body, ip }),
+        register: () => accounts.register({ ...body, ip, role: 'student' }),
+        'teacher-register': () => accounts.register({ ...body, ip, role: 'teacher' }),
+        'become-teacher': () => accounts.becomeTeacher(token),
         login: () => accounts.login({ ...body, ip, device: body.device }),
         logout: () => accounts.logout(token),
         'logout-all': () => accounts.logoutAll(token),
@@ -1528,6 +1532,28 @@ const server = http.createServer(async (req, res) => {
       if (!r.ok) return json(res, r.status || 400, { error: r.error });
       const { status, ...rest } = r; // ok 由下面统一回 true，不需要透传
       return json(res, status || 200, { ok: true, ...rest });
+    }
+    /* ---------- 教师班级与学生练习 ---------- */
+    if (p.startsWith('/api/classes')) {
+      if (!classrooms) return json(res, 503, { error: '班级功能需要持久存储；请配置 Upstash Redis' });
+      const token = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+      const ip = clientIp(req);
+      const body = req.method === 'POST' ? await readBody(req, 32 * 1024) : {};
+      let result;
+      if (p === '/api/classes' && req.method === 'GET') result = await classrooms.list(token);
+      else if (p === '/api/classes' && req.method === 'POST') result = await classrooms.create(token, body.name);
+      else if (p === '/api/classes/join' && req.method === 'POST') result = await classrooms.join({ ...body, ip });
+      else if (p === '/api/classes/submit' && req.method === 'POST') result = await classrooms.submit({ ...body, ip });
+      else {
+        const match = p.match(/^\/api\/classes\/([a-f0-9]{32})(?:\/(archive))?$/);
+        if (!match) return json(res, 404, { error: 'unknown class api' });
+        if (match[2] === 'archive' && req.method === 'POST') result = await classrooms.archive(token, match[1]);
+        else if (!match[2] && req.method === 'GET') result = await classrooms.detail(token, match[1]);
+        else return json(res, 405, { error: 'method not allowed' });
+      }
+      if (!result.ok) return json(res, result.status || 400, { error: result.error });
+      const { status, ...data } = result;
+      return json(res, status || 200, data);
     }
     if (p === '/api/health') return json(res, 200, { ok: true });
     if (p === '/api/status') {
