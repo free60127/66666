@@ -220,6 +220,16 @@ function App() {
   // 最近一次「载入 / 保存」时的内容指纹：用来判断当前作业有没有改动过，
   // 避免在"打开库里的课文后直接点新建"时让用户重复保存一份完全相同的内容。
   const savedSnapshotRef = useRef('');
+  // 首屏自动选课会异步返回；用户先开始输入或主动切模式时，不得让迟到的课文覆盖编辑区。
+  const initialLessonCancelledRef = useRef(false);
+  const handleUserOcrFiles = useCallback((...args) => {
+    initialLessonCancelledRef.current = true;
+    return handleOcrFiles(...args);
+  }, [handleOcrFiles]);
+  const openUserCamera = useCallback((...args) => {
+    initialLessonCancelledRef.current = true;
+    return openCamera(...args);
+  }, [openCamera]);
   // 自由模式的「英文原文（标准答案）」：填了才能在结果里做原文对照
   // 润色等级：让润色版与推荐表达匹配用户目标考试的难度
   const [polishLevel, setPolishLevel] = useState(() => {
@@ -341,8 +351,10 @@ function App() {
 
   /** 给 useLessons 用：把"当前作业已保存的快照"记下来（判断作业有没有改动过） */
   const markSavedSnapshot = useCallback((lesson) => {
-    savedSnapshotRef.current = fingerprintOf(lesson.title_cn || lessonLabel(lesson), lesson.chinese || '', '', lesson.english || '');
-  }, []);
+    const source = dir === 'en2cn' ? lesson.english : lesson.chinese;
+    const reference = dir === 'en2cn' ? lesson.chinese : lesson.english;
+    savedSnapshotRef.current = fingerprintOf(lesson.title_cn || lessonLabel(lesson), source || '', '', reference || '');
+  }, [dir]);
 
   // 选课（hooks/useLessons.js）：内置课表 + 自建库选课；变量名沿用原来的
   const {
@@ -355,7 +367,7 @@ function App() {
     setTitle, setChinese, setDraft, setGeneratedOriginal, setManualOriginal, setMaterialKeywords,
     setMatchConfidence, setMatchScore, setMode,
     runGenerateRef, refreshStatus, setError, markSavedSnapshot,
-    setBackendWaking, genTokenRef,
+    setBackendWaking, genTokenRef, initialLessonCancelledRef,
   });
 
   // useLessons 就位后，把「课文被改名/挪位」「重排后当前课变了」的处理接上
@@ -376,8 +388,8 @@ function App() {
    * 修法放在这一层（而不是 useLessons 内部）：首屏自动选课也走 selectLesson，
    * 那种情况绝不能抢视图 —— 否则用 #job=xxx 分享链接打开时，
    * 迟到几秒的自动选课会把刚恢复出来的结果页顶掉。 */
-  const pickLesson = useCallback((b, l) => { setView('editor'); setDocxChoice(null); selectLesson(b, l); }, [selectLesson]);
-  const pickMyLesson = useCallback((libId, l) => { setView('editor'); setDocxChoice(null); selectMyLesson(libId, l); }, [selectMyLesson]);
+  const pickLesson = useCallback((b, l) => { initialLessonCancelledRef.current = true; setView('editor'); setDocxChoice(null); selectLesson(b, l); }, [selectLesson]);
+  const pickMyLesson = useCallback((libId, l) => { initialLessonCancelledRef.current = true; setView('editor'); setDocxChoice(null); selectMyLesson(libId, l); }, [selectMyLesson]);
 
   // 内置课文库的两个「库」卡片：回译课文（book 10）/ 真题（book 5-9）。
   // 记住上次选的库；没有记录时按上次练的册子推断（5-9 是真题，否则回译课文）。
@@ -538,7 +550,8 @@ function App() {
     if (!entry.chinese) { setLibTip(`${dt.sourceTitle}还是空的：至少要有${dt.sourceTitle}才能存成课文`); return false; }
     const r = saveToLibrary({ name: newLibName, pickId: libPickId, entry, section: saveSection });
     if (!r.ok) { setLibTip(r.error); return false; }
-    savedSnapshotRef.current = fingerprintOf(title, chinese, draft, manualOriginal);
+    // 课文库保存的是练习材料，不含本次初稿；初稿仍须视为未保存。
+    savedSnapshotRef.current = fingerprintOf(title, chinese, '', manualOriginal);
     return true;
   };
   /** 弹窗里点「保存」：成功才关弹窗 */
@@ -547,11 +560,12 @@ function App() {
   };
 
   const hasJobContent = () => Boolean(title.trim() || chinese.trim() || draft.trim() || manualOriginal.trim());
-  const jobFingerprint = fingerprintOf(title, chinese, draft, manualOriginal);
-  const jobDirty = jobFingerprint !== savedSnapshotRef.current;
+  const templateDirty = fingerprintOf(title, chinese, '', manualOriginal) !== savedSnapshotRef.current;
+  const draftNotSaved = Boolean(draft.trim());
 
   /** 真正开一份空白作业（调用前请先处理"当前作业要不要保存"）。 */
   const doStartNewJob = (closeSidebar) => {
+    initialLessonCancelledRef.current = true;
     genTokenRef.current += 1;
     setDocxChoice(null);
     if (closeSidebar) closeSidebarOnMobile();
@@ -790,6 +804,7 @@ function App() {
     if (nextDir === dir) return;
     const answer = manualOriginal.trim() || generatedOriginal || ''; // 有效标准答案（手填 > AI 素材 > 空）
     if (draft.trim() && !window.confirm('切换方向会把「题目」和「标准答案」对调，并清空你的初稿（它是上一个方向的答案）。继续吗？')) return;
+    initialLessonCancelledRef.current = true;
     const question = chinese;      // 旧题目（这一侧的文字）
     setChinese(answer);            // 新题目 = 旧的标准答案
     setManualOriginal(question);   // 新标准答案 = 旧的题目
@@ -807,6 +822,7 @@ function App() {
   const switchToFreeMode = useCallback(() => {
     if (mode === 'free') return; // 已是自由模式：再点按钮是无害的重复点击，绝不能把用户手打的内容清掉（夜间循环 R6 实测复现）
     if (draft.trim() && !window.confirm('切换到自由模式会清空当前内容和标题。继续吗？')) return;
+    initialLessonCancelledRef.current = true;
     setMode('free');
     setTitle('');
     setChinese('');
@@ -1016,6 +1032,7 @@ function App() {
     const file = event.target.files?.[0];
     event.target.value = '';
     if (!file) return;
+    initialLessonCancelledRef.current = true;
     setError('');
     setDocxChoice(null);
     setParsing(true);
@@ -1135,7 +1152,10 @@ function App() {
 
   /** 素材生成：弹窗里的按钮（成功后由 hook 关弹窗） */
   const handleGenerateMaterial = useCallback(
-    () => generateMaterialNow(() => setMaterialOpen(false)),
+    () => {
+      initialLessonCancelledRef.current = true;
+      return generateMaterialNow(() => setMaterialOpen(false));
+    },
     [generateMaterialNow, setMaterialOpen],
   );
 
@@ -1214,7 +1234,7 @@ function App() {
           <input
             className="topbar-title"
             value={title}
-            onChange={(e) => setTitle(e.target.value)}
+            onChange={(e) => { initialLessonCancelledRef.current = true; setTitle(e.target.value); }}
             placeholder={mode === 'lesson' ? '课文回译训练 · 作业标题' : '自由回译训练 · 作业标题'}
             aria-label="作业标题"
             title="作业标题"
@@ -1277,7 +1297,7 @@ function App() {
             <div className="modebar">
               <input ref={fileRef} type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden onChange={handleDocx} />
               <div className="modebar-seg" role="group" aria-label="练习模式">
-                <button className={mode === 'lesson' ? 'active' : ''} onClick={() => setMode('lesson')}>课文模式</button>
+                <button className={mode === 'lesson' ? 'active' : ''} onClick={() => { initialLessonCancelledRef.current = true; setMode('lesson'); }}>课文模式</button>
                 <button className={mode === 'free' ? 'active' : ''} onClick={switchToFreeMode} title="清空当前内容，从空白开始写">自由模式</button>
               </div>
               {/* 练习方向：换方向会把编辑区的三栏标签一起换掉（见 switchDirection） */}
@@ -1361,12 +1381,12 @@ function App() {
                 className={'panel' + (dragOver === 'chinese' ? ' drag-on' : '')}
                 onDragOver={(e) => { e.preventDefault(); setDragOver('chinese'); }}
                 onDragLeave={() => setDragOver(null)}
-                onDrop={(e) => { e.preventDefault(); setDragOver(null); handleOcrFiles('chinese', e.dataTransfer && e.dataTransfer.files); }}
+                onDrop={(e) => { e.preventDefault(); setDragOver(null); handleUserOcrFiles('chinese', e.dataTransfer && e.dataTransfer.files); }}
               >
                 <div className="panel-head">
                   <h2>{dt.sourceTitle}</h2>
                   <div className="panel-tools">
-                    <button className="ghost-btn sm" onClick={() => openCamera('chinese')} disabled={Boolean(ocrBusy)} title={dt.sourceOcrTitle}>
+                    <button className="ghost-btn sm" onClick={() => openUserCamera('chinese')} disabled={Boolean(ocrBusy)} title={dt.sourceOcrTitle}>
                       {ocrBusy === 'chinese' ? <LoaderCircle className="spin" size={14} /> : <Camera size={14} />}拍照
                     </button>
                     <button className="ghost-btn sm" onClick={() => chineseFileRef.current?.click()} disabled={Boolean(ocrBusy)} title={dt.sourceOcrTitle}>
@@ -1374,22 +1394,22 @@ function App() {
                     </button>
                   </div>
                 </div>
-                <textarea className="big-textarea" value={chinese} onChange={(e) => setChinese(e.target.value)} placeholder={dt.sourcePlaceholder} />
+                <textarea className="big-textarea" value={chinese} onChange={(e) => { initialLessonCancelledRef.current = true; setChinese(e.target.value); }} placeholder={dt.sourcePlaceholder} />
                 {/* 帮助文字只在实际有话可说时出现（OCR 结果/失败原因）；常驻的"支持：拍照…"噪音已删 */}
                 {ocrNotes.chinese ? <div className={'ocr-note' + (String(ocrNotes.chinese).startsWith('识别失败') ? ' err' : '')}>{ocrNotes.chinese}</div> : null}
-                <input ref={chineseCamRef} type="file" accept="image/*" capture="environment" hidden onChange={(e) => { const f = Array.from(e.target.files || []); e.target.value = ''; handleOcrFiles('chinese', f); }} />
-                <input ref={chineseFileRef} type="file" accept="image/*" multiple hidden onChange={(e) => { const f = Array.from(e.target.files || []); e.target.value = ''; handleOcrFiles('chinese', f); }} />
+                <input ref={chineseCamRef} type="file" accept="image/*" capture="environment" hidden onChange={(e) => { const f = Array.from(e.target.files || []); e.target.value = ''; handleUserOcrFiles('chinese', f); }} />
+                <input ref={chineseFileRef} type="file" accept="image/*" multiple hidden onChange={(e) => { const f = Array.from(e.target.files || []); e.target.value = ''; handleUserOcrFiles('chinese', f); }} />
               </div>
               <div
                 className={'panel' + (dragOver === 'english' ? ' drag-on' : '')}
                 onDragOver={(e) => { e.preventDefault(); setDragOver('english'); }}
                 onDragLeave={() => setDragOver(null)}
-                onDrop={(e) => { e.preventDefault(); setDragOver(null); handleOcrFiles('english', e.dataTransfer && e.dataTransfer.files); }}
+                onDrop={(e) => { e.preventDefault(); setDragOver(null); handleUserOcrFiles('english', e.dataTransfer && e.dataTransfer.files); }}
               >
                 <div className="panel-head">
                   <h2>{dt.draftTitle}</h2>
                   <div className="panel-tools">
-                    <button className="ghost-btn sm" onClick={() => openCamera('english')} disabled={Boolean(ocrBusy)} title={dt.draftOcrTitle}>
+                    <button className="ghost-btn sm" onClick={() => openUserCamera('english')} disabled={Boolean(ocrBusy)} title={dt.draftOcrTitle}>
                       {ocrBusy === 'english' ? <LoaderCircle className="spin" size={14} /> : <Camera size={14} />}拍照
                     </button>
                     <button className="ghost-btn sm" onClick={() => englishFileRef.current?.click()} disabled={Boolean(ocrBusy)} title={dt.draftOcrTitle}>
@@ -1397,10 +1417,10 @@ function App() {
                     </button>
                   </div>
                 </div>
-                <textarea className="big-textarea" value={draft} onChange={(e) => setDraft(e.target.value)} placeholder={dt.draftPlaceholder} />
+                <textarea className="big-textarea" value={draft} onChange={(e) => { initialLessonCancelledRef.current = true; setDraft(e.target.value); }} placeholder={dt.draftPlaceholder} />
                 {ocrNotes.english ? <div className={'ocr-note' + (String(ocrNotes.english).startsWith('识别失败') ? ' err' : '')}>{ocrNotes.english}</div> : null}
-                <input ref={englishCamRef} type="file" accept="image/*" capture="environment" hidden onChange={(e) => { const f = Array.from(e.target.files || []); e.target.value = ''; handleOcrFiles('english', f); }} />
-                <input ref={englishFileRef} type="file" accept="image/*" multiple hidden onChange={(e) => { const f = Array.from(e.target.files || []); e.target.value = ''; handleOcrFiles('english', f); }} />
+                <input ref={englishCamRef} type="file" accept="image/*" capture="environment" hidden onChange={(e) => { const f = Array.from(e.target.files || []); e.target.value = ''; handleUserOcrFiles('english', f); }} />
+                <input ref={englishFileRef} type="file" accept="image/*" multiple hidden onChange={(e) => { const f = Array.from(e.target.files || []); e.target.value = ''; handleUserOcrFiles('english', f); }} />
               </div>
             </div>
             {/* 英文原文（标准答案）：可折叠。填了结果里才能做「原文对照」 */}
@@ -1408,7 +1428,7 @@ function App() {
               className={'original-fold' + (originalOpen ? ' open' : '') + (dragOver === 'original' ? ' drag-on' : '')}
               onDragOver={(e) => { e.preventDefault(); setDragOver('original'); }}
               onDragLeave={() => setDragOver(null)}
-              onDrop={(e) => { e.preventDefault(); setDragOver(null); handleOcrFiles('original', e.dataTransfer && e.dataTransfer.files); }}
+              onDrop={(e) => { e.preventDefault(); setDragOver(null); handleUserOcrFiles('original', e.dataTransfer && e.dataTransfer.files); }}
             >
               <div className="fold-head">
                 <button className="fold-toggle" onClick={() => setOriginalOpen((v) => !v)} aria-expanded={originalOpen} aria-controls="bt-original">
@@ -1423,7 +1443,7 @@ function App() {
                       : `可选；不填的话结果里只有 ${dt.sectionAi}，没有${dt.sectionReference}对照`}
                 </span>
                 <div className="panel-tools">
-                  <button className="ghost-btn sm" onClick={() => openCamera('original')} disabled={Boolean(ocrBusy)} title={dt.referenceOcrTitle}>
+                  <button className="ghost-btn sm" onClick={() => openUserCamera('original')} disabled={Boolean(ocrBusy)} title={dt.referenceOcrTitle}>
                     {ocrBusy === 'original' ? <LoaderCircle className="spin" size={14} /> : <Camera size={14} />}拍照
                   </button>
                   <button className="ghost-btn sm" onClick={() => originalFileRef.current?.click()} disabled={Boolean(ocrBusy)} title={dt.referenceOcrTitle}>
@@ -1437,14 +1457,14 @@ function App() {
                     id="bt-original"
                     className="big-textarea original-textarea"
                     value={manualOriginal}
-                    onChange={(e) => setManualOriginal(e.target.value)}
+                    onChange={(e) => { initialLessonCancelledRef.current = true; setManualOriginal(e.target.value); }}
                     placeholder="把这一课的英文原文粘贴到这里（课文原文 / 你要对标的范文都行）；也可以拍照或导入图片识别。留空则使用内置语料或 AI 素材自带的原文。"
                   />
                   {ocrNotes.original ? <div className={'ocr-note' + (String(ocrNotes.original).startsWith('识别失败') ? ' err' : '')}>{ocrNotes.original}</div> : null}
                 </>
               )}
-              <input ref={originalCamRef} type="file" accept="image/*" capture="environment" hidden onChange={(e) => { const f = Array.from(e.target.files || []); e.target.value = ''; handleOcrFiles('original', f); }} />
-              <input ref={originalFileRef} type="file" accept="image/*" multiple hidden onChange={(e) => { const f = Array.from(e.target.files || []); e.target.value = ''; handleOcrFiles('original', f); }} />
+              <input ref={originalCamRef} type="file" accept="image/*" capture="environment" hidden onChange={(e) => { const f = Array.from(e.target.files || []); e.target.value = ''; handleUserOcrFiles('original', f); }} />
+              <input ref={originalFileRef} type="file" accept="image/*" multiple hidden onChange={(e) => { const f = Array.from(e.target.files || []); e.target.value = ''; handleUserOcrFiles('original', f); }} />
             </div>
             {error && <div className="error-banner" role="alert"><Flame size={15} /><span className="error-text">{error}</span><button className="link" onClick={loadDemo}>查看离线示例</button><button className="icon-btn err-close" onClick={() => setError('')} aria-label="关闭提示"><X size={15} /></button></div>}
             {/* 没有 Key 时不只是一句"未配置"，而是说清楚为什么需要、去哪弄、以及不配也能干什么 */}
@@ -1779,7 +1799,7 @@ function App() {
           <div className="modal" ref={(el) => { modalRefs.current.newjob = el; }} role="dialog" aria-modal="true" aria-label="新建回译作业" onClick={(e) => e.stopPropagation()}>
             <div className="modal-head"><h2>新建回译作业</h2><button className="icon-btn" onClick={() => setNewJobOpen(false)} aria-label="关闭"><X size={16} /></button></div>
             <p className="muted small">这会打开一份<b>空白作业</b>，当前这份不会自动保留。</p>
-            {jobDirty ? (
+            {templateDirty ? (
               <>
                 <p className="muted small">建议先把当前作业存进课文库——以后可以随时从左侧「我的课文库」里选出来继续练。</p>
                 <div className="lib-preview">
@@ -1792,18 +1812,19 @@ function App() {
                 {libTip ? <div className="lib-tip" role="alert">{libTip}</div> : null}
               </>
             ) : (
-              <p className="muted small">这份内容<b>已经在课文库里、且没有改动</b>，不需要重复保存，直接新建即可。（想另存到别的库，请用编辑器工具栏的「保存到课文库」。）</p>
+              <p className="muted small">课文材料已经在课文库里、且没有改动，不需要重复保存。（想另存到别的库，请用「更多」里的「保存到课文库」。）</p>
             )}
+            {draftNotSaved && <p className="muted small" role="note"><b>{dt.draftTitle}不会存进课文库。</b>新建会清空这段内容；要保留请先返回编辑器复制。</p>}
             <div className="modal-actions">
-              {jobDirty ? (
+              {templateDirty ? (
                 <>
-                  <button className="primary-btn" onClick={saveAndStartNew}>存进课文库并新建</button>
+                  <button className="primary-btn" onClick={saveAndStartNew}>{draftNotSaved ? `仅存课文并新建（清空${dt.draftTitle}）` : '存进课文库并新建'}</button>
                   <button className="ghost-btn" onClick={discardAndStartNew}>不保存，直接新建</button>
                 </>
               ) : (
-                <button className="primary-btn" onClick={discardAndStartNew}>新建空白作业</button>
+                <button className="primary-btn" onClick={discardAndStartNew}>{draftNotSaved ? `清空${dt.draftTitle}并新建` : '新建空白作业'}</button>
               )}
-              <button className="ghost-btn" onClick={() => setNewJobOpen(false)}>取消</button>
+              <button className="ghost-btn" onClick={() => { setNewJobOpen(false); if (draftNotSaved) setView('editor'); }}>{draftNotSaved ? '返回编辑器' : '取消'}</button>
             </div>
           </div>
         </div>

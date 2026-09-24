@@ -312,7 +312,7 @@ mark.hl { background: #ffe3e3; color: inherit; padding: 0 2px; border-radius: 2p
 .material-modal { width: 480px; }
 .material-modal textarea, .material-modal select { width: 100%; margin-top: 6px; border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; font: inherit; background: #fff; }
 .material-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+.modal-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; margin-top: 16px; }
 .icon-btn { border-radius: 8px; padding: 6px; color: var(--muted); }
 .icon-btn:hover { background: #f0f3f6; }
 .link { color: var(--brand); text-decoration: none; }

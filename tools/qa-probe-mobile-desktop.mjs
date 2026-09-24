@@ -12,7 +12,7 @@ import { spawn } from 'node:child_process';
 
 let chromium;
 try {
-  ({ chromium } = await import('file:///D:/AI/66666-main/tools/shotter/node_modules/playwright/index.mjs'));
+  ({ chromium } = await import('./shotter/node_modules/playwright/index.mjs'));
 } catch {
   console.error('缺少 playwright：cd tools/shotter && npm i');
   process.exit(2);
@@ -155,7 +155,7 @@ async function runDevice(label, ctxOpts) {
       return {
         masks: masks.length,
         editorVisible: Boolean(editor && editor.getBoundingClientRect().height > 0),
-        active: [...document.querySelectorAll('.dir-tabs button')].find((b) => b.classList.contains('active'))?.textContent.trim() || '',
+        active: document.querySelector('.modebar-seg[aria-label="练习方向"] button.active')?.textContent.trim() || '',
       };
     });
     ok(`[${label}] 新访客进站不弹任何遮罩`, blocking.masks === 0, `遮罩 ${blocking.masks} 个`);
@@ -436,13 +436,14 @@ async function runDevice(label, ctxOpts) {
       await page.locator('.result-toolbar >> text=返回编辑').first().click().catch(() => {});
       await page.waitForSelector('.big-textarea', { timeout: 8000 }).catch(() => {});
     }
-    // 先真的建一个库：编辑器工具栏的「保存到课文库」
+    // 先真的建一个库：当前界面把「保存到课文库」放在顶栏「更多」里。
     await page.fill('.big-textarea >> nth=0', '触屏探针用的中文');
-    await page.locator('button:has-text("保存到课文库")').first().click().catch(() => {});
+    await page.locator('.more-btn').click();
+    await page.locator('.more-item', { hasText: '保存到课文库' }).click();
     await page.waitForSelector('.modal', { timeout: 8000 }).catch(() => {});
-    const nameInput = page.locator('.modal input[type="text"], .modal input:not([type]):not([type=radio]):not([type=checkbox])').first();
+    const nameInput = page.locator('.modal[aria-label="保存到课文库"] input[placeholder*="例如"]').first();
     if (await nameInput.count()) await nameInput.fill('探针库');
-    await page.locator('.modal button:has-text("保存")').first().click().catch(() => {});
+    await page.locator('.modal[aria-label="保存到课文库"] .modal-actions .primary-btn').click();
     await sleep(1000);
     await closeAnyModal(page);
     await openSidebar(page);

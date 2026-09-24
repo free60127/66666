@@ -29,6 +29,7 @@ export function useLessons({
   setTitle, setChinese, setDraft, setGeneratedOriginal, setManualOriginal, setMaterialKeywords,
   setMatchConfidence, setMatchScore, setMode,
   runGenerateRef, refreshStatus, setError, markSavedSnapshot, setBackendWaking, genTokenRef, direction,
+  initialLessonCancelledRef,
 }) {
   // selectLesson 的 ref 版：首屏拉课表的 effect 里要用它（声明必须在那个 effect 之前，否则 TDZ）
   const selectLessonRef = useRef(null);
@@ -81,9 +82,9 @@ export function useLessons({
         if (!alive) return;
         const loaded = data.lessons || [];
         setLessons(loaded);
-        if (loaded.length) {
+        if (loaded.length && !initialLessonCancelledRef.current) {
           const target = pickInitialLesson(loaded);
-          selectLessonRef.current(target.book, target.lesson);
+          selectLessonRef.current(target.book, target.lesson, false, true);
         }
       } catch {
         // 后端彻底不可用才退回示例课文（保留原有的降级行为）
@@ -91,7 +92,7 @@ export function useLessons({
         const fallback = DEMO_LESSONS.map((l) => ({ ...l, book: 2 }));
         setLessons(fallback);
         const target = pickInitialLesson(fallback) || { book: 2, lesson: 18 };
-        selectLessonRef.current(target.book, target.lesson);
+        if (!initialLessonCancelledRef.current) selectLessonRef.current(target.book, target.lesson, false, true);
       }
     })();
     return () => { alive = false; };
@@ -100,20 +101,26 @@ export function useLessons({
   }, []);
 
   /** 选中内置课文：带回原文填入编辑区（并发请求用令牌丢弃过期结果） */
-  const selectLesson = useCallback(async (nextBook, nextLesson, autoGenerate = false) => {
+  const selectLesson = useCallback(async (nextBook, nextLesson, autoGenerate = false, initialLoad = false) => {
+    if (initialLoad && initialLessonCancelledRef.current) return;
     const reqId = (lessonReqRef.current += 1);
-    if (genTokenRef) genTokenRef.current += 1; // 切课即作废正在跑的生成任务，避免它完成时抢回结果页
-    setBook(nextBook);
-    setLessonId(nextLesson);
-    setMatchedLesson(null);
-    setMode('lesson');
-    setMatchConfidence('manual');
-    setMatchScore(null);
-    safeSet('bt-book', String(nextBook));
-    safeSet('bt-lesson', String(nextLesson));
+    const applySelection = () => {
+      if (genTokenRef) genTokenRef.current += 1; // 切课即作废正在跑的生成任务，避免它完成时抢回结果页
+      setBook(nextBook);
+      setLessonId(nextLesson);
+      setMatchedLesson(null);
+      setMode('lesson');
+      setMatchConfidence('manual');
+      setMatchScore(null);
+      safeSet('bt-book', String(nextBook));
+      safeSet('bt-lesson', String(nextLesson));
+    };
+    // 首屏自动选课先等详情：用户在请求期间开始输入时，不能提前切模式或清编辑区。
+    if (!initialLoad) applySelection();
     try {
       const lesson = await getLesson(nextBook, nextLesson);
-      if (reqId !== lessonReqRef.current) return; // 已被更晚的选择取代，丢弃这次结果
+      if (reqId !== lessonReqRef.current || (initialLoad && initialLessonCancelledRef.current)) return;
+      if (initialLoad) applySelection();
       setTitle(lessonLabel(lesson));
       // 四个槽的角色随方向翻转（见 src/direction.js）：
       //   汉译英：源栏=中文，标准答案=英文原文
@@ -127,7 +134,8 @@ export function useLessons({
       setMatchedLesson(lesson);
       // 注意：内置课文不写 savedSnapshot —— 它还没进过课文库，用户随时可能想存进去
     } catch {
-      if (reqId !== lessonReqRef.current) return;
+      if (reqId !== lessonReqRef.current || (initialLoad && initialLessonCancelledRef.current)) return;
+      if (initialLoad) applySelection();
       setTitle(`Lesson ${nextLesson}`);
       setChinese('');
       setDraft('');
@@ -137,7 +145,7 @@ export function useLessons({
     }
     // 走 ref 取当下的生成函数：否则 selectLesson 的依赖会一路拖到整个生成流程
     if (autoGenerate) setTimeout(() => runGenerateRef.current && runGenerateRef.current(nextLesson), 60);
-  }, [genTokenRef, runGenerateRef, setChinese, setDraft, setGeneratedOriginal, setManualOriginal, setMatchConfidence, setMatchScore, setMaterialKeywords, setMode, setTitle]);
+  }, [genTokenRef, initialLessonCancelledRef, runGenerateRef, setChinese, setDraft, setGeneratedOriginal, setManualOriginal, setMatchConfidence, setMatchScore, setMaterialKeywords, setMode, setTitle]);
 
   // 探活 effect 里要调 selectLesson，但它自己会随依赖变化 → 用 ref 取最新那份
 
