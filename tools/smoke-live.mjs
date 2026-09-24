@@ -74,7 +74,7 @@ try {
     const first = await page.evaluate(() => ({
       masks: [...document.querySelectorAll('.modal-mask')].filter((m) => m.getBoundingClientRect().width > 0).length,
       editor: Boolean(document.querySelector('.editor')),
-      dir: [...document.querySelectorAll('.dir-tabs button')].find((b) => b.classList.contains('active'))?.textContent.trim() || '',
+      dir: [...document.querySelectorAll('.modebar-seg[aria-label="练习方向"] button')].find((b) => b.classList.contains('active'))?.textContent.trim() || '',
     }));
     ok('新访客进站无遮罩、直接可用', first.masks === 0 && first.editor, `遮罩 ${first.masks} 个 · 编辑器 ${first.editor}`);
     ok('默认练习方向是汉译英', first.dir === '汉译英', first.dir || '(无)');
@@ -108,12 +108,12 @@ try {
   await page.getByRole('button', { name: /编辑器/ }).first().click().catch(() => {});
   await sleep(300);
   const openers = [
-    ['收藏', /收藏/],
-    ['历史', /历史/],
-    ['课文库', /课文库|我的课文/],
+    ['收藏', '收藏夹'],
+    ['历史', '历史结果'],
   ];
-  for (const [name, re] of openers) {
-    const btn = page.getByRole('button', { name: re }).first();
+  for (const [name, label] of openers) {
+    await page.locator('.more-btn').click();
+    const btn = page.locator('.more-item').filter({ hasText: label }).first();
     const exists = await btn.count();
     if (!exists) { ok(`${name}入口存在`, false); continue; }
     await btn.click();
@@ -123,6 +123,7 @@ try {
     await page.keyboard.press('Escape');
     await sleep(250);
   }
+  ok('课文库入口存在', await page.locator('.sidebar').count() > 0);
 
   ok('控制台无错误', errors.length === 0, errors.slice(0, 2).join(' | ').slice(0, 200));
 
@@ -138,7 +139,7 @@ try {
       await fp.waitForSelector('.status-chip', { timeout: 45000 });
       await fp.waitForFunction(() => /AI 已配置/.test(document.querySelector('.status-chip')?.textContent || ''), null, { timeout: 90000 });
       // 全新访客直接进编辑器（方向选择页已删）；这里顺手切到英译汉，验证另一个方向也能正常开局
-      await fp.locator('.dir-tabs button', { hasText: '英译汉' }).click({ timeout: 20000 }).catch(() => {});
+      await fp.locator('.modebar-seg[aria-label="练习方向"] button', { hasText: '英译汉' }).click({ timeout: 20000 }).catch(() => {});
       await sleep(300);
       await fp.waitForSelector('.lesson-item', { timeout: 60000 }).catch(() => {});
       const lessons = await fp.evaluate(() => document.querySelectorAll('.lesson-item').length);
