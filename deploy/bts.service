@@ -1,0 +1,20 @@
+# 回译本 systemd 服务：开机自启、崩溃 3 秒自动拉起
+# 安装：cp deploy/bts.service /etc/systemd/system/ && systemctl daemon-reload && systemctl enable --now bts
+# 注意：ExecStart 的 node 路径用 `which node` 确认（NodeSource 安装是 /usr/bin/node）
+[Unit]
+Description=Back-Translate Studio (huiyiben.cn)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/var/www/bts
+EnvironmentFile=/var/www/bts/.env
+ExecStart=/usr/bin/node server/index.mjs
+Restart=always
+RestartSec=3
+User=root
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

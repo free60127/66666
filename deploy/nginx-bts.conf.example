@@ -1,0 +1,23 @@
+# 回译本 nginx 反代配置（Ubuntu 的 sites-available 结构；Alibaba Cloud Linux 则放到 /etc/nginx/conf.d/bts.conf）
+# 关键点：
+#   - SSE 流式批改必须关 proxy_buffering，否则结果会卡到全部完成才一次性出现
+#   - read/send 超时给足 300s（生成批改要 1-2 分钟，留余量）
+#   - client_max_body_size 放宽（DOCX/OCR 图片上传）
+server {
+    listen 80;
+    server_name huiyiben.cn www.huiyiben.cn;
+
+    client_max_body_size 25m;
+
+    location / {
+        proxy_pass http://127.0.0.1:8787;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_buffering off;
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
+    }
+}
