@@ -52,6 +52,10 @@ export function useLessons({
   // 请求令牌：连点两课时，先发的慢请求若后返回，会把标题/中文覆盖成上一课的内容
   // （表现为侧栏高亮第 5 课、编辑区却是第 3 课）。挂载时的自动选课也会"迟到覆盖"用户的手动选择。
   const lessonReqRef = useRef(0);
+  const cancelPendingLesson = useCallback(() => {
+    lessonReqRef.current += 1;
+    if (genTokenRef) genTokenRef.current += 1;
+  }, [genTokenRef]);
 
   /** 侧栏列表：当前库的课文，或内置册（按搜索词过滤；纯数字按课号匹配，便于"跳到第 47 课"） */
   const visibleLessons = useMemo(() => {
@@ -191,7 +195,7 @@ export function useLessons({
   return {
     lessons, setLessons, book, setBook, lessonId, setLessonId, matchedLesson, setMatchedLesson,
     lessonQuery, setLessonQuery, visibleLessons,
-    selectLesson, selectMyLesson, applyMatchedLesson,
+    selectLesson, selectMyLesson, cancelPendingLesson, applyMatchedLesson,
   };
 }
 

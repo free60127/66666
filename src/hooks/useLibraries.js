@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   createLibrary, ensureLessonIds, findLesson, loadLibraries, moveLesson,
-  removeLesson, removeLibrary, renameLesson, renumberLibrary, saveLibraries, upsertLesson,
+  removeLesson, removeLibrary, renameLesson, renumberLibrary, saveLibraries, sectionsOf, upsertLesson,
 } from '../lessonLibrary.js';
 
 /**
@@ -48,13 +48,10 @@ export function useLibraries({ toast, setLibTip, onLessonEdited, getSelectedLess
   }, [toast]);
 
   const openLibModal = useCallback(() => {
-    setLibPickId(myLibs[0]?.id || '');
+    setLibPickId(myLibId || myLibs[0]?.id || '');
     setNewLibName('');
     if (setLibTip) setLibTip('');
-  }, [myLibs, setLibTip]);
-
-  /** 选中一个库（只切侧栏列表，不改变当前作业） */
-  const selectMyLib = useCallback((libId) => setMyLibId(libId), []);
+  }, [myLibs, myLibId, setLibTip]);
 
   const deleteLibrary = useCallback((libId, libName) => {
     if (!window.confirm(`删除课文库「${libName}」？库里的课文会一起删掉，此操作不可撤销。`)) return;
@@ -103,14 +100,16 @@ export function useLibraries({ toast, setLibTip, onLessonEdited, getSelectedLess
     if (!targetId) return { ok: false, error: '请先选择或输入一个课文库名称' };
     // 分组归属：调用方指定 > 目标库已有分组保留 > 无分组库自动初始化「默认分组」
     const target = list.find((l) => l.id === targetId);
-    const sec = String(section || '').trim()
-      || (target && Array.isArray(target.sections) && target.sections[0]) || '';
-    const entryWithSec = sec ? { ...entry, section: sec } : entry;
-    let needsSections = target && !(Array.isArray(target.sections) && target.sections.length);
+    const names = sectionsOf(target);
+    const requested = String(section || '').trim();
+    const sec = (names.includes(requested) && requested) || names[0] || '默认分组';
+    const entryWithSec = { ...entry, section: sec };
+    const needsSections = target && !names.length;
     if (needsSections) {
-      list = list.map((l) => (l.id === targetId ? { ...l, sections: [sec || '默认分组'] } : l));
+      list = list.map((l) => (l.id === targetId ? { ...l, sections: names.length ? names : [sec] } : l));
     }
-    const { list: next, replaced, lesson } = upsertLesson(list, targetId, entryWithSec);
+    const { list: upserted, replaced, lesson } = upsertLesson(list, targetId, entryWithSec);
+    const next = upserted.map((l) => l.id === targetId ? { ...l, sectionsUpdatedAt: Date.now() } : l);
     if (!persist(next)) return { ok: false, error: '写入本机存储失败（空间可能已满），请先清理浏览器数据' };
     setMyLibId(targetId);
     toast((replaced ? '已更新课文：' : '已保存课文：') + entry.title_cn
@@ -171,7 +170,7 @@ export function useLibraries({ toast, setLibTip, onLessonEdited, getSelectedLess
 
   return {
     myLibs, setMyLibs, myLibId, setMyLibId, libPickId, setLibPickId, newLibName, setNewLibName,
-    activeLib, persist, openLibModal, selectMyLib, deleteLibrary, deleteMyLesson,
+    activeLib, persist, openLibModal, deleteLibrary, deleteMyLesson,
     saveToLibrary, openLessonEdit, resolveEditLesson, saveLessonEdit, renumberMyLib,
   };
 }

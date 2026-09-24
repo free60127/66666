@@ -3,6 +3,7 @@ import { ChevronDown, Flame, FolderPlus, Library, ListOrdered, PenLine, Plus, St
 import { doneSet, progressOf, summarize } from '../lessonProgress.js';
 import { summarizeStreak } from '../studyStreak.js';
 import { lessonKeyOf } from '../lessonLabel.js';
+import { sectionsOf } from '../lessonLibrary.js';
 import { safeGet, safeSet } from '../storage.js';
 
 /**
@@ -16,7 +17,7 @@ import { safeGet, safeSet } from '../storage.js';
 function Sidebar({
   sidebarOpen, onToggle, onCloseOnMobile,
   onNewJob, myLibId, book, builtinTab, onBuiltinTab, myLibs, onOpenLibModal, onSelectLib, onDeleteLib,
-  onImportCorpus, onAddSection, onRenameSection, onDeleteSection,
+  onImportCorpus, onEditSection, onDeleteSection,
   lessonQuery, onLessonQuery, activeLib, lessons, visibleLessons,
   mode, lessonId, onSelectLesson, onSelectMyLesson, onDeleteMyLesson, onEditMyLesson, onRenumberLib,
   lessonProgress, studyDays, books, directionName,
@@ -75,12 +76,12 @@ function Sidebar({
           {/* 内置库选择卡片（原来是一排书册 tab）：新概念语料下架后合并成两个库 ——
               回译课文（分级课内语料）和真题（四六级/考研/专八）。 */}
           <div className="builtin-tabs">
-            <button type="button" className={'builtin-tab' + (builtinTab === 'huiyi' ? ' active' : '')}
-              onClick={() => onBuiltinTab('huiyi')} aria-pressed={builtinTab === 'huiyi'}>
+            <button type="button" className={'builtin-tab' + (!activeLib && builtinTab === 'huiyi' ? ' active' : '')}
+              onClick={() => onBuiltinTab('huiyi')} aria-pressed={!activeLib && builtinTab === 'huiyi'}>
               <span>回译课文</span><i>{huiyiCount}</i>
             </button>
-            <button type="button" className={'builtin-tab' + (builtinTab === 'exam' ? ' active' : '')}
-              onClick={() => onBuiltinTab('exam')} aria-pressed={builtinTab === 'exam'}>
+            <button type="button" className={'builtin-tab' + (!activeLib && builtinTab === 'exam' ? ' active' : '')}
+              onClick={() => onBuiltinTab('exam')} aria-pressed={!activeLib && builtinTab === 'exam'}>
               <span>真题</span><i>{examCount}</i>
             </button>
           </div>
@@ -97,8 +98,8 @@ function Sidebar({
                   <Upload size={14} />
                 </button>
               )}
-              {activeLib && onAddSection && (
-                <button className="lib-add" onClick={() => { const n = window.prompt('新分组名称'); if (n && n.trim()) onAddSection(activeLib.id, n.trim()); }}
+              {activeLib && onEditSection && (
+                <button className="lib-add" onClick={() => onEditSection(activeLib.id, null)}
                   title="新建分组" aria-label="新建分组">
                   <Plus size={14} />
                 </button>
@@ -117,7 +118,7 @@ function Sidebar({
             )}
             {myLibs.map((lib) => (
               <div key={lib.id} className={'lib-row' + (myLibId === lib.id ? ' active' : '')}>
-                <button className="lib-tab" onClick={() => { onCloseOnMobile(); onSelectLib(lib.id); }}>
+                <button className="lib-tab" onClick={() => { if (onSelectLib(lib.id) !== false) onCloseOnMobile(); }}>
                   <Library size={13} />
                   <span className="lib-name">{lib.name}</span>
                   <span className="lib-count">{lib.lessons.length}</span>
@@ -229,24 +230,31 @@ function Sidebar({
                 );
               };
               const nodes = [];
-              let lastSec = '';
               if (activeLib) {
-                // 我的课文库：自建库的分组也渲染组头（组内改名/删除）
-                visibleLessons.forEach((l) => {
-                  if (l.section && l.section !== lastSec) {
-                    nodes.push(
-                      <div key={'sec-' + l.section} className="lesson-group-title mylib-group">
-                        <span className="lgt-name">{l.section}</span>
-                        <span className="lgt-ops">
-                          <button className="lgt-btn" onClick={(e) => { e.stopPropagation(); const n = window.prompt('修改分组名称', l.section); if (n && n.trim() && n.trim() !== l.section) onRenameSection(activeLib.id, l.section, n.trim()); }} title="重命名此分组" aria-label="重命名此分组"><PenLine size={11} /></button>
-                          <button className="lgt-btn" onClick={(e) => { e.stopPropagation(); if (window.confirm(`删除分组「${l.section}」？组内课文会移动到第一组，不会删除课文。`)) onDeleteSection(activeLib.id, l.section); }} title="删除此分组（课文移到第一组）" aria-label="删除此分组"><Trash2 size={11} /></button>
-                        </span>
-                      </div>
-                    );
-                    lastSec = l.section;
+                const names = sectionsOf(activeLib);
+                if (names.length === 0) visibleLessons.forEach((l) => nodes.push(renderLessonRow(l)));
+                else {
+                  const heading = (name, count, editable, key = name) => (
+                    <div key={'sec-' + key} className="lesson-group-title mylib-group">
+                      <span className="lgt-name">{name}</span><span className="lgt-count">{count}</span>
+                      {editable && <span className="lgt-ops">
+                        <button type="button" className="lgt-btn" onClick={() => onEditSection(activeLib.id, name)} title={`修改分组「${name}」及课文`} aria-label={`修改分组 ${name}`}><PenLine size={15} /></button>
+                        <button type="button" className="lgt-btn" onClick={() => { if (window.confirm(`解散分组「${name}」？组内课文将变为未分组，课文和编号都不会删除。`)) onDeleteSection(activeLib.id, name); }} title={`解散分组「${name}」`} aria-label={`解散分组 ${name}`}><Trash2 size={15} /></button>
+                      </span>}
+                    </div>
+                  );
+                  const ungrouped = visibleLessons.filter((l) => !names.includes(l.section));
+                  if (ungrouped.length) {
+                    nodes.push(heading('未分组', ungrouped.length, false, '__ungrouped__'));
+                    ungrouped.forEach((l) => nodes.push(renderLessonRow(l)));
                   }
-                  nodes.push(renderLessonRow(l));
-                });
+                  names.forEach((name) => {
+                    const members = visibleLessons.filter((l) => l.section === name);
+                    if (q && !members.length) return;
+                    nodes.push(heading(name, members.length, true));
+                    members.forEach((l) => nodes.push(renderLessonRow(l)));
+                  });
+                }
               } else {
                 // 内置课文库：只显示顶部选中的「库」卡片 —— 回译课文（book 10，按级别分组）
                 // 或真题（book 5-9，各考试一组）。组名点击可折叠；搜索时忽略折叠

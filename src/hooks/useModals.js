@@ -22,6 +22,7 @@ export function useModals({ getCloseCamera, getMaterialBusy, getAuthOpen, closeA
   // （同一个坑踩过两次：账号弹窗、这个）
   const [drillOpen, setDrillOpen] = useState(false);
   const [lessonEdit, setLessonEdit] = useState(null); // { libId, lid, lesson }
+  const [sectionEdit, setSectionEdit] = useState(null); // { libId, name: null | string }
   const [backupTip, setBackupTip] = useState('');
   const [libTip, setLibTip] = useState('');
 
@@ -30,7 +31,7 @@ export function useModals({ getCloseCamera, getMaterialBusy, getAuthOpen, closeA
   // 键盘可达性：把「哪个弹窗开着」做成一件事，Esc 关闭、Tab 只在弹窗内循环。
   // 优先级顺序 = 屏幕上的层级顺序（后打开的排前面）。
   const authOpen = Boolean(getAuthOpen && getAuthOpen());
-  const open = camOpen ? 'cam' : materialOpen ? 'material' : newJobOpen ? 'newjob' : libModalOpen ? 'lib' : lessonEdit ? 'lessonEdit' : drillOpen ? 'drill' : backupOpen ? 'backup' : historyOpen ? 'history' : favOpen ? 'fav' : authOpen ? 'auth' : settingsOpen ? 'settings' : null;
+  const open = camOpen ? 'cam' : materialOpen ? 'material' : newJobOpen ? 'newjob' : libModalOpen ? 'lib' : sectionEdit ? 'sectionEdit' : lessonEdit ? 'lessonEdit' : drillOpen ? 'drill' : backupOpen ? 'backup' : historyOpen ? 'history' : favOpen ? 'fav' : authOpen ? 'auth' : settingsOpen ? 'settings' : null;
 
   /**
    * 回调统一放 ref，下面的 effect 只依赖 `open` 这个字符串，不依赖父组件传进来的函数身份。
@@ -53,6 +54,7 @@ export function useModals({ getCloseCamera, getMaterialBusy, getAuthOpen, closeA
       newjob: () => setNewJobOpen(false),
       lib: () => setLibModalOpen(false),
       lessonEdit: () => setLessonEdit(null),
+      sectionEdit: () => setSectionEdit(null),
       drill: () => setDrillOpen(false),
       backup: () => setBackupOpen(false),
       history: () => setHistoryOpen(false),
@@ -143,7 +145,7 @@ export function useModals({ getCloseCamera, getMaterialBusy, getAuthOpen, closeA
   }, [anyModal]);
 
   /** 有没有任何弹窗开着（用于全局快捷键 / 滚动锁定这类判断）；authOpen 虽然总开在备份之上，也要算数 */
-  const anyOpen = Boolean(camOpen || materialOpen || newJobOpen || libModalOpen || lessonEdit || backupOpen || historyOpen || favOpen || settingsOpen || authOpen);
+  const anyOpen = Boolean(camOpen || materialOpen || newJobOpen || libModalOpen || lessonEdit || sectionEdit || backupOpen || historyOpen || favOpen || settingsOpen || authOpen);
 
   return {
     settingsOpen, setSettingsOpen,
@@ -155,6 +157,7 @@ export function useModals({ getCloseCamera, getMaterialBusy, getAuthOpen, closeA
     backupOpen, setBackupOpen,
     camOpen, setCamOpen,
     lessonEdit, setLessonEdit,
+    sectionEdit, setSectionEdit,
     drillOpen, setDrillOpen,
     backupTip, setBackupTip,
     libTip, setLibTip,

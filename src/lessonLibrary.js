@@ -20,6 +20,7 @@ export function sanitizeLibrary(raw) {
     // 分组名单（小标题）。没有显式分组的老库 = null（列表平铺不分组）；
     // 一旦用户建过分组，这里就是有序名字数组，课文按 section 字段归到各组。
     sections: Array.isArray(raw.sections) ? raw.sections.map((x) => String(x || '').trim()).filter(Boolean) : null,
+    sectionsUpdatedAt: Number(raw.sectionsUpdatedAt) || 0,
     lessons: raw.lessons
       .filter((l) => l && typeof l === 'object')
       .map((l) => ({
@@ -199,55 +200,70 @@ export function removeLibrary(list, libId) {
 }
 
 /* ---------- 分组（小标题）管理 ----------
- * 设计约定：sections 是**有序名字数组**挂在库上；课文用 section 字段归组；
- * 没有匹配分组的课文显示在第一组。删除分组 = 它的课文全部归入第一组（绝不删课文）。 */
+ * sections 保存有序组名，课文用稳定 lid 选入组。未分组课文保留空 section；
+ * 解散组只清除归属，不删除课文或改变课文编号。 */
 const DEFAULT_SECTION = '默认分组';
 
 export function sectionsOf(lib) {
   if (!lib) return [];
-  if (Array.isArray(lib.sections) && lib.sections.length) return lib.sections;
-  return [DEFAULT_SECTION];
+  // 兼容旧备份：有课文 section、没有 sections 名单时仍能显示组。
+  const names = Array.isArray(lib.sections) ? lib.sections : [];
+  return [...new Set([...names, ...(lib.lessons || []).map((l) => l.section)]
+    .map((name) => String(name || '').trim()).filter(Boolean))];
 }
 
-export function addSection(list, libId, name) {
+const lessonSelectionKey = (lesson) => String(lesson.lid || lesson.lesson);
+
+export function addSection(list, libId, name, selectedIds = []) {
   const clean = String(name || '').trim();
   if (!clean) return { list, error: '分组名不能为空' };
-  return { list: mapLib(list, libId, (x) => {
-    const secs = sectionsOf(x);
-    if (secs.includes(clean)) return { ...x, error: '已有同名分组' };
-    return { ...x, sections: [...secs, clean] };
-  }) };
-}
-
-export function renameSection(list, libId, oldName, newName) {
-  const clean = String(newName || '').trim();
-  if (!clean) return { list, error: '分组名不能为空' };
-  return { list: mapLib(list, libId, (x) => {
-    const secs = sectionsOf(x);
-    if (!secs.includes(oldName)) return { ...x, error: '分组不存在' };
-    if (secs.includes(clean)) return { ...x, error: '已有同名分组' };
-    return {
-      ...x,
-      sections: secs.map((n) => (n === oldName ? clean : n)),
-      lessons: x.lessons.map((l) => (l.section === oldName ? { ...l, section: clean } : l)),
-    };
-  }) };
-}
-
-export function deleteSection(list, libId, name) {
-  const target = sectionsOfLib(list, libId);
-  if (target && target.length <= 1) return { list, error: '至少要保留一个分组' };
-  const fallback = target.find((n) => n !== name) || DEFAULT_SECTION;
+  const lib = (list || []).find((x) => x.id === libId);
+  if (!lib) return { list, error: '课文库不存在' };
+  const secs = sectionsOf(lib);
+  if (secs.includes(clean)) return { list, error: '已有同名分组' };
+  const selected = new Set(selectedIds.map(String));
   return { list: mapLib(list, libId, (x) => ({
     ...x,
-    sections: sectionsOf(x).filter((n) => n !== name),
-    lessons: x.lessons.map((l) => (l.section === name ? { ...l, section: fallback } : l)),
+    sections: [...secs, clean],
+    sectionsUpdatedAt: Date.now(),
+    lessons: x.lessons.map((l) => selected.has(lessonSelectionKey(l)) ? { ...l, section: clean } : l),
   })) };
 }
 
-function sectionsOfLib(list, libId) {
-  const lib = (Array.isArray(list) ? list : []).find((x) => x.id === libId);
-  return lib ? sectionsOf(lib) : [];
+/** 改名并按选择结果调整成员；不传 selectedIds 时只改名，兼容旧调用。 */
+export function renameSection(list, libId, oldName, newName, selectedIds = null) {
+  const clean = String(newName || '').trim();
+  if (!clean) return { list, error: '分组名不能为空' };
+  const lib = (list || []).find((x) => x.id === libId);
+  if (!lib) return { list, error: '课文库不存在' };
+  const secs = sectionsOf(lib);
+  if (!secs.includes(oldName)) return { list, error: '分组不存在' };
+  if (clean !== oldName && secs.includes(clean)) return { list, error: '已有同名分组' };
+  const selected = selectedIds === null ? null : new Set(selectedIds.map(String));
+  return { list: mapLib(list, libId, (x) => ({
+    ...x,
+    sections: secs.map((n) => n === oldName ? clean : n),
+    sectionsUpdatedAt: Date.now(),
+    lessons: x.lessons.map((l) => {
+      const nextSection = selected === null
+        ? (l.section === oldName ? clean : l.section)
+        : (selected.has(lessonSelectionKey(l)) ? clean : (l.section === oldName ? '' : l.section));
+      return nextSection === l.section ? l : { ...l, section: nextSection };
+    }),
+  })) };
+}
+
+export function deleteSection(list, libId, name) {
+  const lib = (list || []).find((x) => x.id === libId);
+  if (!lib) return { list, error: '课文库不存在' };
+  const target = sectionsOf(lib);
+  if (!target.includes(name)) return { list, error: '分组不存在' };
+  return { list: mapLib(list, libId, (x) => ({
+    ...x,
+    sections: target.filter((n) => n !== name),
+    sectionsUpdatedAt: Date.now(),
+    lessons: x.lessons.map((l) => (l.section === name ? { ...l, section: '' } : l)),
+  })) };
 }
 
 /** 给课文库补齐 sections 字段（老库迁移：第一次用到分组功能时初始化） */
@@ -289,7 +305,9 @@ export function upsertLesson(list, libId, entry) {
         ...lib,
         lessons: lib.lessons.map((l) =>
           // lid 保持不变：同一条课文换个标题重存，练习历史仍然认得它
-          l === dup ? { ...l, title_cn: titleCn, chinese, english: english || l.english, createdAt: Date.now() } : l,
+          l === dup ? { ...l, title_cn: titleCn, chinese, english: english || l.english,
+            ...(Object.prototype.hasOwnProperty.call(entry, 'section') ? { section: String(entry.section || '').trim() } : {}),
+            createdAt: Date.now() } : l,
         ),
       };
     }
@@ -302,6 +320,7 @@ export function upsertLesson(list, libId, entry) {
       title_en: String(entry.title_en || ''),
       chinese,
       english,
+      section: String(entry.section || '').trim(),
       source: '自建',
       createdAt: Date.now(),
     };
@@ -328,7 +347,7 @@ export function removeLesson(list, libId, lidOrNo) {
 }
 
 /**
- * 合并导入的课文库：同 id 的库并入（课文按 标题+中文 去重），
+ * 合并导入的课文库：同 id 的库并入（课文先按 lid，再按 标题+中文 去重），
  * 新 id 的库整体追加（重名时加「（导入）」后缀，不覆盖现有库）。
  * @returns {{list: Array, libsAdded: number, lessonsAdded: number}}
  */
@@ -341,11 +360,28 @@ export function mergeLibraries(current, incoming) {
     if (!clean) continue;
     const exists = list.find((l) => l.id === clean.id);
     if (exists) {
+      // 分组编辑以较新的本机/云端版本为准；旧版本缺时间戳时保留本机分组。
+      // 只合并课文而忽略 sections 会导致另一台设备看不到新建/解散的分组。
+      const remoteOwnsGroups = clean.sectionsUpdatedAt > (Number(exists.sectionsUpdatedAt) || 0)
+        || (!exists.sections?.length && clean.sections?.length && !clean.sectionsUpdatedAt && !exists.sectionsUpdatedAt);
       for (const lesson of clean.lessons) {
-        const r = upsertLesson(list, clean.id, lesson);
+        const local = list.find((l) => l.id === clean.id);
+        const old = (lesson.lid && local.lessons.find((l) => l.lid === lesson.lid))
+          || local.lessons.find((l) => l.title_cn === lesson.title_cn && l.chinese === lesson.chinese);
+        const incoming = !remoteOwnsGroups
+          ? { ...lesson, section: old ? old.section : (sectionsOf(exists).includes(lesson.section) ? lesson.section : '') }
+          : lesson;
+        const r = upsertLesson(list, clean.id, incoming);
         list = r.list;
         if (!r.replaced) lessonsAdded += 1;
       }
+      if (remoteOwnsGroups) list = mapLib(list, clean.id, (lib) => {
+        const allowed = new Set(clean.sections || []);
+        return {
+          ...lib, sections: clean.sections, sectionsUpdatedAt: clean.sectionsUpdatedAt,
+          lessons: lib.lessons.map((l) => l.section && !allowed.has(l.section) ? { ...l, section: '' } : l),
+        };
+      });
     } else {
       const name = list.some((l) => l.name === clean.name) ? clean.name + '（导入）' : clean.name;
       list = [...list, { ...clean, name }];

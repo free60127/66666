@@ -8,8 +8,8 @@
  * 跑法：node test/lessonLibrary.test.mjs
  */
 import {
-  ensureLessonIds, findLesson, mergeLibraries, moveLesson, newLibraryId, removeLesson,
-  renameLesson, renumberLibrary, sanitizeLibrary, upsertLesson,
+  addSection, deleteSection, ensureLessonIds, findLesson, mergeLibraries, moveLesson, newLibraryId, removeLesson,
+  renameLesson, renameSection, renumberLibrary, sanitizeLibrary, sectionsOf, upsertLesson,
 } from '../src/lessonLibrary.js';
 
 const results = [];
@@ -161,6 +161,46 @@ const titles = (list, id = 'lib-1') => (list.find((x) => x.id === id)?.lessons |
   const { list, lessonsAdded } = mergeLibraries(cur, incoming);
   check('导入合并：同一条课文（标题+中文相同）不重复添加', list[0].lessons.length === 2, String(list[0].lessons.length));
   check('导入合并：新增的一条带上对方的 lid 和追加的序号', lessonsAdded === 1 && findLesson(list[0], 'z').lesson === 2);
+}
+
+/* ---------- 7. 分组及成员管理 ---------- */
+{
+  const original = [lib([L(1, '第一课', 'a'), L(2, '第二课', 'b'), L(3, '第三课', 'c')])];
+  const created = addSection(original, 'lib-1', '重点', ['b', 'c']);
+  check('新建分组时按稳定 lid 选课，编号与 lid 保持不变',
+    eq(created.list[0].lessons.map((l) => l.section), [undefined, '重点', '重点'])
+      && eq(nos(created.list), [1, 2, 3]) && eq(created.list[0].lessons.map((l) => l.lid), ['a', 'b', 'c']));
+  check('空分组也保留在有序组名中', sectionsOf(addSection(created.list, 'lib-1', '空组').list[0]).includes('空组'));
+  check('重名分组明确报错且不修改数据', addSection(created.list, 'lib-1', '重点').error === '已有同名分组'
+    && addSection(created.list, 'lib-1', '重点').list === created.list);
+
+  const updated = renameSection(created.list, 'lib-1', '重点', '复习', ['a', 'c']);
+  check('修改组名与成员：新选课入组、取消选择的课变未分组',
+    eq(updated.list[0].lessons.map((l) => l.section), ['复习', '', '复习'])
+      && eq(sectionsOf(updated.list[0]), ['复习']));
+  check('修改成已有组名时报错', renameSection(addSection(created.list, 'lib-1', '另一组').list,
+    'lib-1', '重点', '另一组').error === '已有同名分组');
+  const dissolved = deleteSection(updated.list, 'lib-1', '复习');
+  check('解散最后一个组：保留所有课文及编号，清空归组',
+    sectionsOf(dissolved.list[0]).length === 0
+      && dissolved.list[0].lessons.every((l) => !l.section)
+      && eq(nos(dissolved.list), [1, 2, 3]));
+  check('不存在的组不能误删', deleteSection(created.list, 'lib-1', '找不到').error === '分组不存在');
+
+  const saved = upsertLesson(created.list, 'lib-1', { title_cn: '第四课', chinese: '新内容', section: '重点' }).list;
+  check('存课文时真的写入所选分组', saved[0].lessons.at(-1).section === '重点');
+  const resaved = upsertLesson(saved, 'lib-1', { lid: 'b', title_cn: '第二课', chinese: '中文2', section: '空组' }).list;
+  check('重存已有课文可调整分组，稳定 lid 不变', findLesson(resaved[0], 'b').section === '空组'
+    && findLesson(resaved[0], 'b').lid === 'b');
+  check('未指定分组时重存不会清掉原归属', findLesson(upsertLesson(resaved, 'lib-1',
+    { lid: 'b', title_cn: '第二课', chinese: '中文2' }).list[0], 'b').section === '空组');
+
+  const local = [{ ...created.list[0], sectionsUpdatedAt: 100 }];
+  const remote = [{ ...dissolved.list[0], sectionsUpdatedAt: 200 }];
+  const merged = mergeLibraries(local, remote).list[0];
+  check('云端较新的解散操作不会让旧分组复活', sectionsOf(merged).length === 0 && merged.lessons.every((l) => !l.section));
+  const localWins = mergeLibraries([{ ...created.list[0], sectionsUpdatedAt: 300 }], remote).list[0];
+  check('本机较新的分组编辑不会被旧云端覆盖', sectionsOf(localWins).includes('重点') && findLesson(localWins, 'b').section === '重点');
 }
 
 const failed = results.filter((r) => !r.ok);

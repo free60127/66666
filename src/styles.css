@@ -100,12 +100,13 @@ textarea, input { font: inherit; }
 .lesson-group-title.foldable:hover { background: rgba(66, 150, 255, .22); }
 .fold-chevron { flex-shrink: 0; transform: rotate(-90deg); transition: transform .15s ease; }
 .lesson-group-title.foldable.open .fold-chevron { transform: rotate(0); }
-/* 我的课文库的分组头：组名 + 悬停浮现的 改名/删除 操作 */
+/* 我的课文库的分组头：空组也显示，触屏和键盘都能直接操作 */
 .lesson-group-title.mylib-group { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
-.mylib-group .lgt-ops { display: inline-flex; gap: 2px; opacity: 0; transition: opacity .12s; }
-.mylib-group:hover .lgt-ops, .mylib-group:focus-within .lgt-ops { opacity: 1; }
-.lgt-btn { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 4px; color: #8fa8b8; flex-shrink: 0; }
+.mylib-group .lgt-name { min-width: 0; overflow-wrap: anywhere; }
+.mylib-group .lgt-ops { display: inline-flex; gap: 2px; }
+.lgt-btn { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: 6px; color: #b9d1e2; flex-shrink: 0; }
 .lgt-btn:hover { background: rgba(255, 255, 255, .12); color: #fff; }
+.mylib-group .lgt-count { margin-left: auto; flex-shrink: 0; font-size: 11px; opacity: .7; }
 /* 内置库选择卡片（回译课文 / 真题）：与「我的课文库」同一视觉档位的两个入口 */
 .builtin-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 4px 0 10px; }
 .builtin-tab {
@@ -313,6 +314,19 @@ mark.hl { background: #ffe3e3; color: inherit; padding: 0 2px; border-radius: 2p
 .material-modal textarea, .material-modal select { width: 100%; margin-top: 6px; border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; font: inherit; background: #fff; }
 .material-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .modal-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+.section-editor { width: 560px; }
+.section-picker-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px; margin: 10px 0 6px; font-size: 13px; }
+.section-picker-head .link { margin-left: 10px; }
+.section-editor .section-picker-search { margin: 0 0 8px; }
+.section-picker-list { max-height: min(38vh, 330px); overflow-y: auto; border: 1px solid var(--line); border-radius: 8px; }
+.section-editor .section-picker-row { display: flex; align-items: center; gap: 9px; min-height: 44px; margin: 0; padding: 6px 10px; color: var(--text); cursor: pointer; }
+.section-picker-row + .section-picker-row { border-top: 1px solid var(--line); }
+.section-picker-row:hover { background: #f5f9fc; }
+.section-editor .section-picker-row input[type="checkbox"] { width: 18px; height: 18px; flex: 0 0 auto; margin: 0; padding: 0; }
+.section-picker-no { width: 27px; flex: 0 0 auto; color: var(--muted); font-variant-numeric: tabular-nums; }
+.section-picker-title { min-width: 0; flex: 1; overflow-wrap: anywhere; }
+.section-picker-row small { flex: 0 1 auto; color: var(--muted); }
+.section-picker-list > p { padding: 10px; }
 .icon-btn { border-radius: 8px; padding: 6px; color: var(--muted); }
 .icon-btn:hover { background: #f0f3f6; }
 .link { color: var(--brand); text-decoration: none; }

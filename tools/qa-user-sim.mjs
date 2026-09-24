@@ -292,6 +292,103 @@ async function mobileDraftModal() {
   }
 }
 
+async function sectionJourney(name, options) {
+  const { context, page, errors } = await newPage(options);
+  try {
+    await boot(page);
+    await page.evaluate(() => localStorage.setItem('bt-lesson-libraries', JSON.stringify([
+      { id: 'lib-group-probe', name: '分组回归库', createdAt: 1, sections: null,
+        lessons: [1, 2, 3].map((no) => ({ book: 'my', lid: `lsn-group-${no}`, lesson: no,
+          title_cn: `测试课文${no}`, title_en: '', chinese: `中文${no}`, english: `English ${no}` })) },
+      { id: 'lib-other-probe', name: '第二自建库', createdAt: 2, sections: null,
+        lessons: [{ book: 'my', lid: 'lsn-other-1', lesson: 1, title_cn: '另一库第一课',
+          title_en: '', chinese: '另一库的中文', english: 'Other library' }] },
+      { id: 'lib-empty-probe', name: '空白自建库', createdAt: 3, sections: null, lessons: [] },
+    ])))
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.locator('.status-chip').waitFor();
+    await openSidebar(page);
+    await page.locator('.lib-tab', { hasText: '分组回归库' }).click();
+    await openSidebar(page);
+    check(`[${name}·分组] 选择自建库后内置库取消高亮`, await page.locator('.lib-row.active').count() === 1
+      && await page.locator('.builtin-tab.active').count() === 0
+      && await page.locator('.builtin-tab[aria-pressed="true"]').count() === 0);
+    check(`[${name}·切库] 首次点击即载入该库第一课`, await page.locator('.topbar-title').inputValue() === '测试课文1'
+      && await page.locator('.big-textarea').first().inputValue() === '中文1');
+    await page.locator('.lib-tab', { hasText: '第二自建库' }).click();
+    await openSidebar(page);
+    check(`[${name}·切库] 换库后立即显示新库课文`, await page.locator('.topbar-title').inputValue() === '另一库第一课'
+      && await page.locator('.big-textarea').first().inputValue() === '另一库的中文'
+      && await page.locator('.lesson-row.active .lesson-title').textContent() === '另一库第一课');
+    await page.locator('.lib-tab', { hasText: '空白自建库' }).click();
+    await openSidebar(page);
+    check(`[${name}·切库] 空库清除旧课文内容`, await page.locator('.topbar-title').inputValue() === ''
+      && await page.locator('.big-textarea').first().inputValue() === ''
+      && await page.locator('.match-banner').count() === 0);
+    if (options.isMobile) await page.locator('.sidebar-close').click();
+    await openMoreAction(page, '保存到课文库');
+    check(`[${name}·切库] 保存弹窗默认选中当前自建库`, (await page.locator('.lib-option.active').innerText()).includes('空白自建库'));
+    await closeModal(page);
+    await openSidebar(page);
+    await page.locator('.lib-tab', { hasText: '分组回归库' }).click();
+    await openSidebar(page);
+    await page.locator('.builtin-tab', { hasText: '回译课文' }).click();
+    await openSidebar(page);
+    check(`[${name}·分组] 切回内置库时只高亮内置库`, await page.locator('.builtin-tab.active').count() === 1
+      && await page.locator('.lib-row.active').count() === 0);
+    await page.locator('.lib-tab', { hasText: '分组回归库' }).click();
+    await openSidebar(page);
+    await page.getByRole('button', { name: '新建分组' }).click();
+    await page.getByRole('dialog', { name: '新建分组' }).waitFor();
+    await page.locator('.section-editor input[placeholder="例如：重点复习"]').fill('重点');
+    await page.locator('.section-picker-row', { hasText: '测试课文2' }).locator('input').check();
+    await page.locator('.section-picker-row', { hasText: '测试课文3' }).locator('input').check();
+    const fit = await page.locator('.section-editor').evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      return { left: r.left, right: r.right, bottom: r.bottom, width: innerWidth, height: innerHeight };
+    });
+    check(`[${name}·分组] 弹窗位于视口内`, fit.left >= -1 && fit.right <= fit.width + 1 && fit.bottom <= fit.height + 1, JSON.stringify(fit));
+    await page.getByRole('button', { name: '创建分组' }).click();
+    const header = page.locator('.mylib-group', { hasText: '重点' });
+    check(`[${name}·分组] 创建后立即显示分组和选中课文`, await header.count() === 1
+      && (await page.locator('.lesson-list').innerText()).includes('测试课文2'));
+    const afterCreate = await page.evaluate(() => JSON.parse(localStorage.getItem('bt-lesson-libraries'))[0]);
+    check(`[${name}·分组] 编号 2、3 已持久归组`, afterCreate.sections.includes('重点')
+      && afterCreate.lessons.filter((lesson) => lesson.section === '重点').map((lesson) => lesson.lesson).join(',') === '2,3');
+    await page.getByRole('button', { name: '新建分组' }).click();
+    await page.keyboard.press('Escape');
+    check(`[${name}·分组] Esc 可关闭分组弹窗`, await page.locator('.section-editor').count() === 0);
+    await page.getByRole('button', { name: '新建分组' }).click();
+    await page.locator('.section-editor input[placeholder="例如：重点复习"]').fill('空组');
+    await page.getByRole('button', { name: '创建分组' }).click();
+    check(`[${name}·分组] 没选课文的空组也立即可见`, await page.locator('.mylib-group', { hasText: '空组' }).count() === 1);
+    await page.getByRole('button', { name: '解散分组 空组' }).click();
+    await page.getByRole('button', { name: '修改分组 重点' }).click();
+    await page.getByRole('dialog', { name: '修改分组' }).waitFor();
+    await page.locator('.section-editor input[placeholder="例如：重点复习"]').fill('高频');
+    await page.locator('.section-picker-row', { hasText: '测试课文1' }).locator('input').check();
+    await page.locator('.section-picker-row', { hasText: '测试课文3' }).locator('input').uncheck();
+    await page.getByRole('button', { name: '保存分组' }).click();
+    const afterEdit = await page.evaluate(() => JSON.parse(localStorage.getItem('bt-lesson-libraries'))[0]);
+    check(`[${name}·分组] 改名并调整课文编号`, afterEdit.sections.includes('高频')
+      && afterEdit.lessons.map((lesson) => lesson.section || '').join(',') === '高频,高频,');
+    await page.getByRole('button', { name: '解散分组 高频' }).click();
+    const afterDissolve = await page.evaluate(() => JSON.parse(localStorage.getItem('bt-lesson-libraries'))[0]);
+    check(`[${name}·分组] 解散后保留三节课及原编号`, afterDissolve.sections.length === 0
+      && afterDissolve.lessons.map((lesson) => lesson.lesson).join(',') === '1,2,3'
+      && afterDissolve.lessons.every((lesson) => !lesson.section));
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.locator('.status-chip').waitFor();
+    await openSidebar(page);
+    await page.locator('.lib-tab', { hasText: '分组回归库' }).click();
+    await openSidebar(page);
+    check(`[${name}·分组] 刷新后仍有三节课`, await page.locator('.lesson-row').count() === 3);
+    check(`[${name}·分组] 全程无脚本错误`, errors.length === 0, errors.join(' | '));
+  } finally {
+    await context.close();
+  }
+}
+
 try {
   for (const [name, options] of profiles) {
     try { await journey(name, options); }
@@ -306,6 +403,10 @@ try {
     catch (error) { check('[初稿] 探针执行', false, error.message); }
     try { await mobileDraftModal(); }
     catch (error) { check('[初稿·安卓] 探针执行', false, error.message); }
+    for (const [name, options] of profiles) {
+      try { await sectionJourney(name, options); }
+      catch (error) { check(`[${name}·分组] 探针执行`, false, error.message); }
+    }
   }
 } finally {
   await browser.close();

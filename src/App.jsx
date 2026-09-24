@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { BookOpen, Camera, CheckCircle2, ChevronDown, ChevronRight, Cloud, Copy, Download, FileText, Flame, ImagePlus, Library, LoaderCircle, PanelLeftClose, PanelLeftOpen, Settings, Sparkles, Timer, Upload, UserRound, WandSparkles, X } from 'lucide-react'
 // mammoth（894 KB 源码）只在"上传 DOCX"这一个功能里用到，
 // 改为 handleDocx 内动态 import，避免它被打进首屏主包。
-import { addSection as addLibSection, corpusToLibrary, deleteSection as deleteLibSection, ensureLessonIds, mergeLibraries, newLibraryId, renameSection as renameLibSection, renumberLibrary, saveLibraries } from './lessonLibrary.js'
+import { addSection as addLibSection, corpusToLibrary, deleteSection as deleteLibSection, ensureLessonIds, mergeLibraries, newLibraryId, renameSection as renameLibSection, renumberLibrary, saveLibraries, sectionsOf } from './lessonLibrary.js'
 import { parseDocxText, textSimilarity, REFERENCE_SIM_THRESHOLD } from './docxParse.js'
 import { getOcrJob, getStatus, loadSettings, matchLesson, ocr, saveSettings } from './api.js'
 import { DELETED_FAVORITES_LIMIT, DELETED_LIBRARIES_LIMIT, DELETED_LESSONS_LIMIT, applyLibraryTombstones, mergeDeleted, mergeHistory } from './sync.js'
@@ -37,6 +37,7 @@ import ElapsedDisplay from './components/ElapsedDisplay.jsx'
 import { ResultSheet } from './components/ResultSheet/index.jsx'
 import { QuizSheet } from './components/ResultSheet/Quiz.jsx'
 import Sidebar from './components/Sidebar.jsx'
+import SectionEditorModal from './components/SectionEditorModal.jsx'
 import FavoritesModal from './components/modals/FavoritesModal.jsx'
 import ErrorDrillModal from './components/modals/ErrorDrillModal.jsx'
 import HistoryModal from './components/modals/HistoryModal.jsx'
@@ -174,7 +175,7 @@ function App() {
     historyOpen, setHistoryOpen, favOpen, setFavOpen,
     libModalOpen, setLibModalOpen, newJobOpen, setNewJobOpen,
     backupOpen, setBackupOpen, camOpen, setCamOpen,
-    lessonEdit, setLessonEdit, backupTip, setBackupTip, libTip, setLibTip,
+    lessonEdit, setLessonEdit, sectionEdit, setSectionEdit, backupTip, setBackupTip, libTip, setLibTip,
     // 错误训练弹窗也走这里（Esc 关闭 / 焦点陷阱）—— 见 useModals 里的说明
     drillOpen, setDrillOpen,
     modalRefs,
@@ -360,7 +361,7 @@ function App() {
   const {
     lessons, book, setBook, lessonId, setLessonId, matchedLesson, setMatchedLesson,
     lessonQuery, setLessonQuery, visibleLessons,
-    selectLesson, selectMyLesson, applyMatchedLesson,
+    selectLesson, selectMyLesson, cancelPendingLesson, applyMatchedLesson,
   } = useLessons({
     direction: dir,
     activeLib, myLibs, setMyLibId,
@@ -462,13 +463,46 @@ function App() {
    * 纯数字按课号优先 —— 输入 47 应该直接命中 Lesson 47，而不是标题里恰好含 47 的那几篇。
    */
 
-  /** 选中自建库（只切换侧栏列表，不改变当前作业）。 */
+  /** 切换自建库时立即载入该库第一课，避免侧栏与编辑器显示不同库的课文。 */
   const selectMyLib = useCallback((libId) => {
-    setMyLibId(libId);
-    setError('');
+    if (libId === myLibId) return true;
     const lib = myLibs.find((l) => l.id === libId);
-    if (lib && !lib.lessons.length) flashTip(setToast, `「${lib.name}」还是空的：把当前作业存进去就能在这里选出来练习`, 4500);
-  }, [myLibs, setMyLibId, setError]);
+    if (!lib) return false;
+    if (draft.trim()
+      && !window.confirm('切换课文库会清空当前初稿。继续吗？')) return false;
+    setLessonQuery('');
+    if (lib.lessons.length) {
+      const first = lib.lessons.reduce((best, lesson) => lesson.lesson < best.lesson ? lesson : best);
+      pickMyLesson(libId, first.lesson);
+    } else {
+      initialLessonCancelledRef.current = true;
+      cancelPendingLesson();
+      setMyLibId(libId);
+      setMatchedLesson(null);
+      setLessonId(0);
+      setTitle('');
+      setChinese('');
+      setDraft('');
+      setManualOriginal('');
+      setGeneratedOriginal('');
+      setMaterialKeywords([]);
+      setMatchConfidence('');
+      setMatchScore(null);
+      setFileName('');
+      setDocxChoice(null);
+      setOcrNotes({});
+      setResult(null);
+      setMode('free');
+      setView('editor');
+      savedSnapshotRef.current = fingerprintOf('', '', '', '');
+      flashTip(setToast, `「${lib.name}」还是空的：已打开空白编辑器`, 4500);
+    }
+    setError('');
+    return true;
+  }, [myLibId, myLibs, draft, pickMyLesson, cancelPendingLesson, setMyLibId, setMatchedLesson,
+    setLessonId, setLessonQuery, setMode, setError, setTitle, setChinese, setDraft,
+    setManualOriginal, setGeneratedOriginal, setMaterialKeywords, setMatchConfidence,
+    setMatchScore, setOcrNotes, setResult]);
 
 
   /* ---------- 自建课文库：新建 / 保存 ---------- */
@@ -498,13 +532,14 @@ function App() {
       let targetId;
       const newSections = [];
       for (const l of fresh) { const sc = String(l.section || '').trim(); if (sc && !newSections.includes(sc)) newSections.push(sc); }
+      const sectionsUpdatedAt = Date.now();
       if (existing) {
         const mergedSections = [...(Array.isArray(existing.sections) ? existing.sections : [])];
         for (const sc of newSections) if (!mergedSections.includes(sc)) mergedSections.push(sc);
-        next = myLibs.map((l) => (l.id === existing.id ? { ...l, sections: mergedSections, lessons: [...l.lessons, ...fresh] } : l));
+        next = myLibs.map((l) => (l.id === existing.id ? { ...l, sections: mergedSections, sectionsUpdatedAt, lessons: [...l.lessons, ...fresh] } : l));
         targetId = existing.id;
       } else {
-        const lib = { id: newLibraryId(), name, createdAt: Date.now(), sections: newSections.length ? newSections : null, lessons: fresh };
+        const lib = { id: newLibraryId(), name, createdAt: sectionsUpdatedAt, sections: newSections.length ? newSections : null, sectionsUpdatedAt, lessons: fresh };
         next = [...myLibs, lib];
         targetId = lib.id;
       }
@@ -523,7 +558,7 @@ function App() {
   };
 
   const openNewJobModal = () => {
-    setLibPickId(myLibs[0]?.id || '');
+    setLibPickId(myLibId || myLibs[0]?.id || '');
     setNewLibName('');
     setLibTip('');
     setNewJobOpen(true);
@@ -613,26 +648,26 @@ function App() {
   const favModalRef = useCallback((el) => { modalRefs.current.fav = el; }, [modalRefs]);
   const historyModalRef = useCallback((el) => { modalRefs.current.history = el; }, [modalRefs]);
   const lessonEditModalRef = useCallback((el) => { modalRefs.current.lessonEdit = el; }, [modalRefs]);
+  const sectionEditModalRef = useCallback((el) => { modalRefs.current.sectionEdit = el; }, [modalRefs]);
   const closeFavorites = useCallback(() => { setFavOpen(false); setFavReview(null); }, [setFavOpen, setFavReview]);
 
-  /* ---------- 我的课文库：分组（小标题）管理 ----------
-   * 增 / 改名 / 删 都走 useLibraries 的同一套持久化；删分组 = 课文归入第一组（绝不删课文）。 */
-  const handleAddSection = useCallback((libId, name) => {
-    const { list, error } = addLibSection(myLibs, libId, name);
-    if (error) { flashTip(setToast, error, 4000); return; }
-    if (saveLibraries(list)) { setMyLibs(list); flashTip(setToast, `已新建分组「${name.trim()}」`, 3600); }
-    else flashTip(setToast, '写入本机存储失败（空间可能已满）', 4200);
-  }, [myLibs, setMyLibs, setToast]);
-  const handleRenameSection = useCallback((libId, oldName, newName) => {
-    const { list, error } = renameLibSection(myLibs, libId, oldName, newName);
-    if (error) { flashTip(setToast, error, 4000); return; }
-    if (saveLibraries(list)) { setMyLibs(list); flashTip(setToast, `分组已改名为「${newName.trim()}」`, 3600); }
-    else flashTip(setToast, '写入本机存储失败（空间可能已满）', 4200);
-  }, [myLibs, setMyLibs, setToast]);
+  /* ---------- 我的课文库：分组与课文归属 ---------- */
+  const openSectionEditor = useCallback((libId, name) => setSectionEdit({ libId, name }), [setSectionEdit]);
+  const handleSaveSection = useCallback(({ libId, oldName, name, selectedIds }) => {
+    const { list, error } = oldName === null
+      ? addLibSection(myLibs, libId, name, selectedIds)
+      : renameLibSection(myLibs, libId, oldName, name, selectedIds);
+    if (error) return error;
+    if (!saveLibraries(list)) return '写入本机存储失败（空间可能已满）';
+    setMyLibs(list);
+    setSectionEdit(null);
+    flashTip(setToast, `${oldName === null ? '已新建' : '已更新'}分组「${name}」（${selectedIds.length} 节课）`, 3600);
+    return '';
+  }, [myLibs, setMyLibs, setSectionEdit, setToast]);
   const handleDeleteSection = useCallback((libId, name) => {
     const { list, error } = deleteLibSection(myLibs, libId, name);
     if (error) { flashTip(setToast, error, 4000); return; }
-    if (saveLibraries(list)) { setMyLibs(list); flashTip(setToast, `已删除分组「${name}」（组内课文已移到第一组）`, 4200); }
+    if (saveLibraries(list)) { setMyLibs(list); flashTip(setToast, `已解散分组「${name}」，课文已移至未分组`, 4200); }
     else flashTip(setToast, '写入本机存储失败（空间可能已满）', 4200);
   }, [myLibs, setMyLibs, setToast]);
 
@@ -1197,15 +1232,16 @@ function App() {
         </div>
       )}
       <label>或新建一个课文库<input value={newLibName} onChange={(e) => setNewLibName(e.target.value)} placeholder="例如：我的第二册 / 高考真题精读" /></label>
-      {pickedLib && (pickedLib.sections || []).length > 0 && (
+      {pickedLib && sectionsOf(pickedLib).length > 0 && (
         <label>存入分组
           <select value={saveSection} onChange={(e) => setSaveSection(e.target.value)}>
-            {pickedLib.sections.map((n) => <option key={n} value={n}>{n}</option>)}
+            {sectionsOf(pickedLib).map((n) => <option key={n} value={n}>{n}</option>)}
           </select>
         </label>
       )}
     </>
   );
+  const sectionEditingLib = sectionEdit ? myLibs.find((lib) => lib.id === sectionEdit.libId) : null;
 
   return (
     <div className="app">
@@ -1214,7 +1250,7 @@ function App() {
         onNewJob={startNewJob} myLibId={myLibId} book={book} builtinTab={builtinTab} onBuiltinTab={pickBuiltinTab}
         myLibs={myLibs} onOpenLibModal={openLibModal} onSelectLib={selectMyLib} onDeleteLib={deleteLibrary}
         onImportCorpus={handleImportCorpus}
-        onAddSection={handleAddSection} onRenameSection={handleRenameSection} onDeleteSection={handleDeleteSection}
+        onEditSection={openSectionEditor} onDeleteSection={handleDeleteSection}
         lessonQuery={lessonQuery} onLessonQuery={setLessonQuery} activeLib={activeLib} lessons={lessons} visibleLessons={visibleLessons}
         mode={mode} lessonId={lessonId} onSelectLesson={pickLesson} onSelectMyLesson={pickMyLesson} onDeleteMyLesson={deleteMyLesson}
         onEditMyLesson={openLessonEdit} onRenumberLib={renumberMyLib}
@@ -1792,6 +1828,12 @@ function App() {
             </div>
           </div>
         </div>
+      )}
+
+      {sectionEditingLib && (
+        <SectionEditorModal key={`${sectionEdit.libId}:${sectionEdit.name ?? 'new'}`} lib={sectionEditingLib}
+          originalName={sectionEdit.name} onSave={handleSaveSection} onClose={() => setSectionEdit(null)}
+          modalRef={sectionEditModalRef} />
       )}
 
       {newJobOpen && (
