@@ -49,7 +49,7 @@ ln -sf /etc/nginx/sites-available/bts /etc/nginx/sites-enabled/bts
 rm -f /etc/nginx/sites-enabled/default   # 摘掉默认站，避免抢 80 端口
 nginx -t && systemctl reload nginx
 
-# 5. 阿里云控制台 → 安全组：放行 80、443 端口（22 保持只对自己的 IP 开放最好）
+# 5. 轻量应用服务器控制台 → 防火墙：添加规则放行 80、443（22 保持只对自己的 IP 开放最好；ECS 则叫"安全组"）
 ```
 
 ## 三、首次部署 + IP 自测（第④步）
