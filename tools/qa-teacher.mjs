@@ -29,6 +29,11 @@ try {
     try { if ((await fetch(base + 'api/health')).ok) break; } catch { /* starting */ }
     await new Promise((resolve) => setTimeout(resolve, 200));
   }
+  const allowed = await fetch(base + 'api/auth/config', { headers: { Origin: 'https://free60127.github.io' } });
+  if (allowed.headers.get('access-control-allow-origin') !== 'https://free60127.github.io') throw new Error('GitHub Pages 来源未获得 API 跨域许可');
+  const denied = await fetch(base + 'api/auth/config', { headers: { Origin: 'https://untrusted.example' } });
+  if (denied.headers.has('access-control-allow-origin')) throw new Error('未知站点不应获得 API 跨域许可');
+  console.log('PASS GitHub Pages 来源获准访问 API，未知站点仍被拒绝');
   browser = await chromium.launch();
   const teacherContext = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   const teacher = await teacherContext.newPage();

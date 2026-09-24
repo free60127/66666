@@ -21,7 +21,7 @@ services:
         sync: false
       # 安全相关（可选，留空即用默认值；详见 .env.example 说明）：
       #   ALLOW_SERVER_KEY=0    强制访客自带 Key，不允许匿名借用服务端 Key（公共站点建议）
-      #   ALLOW_ORIGIN=...      跨域白名单，默认不允许任何跨域来源
+      #   ALLOW_ORIGIN=...      额外跨域白名单；项目的 GitHub Pages 来源已默认放行
       #   RATE_LIMIT_PER_MIN=30 每个来源 IP 每分钟可提交的模型任务数
       - key: ALLOW_SERVER_KEY
         sync: false

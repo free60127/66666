@@ -4,9 +4,8 @@
 #
 # 关键点：前端一旦搬到 GitHub Pages，就和后端**不同源**了，两件事必须同时成立：
 #   1) 构建时注入 VITE_API_BASE（本工作流负责）
-#   2) 后端允许这个来源跨域 —— 在 Render 的环境变量里设
-#        ALLOW_ORIGIN=https://<用户名>.github.io
-#      少了第 2 步，浏览器会在预检阶段直接拦掉所有请求，页面看着正常但什么都加载不出来。
+#   2) 后端允许这个来源跨域。本仓库的 free60127.github.io 已内置放行；
+#      若迁到其它账号或域名，在 Render 配 ALLOW_ORIGIN=https://<用户名>.github.io。
 #
 # 可选：在仓库 Settings → Variables 里建一个 VITE_API_BASE，
 # 换后端地址时不用改代码（比如以后换成自己的服务器）。
