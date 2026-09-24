@@ -84,6 +84,7 @@ export function SynRow({ s }) {
     <div className="syn-row">
       <div className="syn-head">
         <strong className="syn-word">{s.word}</strong>
+        <PosTag word={s.word} pos={s.pos} />
         <Phonetic word={s.word} phonetic={s.phonetic} />
         <SpeakButton text={s.word} label={s.word} />
         {s.register ? <span className="syn-meta">{s.register}</span> : null}
@@ -95,6 +96,79 @@ export function SynRow({ s }) {
       {s.example ? <div className="syn-ex">{s.example}</div> : null}
     </div>
   );
+}
+
+/* ---------- 词性小标签（n. / v. / adj. …） ----------
+ * 数据有两个来源：模型在 synonyms.pos 里给（新结果）；
+ * 旧结果没有 pos 时，向后端 /api/phonetic 兜底查一次（词典源带 partOfSpeech），
+ * 结果按词缓存到 localStorage，同一单词整站只查一次。 */
+const POS_MAP = {
+  n: 'n.', noun: 'n.', 名词: 'n.',
+  v: 'v.', verb: 'v.', 动词: 'v.',
+  vt: 'vt.', 及物动词: 'vt.',
+  vi: 'vi.', 不及物动词: 'vi.',
+  adj: 'adj.', adjective: 'adj.', 形容词: 'adj.',
+  adv: 'adv.', adverb: 'adv.', 副词: 'adv.',
+  prep: 'prep.', preposition: 'prep.', 介词: 'prep.',
+  conj: 'conj.', conjunction: 'conj.', 连词: 'conj.',
+  pron: 'pron.', pronoun: 'pron.', 代词: 'pron.',
+  interj: 'interj.', interjection: 'interj.', exclamation: 'interj.', 感叹词: 'interj.',
+  aux: 'aux.', auxiliary: 'aux.', 助动词: 'aux.',
+  det: 'det.', determiner: 'det.', 限定词: 'det.',
+  art: 'art.', article: 'art.', 冠词: 'art.',
+  num: 'num.', numeral: 'num.', 数词: 'num.',
+  phr: 'phr.', phrase: 'phr.', collocation: 'phr.', phrasal: 'phr.', 短语: 'phr.', 词组: 'phr.', 搭配: 'phr.',
+  modal: 'aux.', 情态动词: 'aux.',
+};
+export function normalizePos(raw) {
+  const s = String(raw || '').trim().toLowerCase();
+  if (!s) return '';
+  return s
+    .split(/[/,;、|\s]+/)
+    .map((t) => {
+      const token = t.replace(/\./g, '').trim();
+      if (!token) return '';
+      if (POS_MAP[token]) return POS_MAP[token];
+      return /^[a-z]{1,6}$/.test(token) ? token + '.' : t.trim();
+    })
+    .filter(Boolean)
+    .slice(0, 4)
+    .join('/');
+}
+const POS_KEY = 'bt-pos';
+let posMem = null;
+function posCacheMap() {
+  if (!posMem) {
+    try { posMem = new Map(Object.entries(JSON.parse(localStorage.getItem(POS_KEY) || '{}'))); }
+    catch { posMem = new Map(); }
+  }
+  return posMem;
+}
+function persistPos() {
+  try { localStorage.setItem(POS_KEY, JSON.stringify(Object.fromEntries(posMem))); } catch { /* ignore */ }
+}
+const SINGLE_WORD_RE = /^[a-zA-Z][a-zA-Z'’-]{0,40}$/;
+export function PosTag({ word, pos }) {
+  const given = normalizePos(pos);
+  const key = String(word || '').trim().toLowerCase();
+  const [value, setValue] = useState(() => given || (key && SINGLE_WORD_RE.test(key) ? (posCacheMap().get(key) || '') : ''));
+  useEffect(() => {
+    if (given) { setValue(given); return undefined; }
+    if (!key || !SINGLE_WORD_RE.test(key)) { setValue(''); return undefined; } // 多词短语查不到词性，不显示
+    const cache = posCacheMap();
+    if (cache.has(key)) { setValue(cache.get(key) || ''); return undefined; }
+    setValue(''); // 换词先清空，避免旧标签短暂挂在新词上
+    let alive = true;
+    getPhonetic(key).then((r) => {
+      const v = normalizePos(r && r.pos);
+      cache.set(key, v);
+      persistPos();
+      if (alive) setValue(v);
+    }).catch(() => { /* 查不到就不显示 */ });
+    return () => { alive = false; };
+  }, [key, given]);
+  if (!value) return null;
+  return <span className="syn-pos">{value}</span>;
 }
 
 /* 音标：优先用模型返回的 phonetic；缺失时向后端查词典并缓存（内存 + localStorage） */

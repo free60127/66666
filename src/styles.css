@@ -276,6 +276,8 @@ mark.hl { background: #ffe3e3; color: inherit; padding: 0 2px; border-radius: 2p
 .syn-head { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }
 .syn-word { font-size: 13px; color: var(--text); }
 .syn-meta { font-size: 11px; color: var(--muted); background: #f2f5f8; border-radius: 999px; padding: 1px 7px; }
+/* 词性小标签（n. / v. / adj. …）：紫底小方块，和语域/感情色彩的灰胶囊区分开 */
+.syn-pos { font-size: 10.5px; font-weight: 700; color: #6a4fd0; background: rgba(106, 79, 208, .1); border: 1px solid rgba(106, 79, 208, .28); border-radius: 5px; padding: 0 5px; line-height: 16px; flex-shrink: 0; white-space: nowrap; }
 .syn-meaning { margin-top: 2px; font-size: 12px; }
 .syn-usage { font-size: 12px; color: #3d4854; margin-top: 2px; }
 .syn-ex { font-size: 12px; color: #0d7a70; margin-top: 3px; font-style: italic; }

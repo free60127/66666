@@ -314,7 +314,7 @@ function defaultVisionModel(baseUrl, model) {
   return /deepseek/i.test(String(baseUrl || '')) ? DEEPSEEK_VISION_MODEL : model;
 }
 
-/* ---------- 音标兜底查询（模型没给 phonetic 时用，带内存缓存 + 熔断） ---------- */
+/* ---------- 音标/词性兜底查询（模型没给 phonetic/pos 时用，带内存缓存 + 熔断） ---------- */
 const phoneticCache = new Map();
 // 缓存必须**有界**（全站唯一一个曾经无界的内存结构）：单词组合空间近乎无限，
 // 随机单词打过来每条都会 set —— 实测风险与 rateBuckets 桶表无界是同一类问题。
@@ -328,16 +328,18 @@ function cachePhonetic(key, value) {
     for (const k of phoneticCache.keys()) { if (i++ >= over) break; phoneticCache.delete(k); }
   }
 }
+const EMPTY_WORD_INFO = { phonetic: '', pos: '' };
 let phoneticFailures = 0;
 let phoneticDown = false; // 词典接口不可达时（例如国内网络）直接放弃，避免每次页面都等超时
 async function lookupPhonetic(rawWord) {
   const key = String(rawWord || '').trim().toLowerCase();
-  if (!key) return '';
+  if (!key) return EMPTY_WORD_INFO;
   if (phoneticCache.has(key)) return phoneticCache.get(key);
   // 只查单个英文单词；含空格/斜杠的短语直接放弃，避免误查
-  if (!/^[a-z][a-z'’-]{0,40}$/.test(key)) { cachePhonetic(key, ''); return ''; }
-  if (phoneticDown) { cachePhonetic(key, ''); return ''; }
+  if (!/^[a-z][a-z'’-]{0,40}$/.test(key)) { cachePhonetic(key, EMPTY_WORD_INFO); return EMPTY_WORD_INFO; }
+  if (phoneticDown) { cachePhonetic(key, EMPTY_WORD_INFO); return EMPTY_WORD_INFO; }
   let phonetic = '';
+  let pos = '';
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 4000);
@@ -346,12 +348,22 @@ async function lookupPhonetic(rawWord) {
     if (r.ok) {
       const data = await r.json();
       const list = Array.isArray(data) ? data : [];
+      const posSet = [];
       for (const entry of list) {
-        if (entry && typeof entry.phonetic === 'string' && entry.phonetic.trim()) { phonetic = entry.phonetic.trim(); break; }
-        const arr = Array.isArray(entry?.phonetics) ? entry.phonetics : [];
-        const hit = arr.find((x) => x && typeof x.text === 'string' && x.text.trim());
-        if (hit) { phonetic = hit.text.trim(); break; }
+        // 词性取全部 meanings 的 partOfSpeech 去重（词典源按义项分组，同一词性会出现多次）
+        const meanings = Array.isArray(entry?.meanings) ? entry.meanings : [];
+        for (const m of meanings) {
+          const p = String(m?.partOfSpeech || '').trim();
+          if (p && !posSet.includes(p)) posSet.push(p);
+        }
+        if (!phonetic && entry && typeof entry.phonetic === 'string' && entry.phonetic.trim()) phonetic = entry.phonetic.trim();
+        if (!phonetic) {
+          const arr = Array.isArray(entry?.phonetics) ? entry.phonetics : [];
+          const hit = arr.find((x) => x && typeof x.text === 'string' && x.text.trim());
+          if (hit) phonetic = hit.text.trim();
+        }
       }
+      pos = posSet.join('/');
       phoneticFailures = 0;
     } else {
       phoneticFailures += 1;
@@ -360,8 +372,9 @@ async function lookupPhonetic(rawWord) {
     phoneticFailures += 1;
   }
   if (phoneticFailures >= 3) phoneticDown = true;
-  cachePhonetic(key, phonetic);
-  return phonetic;
+  const info = { phonetic, pos };
+  cachePhonetic(key, info);
+  return info;
 }
 
 /**
@@ -1614,8 +1627,8 @@ const server = http.createServer(async (req, res) => {
       if (rateLimited(req, 'phonetic', PHONETIC_RATE_MAX)) return json(res, 429, { error: '音标查询太频繁，请稍后再试' });
       const word = url.searchParams.get('word') || '';
       if (!word.trim()) return json(res, 400, { error: '缺少 word 参数' });
-      const phonetic = await lookupPhonetic(word);
-      return json(res, 200, { ok: true, word: word.trim(), phonetic });
+      const info = await lookupPhonetic(word);
+      return json(res, 200, { ok: true, word: word.trim(), phonetic: info.phonetic, pos: info.pos });
     }
     if (p === '/api/ocr' && req.method === 'POST') {
       const body = await readBody(req);

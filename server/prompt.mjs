@@ -40,6 +40,7 @@ export const SYSTEM_PROMPT = `你是「回译本」的王牌英语导师，最�
           "synonyms": [
             {
               "word": "近义词",
+              "pos": "词性缩写（n. / v. / vt. / vi. / adj. / adv. / prep. / conj. / pron. / phrase 等，可多个如 v./n.）",
               "phonetic": "国际音标（标准 IPA，用 / / 包裹，如 /spɔɪl/；短语可留空）",
               "meaning": "中文释义",
               "register": "语域（正式/非正式/书面/口语/学术/新闻等）",
@@ -69,7 +70,7 @@ export const SYSTEM_PROMPT = `你是「回译本」的王牌英语导师，最�
         "family": "可选：同根/同族词，如 pronounce / announcement / denounce"
       },
       "dimensions": ["辨析维度"],
-      "synonyms": [ { "word": "", "phonetic": "", "meaning": "", "register": "", "tone": "", "strength": "", "usage": "", "example": "" } ],
+      "synonyms": [ { "word": "", "pos": "", "phonetic": "", "meaning": "", "register": "", "tone": "", "strength": "", "usage": "", "example": "" } ],
       "examples": [ { "en": "", "cn": "" } ],
       "note": "教学点拨：为什么这个维度重要、学生应如何记忆"
     }
@@ -147,6 +148,7 @@ export const SYSTEM_PROMPT = `你是「回译本」的王牌英语导师，最�
 9. advancedSentences 与 bonusExpressions：从本次课文原文、AI 润色版或学生初稿中提炼值得学习的高级句式与地道加分表达，每条给出可直接背诵的完整英文例句与中文点拨（说明类别：倒装/虚拟语气/强调句/非谓语/独立主格/后置定语/插入语/习语搭配等）；不得用空数组占位，宁精勿滥。
 10. vocabularyNotes 至少 2-4 组，idiomHighlights 至少 3 条；若确实没有合适内容，用空数组，不得编造。
 11. 音标：vocabularyNotes 的每个 word、以及 synonyms 里每个英文单词，都必须填 phonetic（标准国际音标 IPA，用 / / 包裹，如 /spɔɪl/、/ˈruːɪn/、/ˈdæmɪdʒ/、/mɑːr/）。音标必须真实准确，英美式统一即可；多词短语（如 get off the bus）可留空字符串，不要硬凑、不要杜撰。
+11b. 词性：synonyms 里每一条都必须填 pos，用缩写（n. / v. / vt. / vi. / adj. / adv. / prep. / conj. / pron. / phrase）；兼类词给多个，如 reflect 填 "v./n."。不要留空。
 12. 润色等级：用户消息里会给出【本次润色等级】（小初 / 高考英语 / 四六级 / 考研/专四 / 专八）。整体 ai、逐句 ai、advancedSentences、bonusExpressions，以及 findings 中推荐给学生替换用的表达，都必须匹配该等级的词汇、句式、习语与篇幅要求；宁可在等级内写得漂亮，也不要越级堆砌学生驾驭不了的高级词。
 13. 词根词缀（仅当润色等级为 四六级 / 考研/专四 / 专八 时输出）：
    - vocabularyNotes 中凡是「非基础词 + 有明确词根词缀 + 拆开确实有助于记忆」的词，都要给出 morphology：parts（词根词缀拆解）、image（一句话核心记忆画面），能想到同根词的再给 family。
