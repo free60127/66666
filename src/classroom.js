@@ -1,4 +1,4 @@
-import { api } from './api.js';
+import { api, TIMEOUT } from './api.js';
 
 const MEMBER_KEY = 'bts-class-memberships';
 const PENDING_KEY = 'bts-class-pending';
@@ -12,7 +12,13 @@ export const clearFailedClassReports = () => localStorage.removeItem(FAILED_KEY)
 export const activeHomework = () => { try { return JSON.parse(sessionStorage.getItem(ACTIVE_HW_KEY) || 'null'); } catch { return null; } };
 export const activateHomework = (classId, hwId) => sessionStorage.setItem(ACTIVE_HW_KEY, JSON.stringify({ classId, hwId }));
 export const clearActiveHomework = () => sessionStorage.removeItem(ACTIVE_HW_KEY);
-export const studentDashboard = (member) => api('/api/classes/' + member.classId + '/student-dashboard', { method: 'POST', body: JSON.stringify({ studentKey: member.studentKey }) });
+export const studentDashboard = (member) => api('/api/classes/' + member.classId + '/student-dashboard', { method: 'POST', body: JSON.stringify({ studentKey: member.studentKey }) }, TIMEOUT.wake);
+export const pendingAssignments = (dashboards, now = Date.now()) => dashboards.flatMap((dashboard) => {
+  if (!dashboard || dashboard.class?.archivedAt) return [];
+  return (dashboard.homeworks || []).filter((hw) => !hw.closedAt && hw.dueAt > now
+    && !(dashboard.student?.subs || []).some((sub) => sub.hwId === hw.id))
+    .map((hw) => ({ ...hw, classId: dashboard.class.id, className: dashboard.class.name, hwId: hw.id }));
+}).sort((a, b) => a.dueAt - b.dueAt);
 export const joinClass = async ({ code, name, studentNo }) => {
   const data = await api('/api/classes/join', { method: 'POST', body: JSON.stringify({ code, name, studentNo }) });
   const next = memberships().filter((m) => m.classId !== data.classId);

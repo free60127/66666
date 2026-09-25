@@ -46,6 +46,13 @@ export function createClassrooms({ kv, accounts, findJob, lessonLookup }) {
     const ids = await Promise.all(Array.from({ length: Math.min(count, max) }, (_, i) => kv.get(P + id + ':' + kind + '-slot:' + (i + 1))));
     return (await Promise.all(ids.filter(Boolean).map(async (itemId) => read(await kv.get(P + id + ':' + kind + ':' + itemId))))).filter(Boolean);
   }
+  function titledHomeworks(items) {
+    return items.map((hw) => {
+      if (hw.type !== 'builtin' || hw.lessonTitle) return hw;
+      const lesson = lessonLookup?.(hw.book, hw.lessonNo);
+      return { ...hw, lessonTitle: String(lesson?.title_cn || lesson?.title_en || `第 ${hw.lessonNo} 课`).slice(0, 100) };
+    });
+  }
   function aggregateMistakes(students) {
     const categories = new Map();
     const patterns = new Map();
@@ -128,7 +135,7 @@ export function createClassrooms({ kv, accounts, findJob, lessonLookup }) {
         Promise.all([room.teacherUserId, ...(room.teachers || [])].map((teacherId) => accounts.publicUserById(teacherId))),
       ]);
       const validStudents = students.filter(Boolean);
-      return ok({ class: room, students: validStudents.map(({ studentKey: _secret, ...publicData }) => publicData), homeworks, corpus, teachers: teachers.filter(Boolean), mistakeStats: aggregateMistakes(validStudents) });
+      return ok({ class: room, students: validStudents.map(({ studentKey: _secret, ...publicData }) => publicData), homeworks: titledHomeworks(homeworks), corpus, teachers: teachers.filter(Boolean), mistakeStats: aggregateMistakes(validStudents) });
     },
     async addTeacher(token, id, email) {
       const access = await owner(token, id);
@@ -181,6 +188,7 @@ export function createClassrooms({ kv, accounts, findJob, lessonLookup }) {
       let reference = String(payload.reference || '').trim();
       let book = null;
       let lessonNo = null;
+      let lessonTitle = '';
       let sharedLessonId = null;
       if (type === 'builtin') {
         book = Number(payload.book);
@@ -189,19 +197,21 @@ export function createClassrooms({ kv, accounts, findJob, lessonLookup }) {
         if (!lesson) return fail(400, '指定的内置课文不存在');
         prompt = String(lesson.chinese || '').trim();
         reference = String(lesson.english || '').trim();
+        lessonTitle = String(lesson.title_cn || lesson.title_en || `第 ${lessonNo} 课`).slice(0, 100);
       } else if (type === 'shared') {
         sharedLessonId = String(payload.sharedLessonId || '');
         const lesson = read(await kv.get(P + id + ':corpus:' + sharedLessonId));
         if (!lesson) return fail(400, '指定的共享课文不存在');
         prompt = lesson.chinese;
         reference = lesson.english;
+        lessonTitle = lesson.title;
       } else if (type !== 'free') return fail(400, '作业类型不正确');
       if (!prompt || prompt.length > 8000 || reference.length > 8000) return fail(400, '中文提示必填，内容最多 8000 字');
       return serial('homeworks:' + id, async () => {
         const countKey = P + id + ':hw-count';
         const count = Number(await kv.get(countKey)) || 0;
         if (count >= 100) return fail(400, '每班最多布置 100 份作业');
-        const hw = { id: randomBytes(12).toString('hex'), title, type, prompt, reference, book, lessonNo, sharedLessonId, dueAt, createdAt: Date.now(), teacherUserId: access.user.id, closedAt: 0 };
+        const hw = { id: randomBytes(12).toString('hex'), title, type, prompt, reference, book, lessonNo, lessonTitle, sharedLessonId, dueAt, createdAt: Date.now(), teacherUserId: access.user.id, closedAt: 0 };
         await kv.set(P + id + ':hw:' + hw.id, JSON.stringify(hw));
         await kv.set(P + id + ':hw-slot:' + (count + 1), hw.id);
         await kv.set(countKey, String(count + 1));
@@ -270,7 +280,7 @@ export function createClassrooms({ kv, accounts, findJob, lessonLookup }) {
       const room = read(await kv.get(key(classId)));
       if (!room) return fail(404, '班级不存在');
       const [homeworks, corpus] = await Promise.all([slotItems(classId, 'hw', 100), slotItems(classId, 'corpus', 100)]);
-      return ok({ class: { id: room.id, name: room.name, archivedAt: room.archivedAt }, student: { name: student.name, studentNo: student.studentNo, subs: student.subs }, homeworks, corpus });
+      return ok({ class: { id: room.id, name: room.name, archivedAt: room.archivedAt }, student: { name: student.name, studentNo: student.studentNo, subs: student.subs }, homeworks: titledHomeworks(homeworks), corpus });
     },
     async comment(token, id, { studentNo, jobId, comment }) {
       const access = await owned(token, id);

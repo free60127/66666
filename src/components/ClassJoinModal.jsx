@@ -51,11 +51,13 @@ export default function ClassJoinModal({ onClose, onStart }) {
       {message && <p role="status" className="class-join-message">{message}</p>}
       {pending > 0 && <p role="status">有 {pending} 次练习待上报。<button type="button" onClick={async () => { await retryClassReports(); setPending(pendingClassReports()); setFailed(failedClassReports()); setRefreshId((n) => n + 1); }}>重试上报</button></p>}
       {failed.length > 0 && <p role="alert">有 {failed.length} 次练习未能交给教师：{failed[failed.length - 1].reason}。请从班级作业重新开始。<button type="button" onClick={() => { clearFailedClassReports(); setFailed([]); }}>知道了</button></p>}
-      {rooms.length > 0 && <div className="class-joined"><div className="class-joined-head"><h3>已加入的班级</h3><button type="button" onClick={() => setRefreshId((n) => n + 1)}>刷新作业</button></div>{rooms.map((room) => {
+      {rooms.length > 0 && <div className="class-joined"><div className="class-joined-head"><h3>已加入的班级</h3><button type="button" onClick={() => setRefreshId((n) => n + 1)}>刷新作业与评语</button></div>{rooms.map((room) => {
         const dashboard = dashboards[room.classId];
+        const feedback = (dashboard?.student?.subs || []).filter((sub) => sub.teacherComment?.text).sort((a, b) => b.teacherComment.at - a.teacherComment.at);
         return <section key={room.classId} className="class-room-card">
           <div className="class-joined-row"><strong>{room.className} · {room.name}（{room.studentNo}）</strong><button type="button" onClick={() => { if (window.confirm('退出「' + room.className + '」？此设备之后不会再向该班级提交成绩。')) { leaveClass(room.classId); setRooms(memberships()); } }}>退出</button></div>
           {!dashboard ? <p>正在载入作业…</p> : dashboard.error ? <p role="alert">{dashboard.error}</p> : <>
+            {feedback.length > 0 && <div className="class-feedback"><h4>教师评语（{feedback.length}）</h4>{feedback.map((sub) => <div className="class-feedback-item" key={sub.jobId}><strong>{sub.title}</strong><p>{sub.teacherComment.text}</p><small>{sub.teacherComment.teacher} · {new Date(sub.teacherComment.at).toLocaleString('zh-CN')}</small><a href={import.meta.env.BASE_URL + 'index.html#job=' + encodeURIComponent(sub.jobId)}>查看完整批改</a></div>)}</div>}
             <h4>教师布置的作业</h4>
             {!dashboard.homeworks.length && <p className="class-join-note">暂无作业</p>}
             {dashboard.homeworks.map((hw) => {

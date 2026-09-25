@@ -1,0 +1,10 @@
+.assignment-reminder { width:min(92vw,560px); max-height:min(85vh,720px); overflow-y:auto; }
+.assignment-reminder > p { color:#52677d; line-height:1.6; }
+.assignment-reminder-list { display:grid; gap:10px; margin:16px 0; }
+.assignment-reminder-item { display:flex; align-items:center; justify-content:space-between; gap:14px; padding:14px; border:1px solid #d6e3f1; border-radius:12px; background:#f7faff; }
+.assignment-reminder-item > div { min-width:0; overflow-wrap:anywhere; }
+.assignment-reminder-item strong,.assignment-reminder-item span,.assignment-reminder-item small { display:block; }
+.assignment-reminder-item span,.assignment-reminder-item small { margin-top:4px; color:#64748b; }
+.assignment-reminder-item button { flex:none; }
+.assignment-reminder-later { margin-top:4px; }
+@media(max-width:480px) { .assignment-reminder-item { align-items:stretch; flex-direction:column; } .assignment-reminder-item button { align-self:flex-start; } }

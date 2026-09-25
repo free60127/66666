@@ -44,7 +44,8 @@ import HistoryModal from './components/modals/HistoryModal.jsx'
 import BackToTop from './components/BackToTop.jsx'
 import MoreMenu from './components/MoreMenu.jsx'
 import ClassJoinModal from './components/ClassJoinModal.jsx'
-import { activateHomework, clearActiveHomework } from './classroom.js'
+import AssignmentReminder from './components/AssignmentReminder.jsx'
+import { activateHomework, clearActiveHomework, memberships, pendingAssignments, studentDashboard } from './classroom.js'
 import LessonEditModal from './components/modals/LessonEditModal.jsx'
 const AI_LEVELS = ['小初', '高考英语', '四六级', '考研/专四', '专八'];
 const DEFAULT_AI_LEVEL = '四六级';
@@ -81,6 +82,18 @@ const SITE_TAGLINE = '你的私人英语工坊';
 function App() {
   const [settings, setSettings] = useState(loadSettings());
   const [classJoinOpen, setClassJoinOpen] = useState(false);
+  const [reminderTasks, setReminderTasks] = useState([]);
+  useEffect(() => {
+    const rooms = memberships();
+    if (!rooms.length) return;
+    let active = true;
+    Promise.allSettled(rooms.map(studentDashboard)).then((results) => {
+      if (!active) return;
+      const joined = new Set(memberships().map((room) => room.classId));
+      setReminderTasks(pendingAssignments(results.filter((item) => item.status === 'fulfilled' && joined.has(item.value.class?.id)).map((item) => item.value)));
+    });
+    return () => { active = false; };
+  }, []);
   /* ---------- 练习方向（汉译英 / 英译汉）----------
    * 缺省就是汉译英（normalizeDirection 会把空值/脏值兜到默认），**进站不再拦人**：
    * 原来第一次访问要弹一页"今天想练哪个方向"，用户明确说这页可以删了 ——
@@ -451,7 +464,7 @@ function App() {
     runGenerate, cancelGenerate, openHistoryModal, loadHistoryJob,
     shareResult, copyAll, loadDemo,
   } = useGeneration({
-    direction: dir,
+    direction: dir, view,
     title, chinese, draft, manualOriginal, generatedOriginal,
     mode, book, lessonId, myLibId, matchedLesson, lessonKey,
     settings, polishLevel, runJob, busy, cancelProgress, elapsedMsNow,
@@ -1813,6 +1826,7 @@ function App() {
       <BackToTop />
 
       {classJoinOpen && <ClassJoinModal onClose={() => setClassJoinOpen(false)} onStart={startClassTask} />}
+      <AssignmentReminder tasks={reminderTasks} onStart={(task) => { startClassTask(task); setReminderTasks([]); }} onClose={() => setReminderTasks([])} />
       {settingsOpen && (
         <div className="modal-mask" onClick={() => setSettingsOpen(false)}>
           <div className="modal" ref={(el) => { modalRefs.current.settings = el; }} role="dialog" aria-modal="true" aria-label="AI 接入设置" onClick={(e) => e.stopPropagation()}>

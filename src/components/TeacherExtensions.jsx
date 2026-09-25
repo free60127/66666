@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { getLessons, getStatus } from '../api.js';
 
 const localDateTime = (value) => {
   const date = new Date(value);
@@ -10,7 +11,35 @@ const initialHomework = () => ({ title: '', type: 'free', prompt: '', reference:
 export function TeacherHomeworkPanel({ detail, token, request, onChanged, onError, resultUrl }) {
   const [form, setForm] = useState(initialHomework);
   const [busy, setBusy] = useState(false);
+  const [books, setBooks] = useState([]);
+  const [lessons, setLessons] = useState([]);
+  const [catalogBusy, setCatalogBusy] = useState(false);
   const room = detail.class;
+  useEffect(() => {
+    if (form.type !== 'builtin') return;
+    let active = true;
+    getStatus().then((status) => {
+      if (!active) return;
+      const available = (status.books || []).filter((book) => book.lessons > 0);
+      setBooks(available);
+      setForm((old) => available.some((book) => book.book === Number(old.book)) ? old : { ...old, book: available[0]?.book || '', lessonNo: '' });
+    }).catch((error) => { if (active) onError(error.message); });
+    return () => { active = false; };
+  }, [form.type, onError]);
+  useEffect(() => {
+    if (form.type !== 'builtin' || !form.book) return;
+    let active = true;
+    setCatalogBusy(true);
+    setLessons([]);
+    getLessons(form.book).then((data) => {
+      if (!active) return;
+      const available = data.lessons || [];
+      setLessons(available);
+      setForm((old) => available.some((lesson) => lesson.lesson === Number(old.lessonNo)) ? old : { ...old, lessonNo: available[0]?.lesson || '' });
+    }).catch((error) => { if (active) onError(error.message); })
+      .finally(() => { if (active) setCatalogBusy(false); });
+    return () => { active = false; };
+  }, [form.type, form.book, onError]);
   const submit = async (event) => {
     event.preventDefault();
     setBusy(true);
@@ -31,18 +60,18 @@ export function TeacherHomeworkPanel({ detail, token, request, onChanged, onErro
     {!room.archivedAt && <form className="teacher-form" onSubmit={submit}>
       <label>作业标题<input required maxLength={80} value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} placeholder="例如：Lesson 18 回译" /></label>
       <label>内容来源<select value={form.type} onChange={(event) => setForm({ ...form, type: event.target.value })}><option value="free">自由题目</option><option value="builtin">内置课文</option><option value="shared">班级共享课文</option></select></label>
-      {form.type === 'builtin' && <div className="teacher-form-pair"><label>册号<input type="number" min="1" max="10" required value={form.book} onChange={(event) => setForm({ ...form, book: event.target.value })} /></label><label>课文编号<input type="number" min="1" max="200" required value={form.lessonNo} onChange={(event) => setForm({ ...form, lessonNo: event.target.value })} /></label></div>}
+      {form.type === 'builtin' && <><div className="teacher-form-pair"><label>课文库<select required value={form.book} onChange={(event) => setForm({ ...form, book: Number(event.target.value), lessonNo: '' })}>{books.map((book) => <option key={book.book} value={book.book}>{book.label}（{book.lessons} 课）</option>)}</select></label><label>选择课文<select required value={form.lessonNo} disabled={catalogBusy || !lessons.length} onChange={(event) => setForm({ ...form, lessonNo: Number(event.target.value) })}><option value="">请选择课文</option>{lessons.map((lesson) => <option key={lesson.lesson} value={lesson.lesson}>第 {lesson.lesson} 课 · {lesson.title_cn || lesson.title_en || '未命名课文'}{lesson.title_cn && lesson.title_en ? ` / ${lesson.title_en}` : ''}</option>)}</select></label></div>{!catalogBusy && !books.length && <p className="teacher-muted">暂无可选的内置课文，请先选择其他内容来源。</p>}</>}
       {form.type === 'shared' && <label>共享课文<select required value={form.sharedLessonId} onChange={(event) => setForm({ ...form, sharedLessonId: event.target.value })}><option value="">请选择</option>{detail.corpus.map((lesson) => <option key={lesson.id} value={lesson.id}>{lesson.title}</option>)}</select></label>}
       {form.type === 'free' && <><label>中文提示<textarea required maxLength={8000} value={form.prompt} onChange={(event) => setForm({ ...form, prompt: event.target.value })} placeholder="学生将根据这段中文完成回译" /></label><label>英文参考（可选）<textarea maxLength={8000} value={form.reference} onChange={(event) => setForm({ ...form, reference: event.target.value })} /></label></>}
       <label>截止时间<input type="datetime-local" required value={form.dueAt} onChange={(event) => setForm({ ...form, dueAt: event.target.value })} /></label>
-      <button className="teacher-primary" disabled={busy}>{busy ? '保存中…' : '发布作业'}</button>
+      <button className="teacher-primary" disabled={busy || (form.type === 'builtin' && (catalogBusy || !lessons.length))}>{busy ? '保存中…' : '发布作业'}</button>
     </form>}
     <h3>作业与完成情况</h3>
     {!detail.homeworks.length && <p className="teacher-muted">还没有作业。</p>}
     {detail.homeworks.map((hw) => {
       const completed = detail.students.filter((student) => student.subs.some((sub) => sub.hwId === hw.id)).length;
       return <details className="teacher-hw" key={hw.id}><summary><strong>{hw.title}</strong><span>{completed}/{detail.students.length} 已交 · 截止 {dateText(hw.dueAt)}{hw.closedAt ? ' · 已结束' : ''}</span></summary>
-        <div className="teacher-hw-inner"><p>{hw.type === 'builtin' ? `内置课文：第 ${hw.book} 册，第 ${hw.lessonNo} 课` : hw.type === 'shared' ? '班级共享课文' : '自由题目'} · {hw.prompt.slice(0, 100)}{hw.prompt.length > 100 ? '…' : ''}</p>
+        <div className="teacher-hw-inner"><p>{hw.type === 'builtin' ? `内置课文：${hw.lessonTitle || `第 ${hw.book} 库 · 第 ${hw.lessonNo} 课`}` : hw.type === 'shared' ? '班级共享课文' : '自由题目'} · {hw.prompt.slice(0, 100)}{hw.prompt.length > 100 ? '…' : ''}</p>
           <button type="button" disabled={busy} onClick={() => toggleClosed(hw)}>{hw.closedAt ? '重新开放' : '结束收集'}</button>
           <div className="teacher-scroll"><table><thead><tr><th>学生</th><th>学号</th><th>状态</th><th>最近成绩</th><th>结果</th></tr></thead><tbody>{detail.students.map((student) => {
             const sub = student.subs.filter((entry) => entry.hwId === hw.id).sort((a, b) => b.at - a.at)[0];

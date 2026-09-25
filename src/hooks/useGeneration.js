@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { analyze, deleteAnalyzeJob, getAnalyzeJob } from '../api.js'
-import { activeHomework, reportCompletedJob, retryClassReports } from '../classroom.js'
+import { activeHomework, clearActiveHomework, reportCompletedJob, retryClassReports } from '../classroom.js'
 import { DEMO_LESSON_18 } from '../demo.js'
 import { formatDuration } from '../format.js'
 import { normalizeDirection } from '../direction.js'
@@ -59,7 +59,7 @@ export function useGeneration({
   title, chinese, draft, manualOriginal, generatedOriginal,
   mode, book, lessonId, myLibId, matchedLesson, lessonKey,
   settings, polishLevel, runJob, busy, cancelProgress, elapsedMsNow,
-  genTokenRef, aliveRef, direction,
+  genTokenRef, aliveRef, direction, view,
   setView, setError, setHistoryOpen,
   flashTip, setToast, runGenerateRef,
 }) {
@@ -69,6 +69,21 @@ export function useGeneration({
   const [result, setResult] = useState(null);
   const [currentJobId, setCurrentJobId] = useState('');
   useEffect(() => { void retryClassReports(); }, []);
+  useEffect(() => {
+    if (view !== 'result' || !currentJobId) return undefined;
+    let active = true;
+    const refreshComments = () => {
+      if (document.hidden) return;
+      getAnalyzeJob(currentJobId).then((response) => {
+        if (!active || !response.job?.data) return;
+        setResult((current) => current ? { ...current, teacherComments: response.job.data.teacherComments || [] } : current);
+      }).catch(() => {});
+    };
+    refreshComments();
+    window.addEventListener('focus', refreshComments);
+    document.addEventListener('visibilitychange', refreshComments);
+    return () => { active = false; window.removeEventListener('focus', refreshComments); document.removeEventListener('visibilitychange', refreshComments); };
+  }, [view, currentJobId]);
   const [historyList, setHistoryList] = useState(loadHistory);
   // 已删除作业号（墓碑）：云同步的历史合并是并集，没有它会"删了又出现"
   const [deletedHistory, setDeletedHistory] = useState(loadDeletedHistory);
@@ -188,11 +203,7 @@ export function useGeneration({
       setView('result');
       setError('');
       window.history.replaceState(null, '', '#job=' + jobId);
-      // 本机缓存可能早于教师评语；页面先秒开，再从服务端补最新评语。
-      getAnalyzeJob(jobId).then((r) => {
-        if (reqId !== historyReqRef.current || !r.job?.data) return;
-        setResult((current) => current ? { ...current, teacherComments: r.job.data.teacherComments || [] } : current);
-      }).catch(() => {});
+      // 结果页的 effect 会在打开时和重新聚焦时读取最新教师评语。
       return;
     }
     try {
@@ -370,6 +381,7 @@ export function useGeneration({
           if (jobId) {
             addToHistory(jobId, (data && data.title) || title, enriched, durationMs, deleteToken);
             void reportCompletedJob(jobId, deleteToken, classHomework);
+            if (classHomework && activeHomework()?.classId === classHomework.classId && activeHomework()?.hwId === classHomework.hwId) clearActiveHomework();
             bumpProgress(lessonKey, enriched, durationMs);
             bumpStudyDay();
             window.history.replaceState(null, '', '#job=' + jobId);

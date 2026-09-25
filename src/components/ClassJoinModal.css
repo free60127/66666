@@ -18,3 +18,9 @@
 .class-task-row button:disabled { opacity:.5; cursor:not-allowed; }
 .class-room-card { margin-top:12px; border:1px solid #dce5ef; border-radius:10px; padding:12px; }
 .class-room-card h4 { margin:12px 0 7px; }
+.class-feedback { margin:12px 0; padding:10px 12px; border:1px solid #b7d8ca; border-radius:10px; background:#f1faf6; }
+.class-feedback h4 { margin:0 0 8px; color:#14604b; }
+.class-feedback-item { padding:9px 0; border-top:1px solid #d7e9df; overflow-wrap:anywhere; }
+.class-feedback-item p { margin:5px 0; }
+.class-feedback-item small { color:#567366; }
+.class-feedback-item a { display:block; margin-top:5px; font-weight:600; }

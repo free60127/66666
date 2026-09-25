@@ -12,7 +12,7 @@ const kv = {
 };
 const accounts = createAccounts({ kv, mail: async () => ({ ok: true }) });
 const jobs = new Map();
-const rooms = createClassrooms({ kv, accounts, findJob: async (id) => jobs.get(id), lessonLookup: (book, no) => book === 10 && no === 1 ? { chinese: '内置中文', english: 'Builtin English' } : null });
+const rooms = createClassrooms({ kv, accounts, findJob: async (id) => jobs.get(id), lessonLookup: (book, no) => book === 10 && no === 1 ? { title_cn: '内置第一课', chinese: '内置中文', english: 'Builtin English' } : null });
 
 const teacher = await accounts.register({ email: 'teacher@example.com', password: 'testpass123', ip: 'teacher', role: 'teacher' });
 const other = await accounts.register({ email: 'student@example.com', password: 'testpass123', ip: 'student' });
@@ -59,7 +59,9 @@ const shared = (await rooms.saveCorpusLesson(other.token, advanced.id, null, { t
 assert.equal((await rooms.saveCorpusLesson(other.token, advanced.id, shared.id, { title: '共享课文更新', chinese: '共享中文', english: 'Shared English' })).lesson.id, shared.id);
 const dueAt = Date.now() + 86400000;
 const homework = (await rooms.createHomework(teacher.token, advanced.id, { title: '自由作业', type: 'free', prompt: '请回译这句话', dueAt })).homework;
-assert.equal((await rooms.createHomework(teacher.token, advanced.id, { title: '内置作业', type: 'builtin', book: 10, lessonNo: 1, dueAt })).homework.prompt, '内置中文');
+const builtinHomework = (await rooms.createHomework(teacher.token, advanced.id, { title: '内置作业', type: 'builtin', book: 10, lessonNo: 1, dueAt })).homework;
+assert.equal(builtinHomework.prompt, '内置中文');
+assert.equal(builtinHomework.lessonTitle, '内置第一课');
 assert.equal((await rooms.createHomework(other.token, advanced.id, { title: '共享作业', type: 'shared', sharedLessonId: shared.id, dueAt })).homework.reference, 'Shared English');
 assert.equal((await rooms.createHomework(other.token, advanced.id, { title: '坏课文', type: 'builtin', book: 99, lessonNo: 1, dueAt })).status, 400);
 const pupil = await rooms.join({ code: advanced.inviteCode, name: '小红', studentNo: '302', ip: 'pupil' });

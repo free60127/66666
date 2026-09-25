@@ -13,7 +13,7 @@ const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bts-teacher-'));
 const model = http.createServer((_req, res) => {
   res.writeHead(200, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify({ choices: [{ message: { content: JSON.stringify({
-    title: '测试练习',
+    title: '测试练习 · 自我介绍 (Hello, I am a college student from Liaoning Province and I want to improve my English.)',
     overall: { score: 88, issues: 1, summary: '表达清楚', highlights: ['结构完整'], advice: ['注意搭配'] },
     sentences: [{ cn: '我今天读书。', draft: 'I read a book today.', ai: 'I read a book today.', original: 'I read a book today.', findings: [{ level: 'error', category: '搭配', from: 'read a book', to: 'read books', explanation: '根据语境选择表达。' }] }],
   }) } }] }));
@@ -72,6 +72,18 @@ try {
   await student.getByRole('button', { name: '加入班级', exact: true }).click();
   await student.getByText('已加入「测试班级」').waitFor();
   await student.getByText('班级共读').waitFor();
+  const studentState = await studentContext.storageState();
+  for (const [name, device] of [['安卓', devices['Pixel 7']], ['苹果尺寸', devices['iPhone 13']]]) {
+    const mobileContext = await browser.newContext({ ...device, storageState: studentState });
+    const mobile = await mobileContext.newPage();
+    await mobile.goto(base);
+    await mobile.getByRole('dialog', { name: '待完成的班级作业' }).waitFor();
+    if (await mobile.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1)) throw new Error(name + '作业提醒横向溢出');
+    await mobileContext.close();
+  }
+  await student.reload();
+  await student.getByRole('dialog', { name: '待完成的班级作业' }).waitFor();
+  await student.getByText('今日作业').first().waitFor();
   await student.getByRole('button', { name: '开始作业' }).click();
   if ((await student.locator('.topbar-title').inputValue()) !== '今日作业') throw new Error('作业内容未载入编辑器');
   await student.locator('.editor-grid .big-textarea').nth(1).fill('I read a book today.');
@@ -90,13 +102,38 @@ try {
   await teacher.getByRole('button', { name: '写评语' }).click();
   await teacher.getByPlaceholder('写给学生的具体建议').fill('老师建议：继续练习搭配。');
   await teacher.getByRole('button', { name: '保存评语' }).click();
+  await teacher.getByText('教师评语已保存').waitFor();
+  await student.bringToFront();
+  await student.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await student.getByText('老师建议：继续练习搭配。').waitFor({ timeout: 15000 });
   await student.reload();
   await student.getByText('老师建议：继续练习搭配。').waitFor({ timeout: 15000 });
+  if (await student.getByRole('dialog', { name: '待完成的班级作业' }).isVisible()) throw new Error('已交作业仍反复提醒');
+  await student.locator('.more-btn').click();
+  await student.getByRole('button', { name: '加入教师班级' }).click();
+  await student.getByRole('heading', { name: '教师评语（1）' }).waitFor();
+  await student.getByRole('link', { name: '查看完整批改' }).waitFor();
+  await student.getByRole('button', { name: '关闭', exact: true }).click();
   await teacher.getByRole('tab', { name: '作业' }).click();
   await teacher.getByText('1/1 已交').waitFor();
+  await teacher.getByLabel('内容来源').selectOption('builtin');
+  await teacher.getByLabel('课文库').locator('option[value="10"]').waitFor({ state: 'attached' });
+  const lessonOptions = await teacher.getByLabel('选择课文').locator('option').allTextContents();
+  if (!lessonOptions.some((option) => /第 \d+ 课 · .+/.test(option))) throw new Error('内置课文下拉框没有标题');
+  await teacher.getByLabel('内容来源').selectOption('free');
+  await teacher.getByLabel('作业标题').fill('第二份作业');
+  await teacher.getByLabel('中文提示').fill('我今天读书。');
+  await teacher.getByRole('button', { name: '发布作业' }).click();
+  await teacher.getByText('第二份作业').first().waitFor();
+  await student.reload();
+  await student.getByRole('dialog', { name: '待完成的班级作业' }).waitFor();
+  await student.getByText('第二份作业').first().waitFor();
+  await student.getByRole('button', { name: '稍后再做' }).click();
+  await student.reload();
+  await student.getByRole('dialog', { name: '待完成的班级作业' }).waitFor();
   await teacher.getByRole('tab', { name: '错题统计' }).click();
   await teacher.getByText('搭配').first().waitFor();
-  console.log('PASS 教师注册 → 建班 → 共享课文 → 布置作业 → 学生提交 → 评语与错题统计 → CSV');
+  console.log('PASS 教师注册 → 建班 → 作业进站提醒 → 学生提交 → 评语回显 → 内置课文标题 → CSV');
 
   const colleagueContext = await browser.newContext();
   const colleague = await colleagueContext.newPage();
@@ -116,6 +153,8 @@ try {
   console.log('PASS 班级创建者添加协作教师，对方可看到共享班级');
 
   const teacherState = await teacherContext.storageState();
+  await teacher.getByRole('tab', { name: '成绩' }).click();
+  if (await teacher.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1)) throw new Error('桌面成绩页横向溢出');
   for (const [name, device] of [['安卓', devices['Pixel 7']], ['苹果尺寸', devices['iPhone 13']]]) {
     const context = await browser.newContext({ ...device, storageState: teacherState });
     const page = await context.newPage();
@@ -124,6 +163,12 @@ try {
     await page.getByRole('heading', { name: '测试班级' }).waitFor();
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
     if (overflow) throw new Error(name + '教师班级页横向溢出');
+    const tableScroll = await page.locator('.teacher-scroll').first().evaluate((el) => el.scrollWidth > el.clientWidth);
+    if (!tableScroll) throw new Error(name + '成绩表未在卡片内部滚动');
+    await page.getByRole('tab', { name: '作业' }).click();
+    await page.getByLabel('内容来源').selectOption('builtin');
+    await page.getByLabel('选择课文').locator('option').nth(1).waitFor({ state: 'attached' });
+    if (await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1)) throw new Error(name + '布置作业表单横向溢出');
     console.log('PASS ' + name + '触屏尺寸班级页无横向溢出');
     await context.close();
   }
