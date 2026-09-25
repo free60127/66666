@@ -387,7 +387,7 @@ function App() {
   const [draftRestored, setDraftRestored] = useState(null); // 草稿恢复横幅（draftBox）
   const {
     lessons, book, setBook, lessonId, setLessonId, matchedLesson, setMatchedLesson,
-    lessonQuery, setLessonQuery, visibleLessons,
+    lessonQuery, setLessonQuery, visibleLessons, lessonLoading,
     selectLesson, selectMyLesson, cancelPendingLesson, applyMatchedLesson,
   } = useLessons({
     direction: dir,
@@ -412,10 +412,16 @@ function App() {
   matchedLessonRef.current = matchedLesson; // 供 useLibraries 读「当前正在练的课」
 
   // 切课确认：初稿非空时提醒"草稿已保留"（同一份内容只提醒一次，反复切课不打扰）
+  const draftSnapshotRef = useRef(null);
   const draftConfirmRef = useRef('');
   const draftGuardConfirm = useCallback(() => {
     if (!draft.trim()) return true;
-    const hash = `${draft.length}:${draft.slice(0, 60)}`;
+    const { key, snap } = draftSnapshotRef.current || {};
+    if (!key || !saveDraft(key, snap)) {
+      flashTip(setToast, '草稿未能保存，请检查浏览器存储空间后再切课', 5000);
+      return false;
+    }
+    const hash = `${key}:${draft.length}:${draft.slice(0, 60)}`;
     if (draftConfirmRef.current === hash) return true;
     const ok = window.confirm('这一课的草稿已自动保留，下次进来可继续写。确认离开吗？');
     if (ok) draftConfirmRef.current = hash;
@@ -479,7 +485,6 @@ function App() {
    * 三条写入路径：防抖自动保存（打字随时落盘）/「存草稿」按钮（给用户确定性）/
    * pagehide·visibilitychange 兜底（手机切后台、直接杀进程没有任何退出事件）。
    * 恢复在选同一课时自动发生（useLessons），恢复后横幅给「丢弃」入口。 */
-  const draftSnapshotRef = useRef(null);
   draftSnapshotRef.current = {
     key: lessonKey,
     snap: { title, chinese, draft, manualOriginal, generatedOriginal, materialKeywords, direction: dir },
@@ -510,11 +515,15 @@ function App() {
   const saveDraftNow = () => {
     const { key, snap } = draftSnapshotRef.current || {};
     if (!snap?.draft?.trim()) { flashTip(setToast, '初稿还是空的，写了内容再来存', 3200); return; }
-    saveDraft(key, snap);
-    flashTip(setToast, '草稿已保存，下次选这篇课文可继续写', 3600);
+    flashTip(setToast, saveDraft(key, snap)
+      ? '草稿已保存，下次选这篇课文可继续写'
+      : '草稿未能保存，请检查浏览器存储空间', 3600);
   };
   const discardDraft = () => {
-    if (draftRestored) clearDraft(draftRestored.lessonKey);
+    if (draftRestored && !clearDraft(draftRestored.lessonKey)) {
+      flashTip(setToast, '无法丢弃草稿，请检查浏览器存储空间', 3600);
+      return;
+    }
     setDraftRestored(null);
     setDraft('');
     flashTip(setToast, '草稿已丢弃', 2600);
@@ -1394,6 +1403,7 @@ function App() {
           <input
             className="topbar-title"
             value={title}
+            disabled={lessonLoading}
             onChange={(e) => { initialLessonCancelledRef.current = true; setTitle(e.target.value); }}
             placeholder={mode === 'lesson' ? '课文回译训练 · 作业标题' : '自由回译训练 · 作业标题'}
             aria-label="作业标题"
@@ -1537,6 +1547,7 @@ function App() {
               </div>
             )}
             {generatedOriginal && <div className="match-banner"><Sparkles size={15} />已载入 AI 原创训练素材（无教材版权）：{title}{materialKeywords.length ? ` · 建议词汇：${materialKeywords.join('、')}` : ''}，请根据中文提示写出你的英文初稿</div>}
+            {lessonLoading && <div className="match-banner" role="status">课文加载中，请稍候…</div>}
             {draftRestored && draftRestored.lessonKey === lessonKey && (
               <div className="match-banner draft-banner" role="status">
                 已恢复上次草稿（{draftAgeText(draftRestored.savedAt)}保存）
@@ -1562,7 +1573,7 @@ function App() {
                     </button>
                   </div>
                 </div>
-                <textarea className="big-textarea" value={chinese} onChange={(e) => { initialLessonCancelledRef.current = true; setChinese(e.target.value); }} placeholder={dt.sourcePlaceholder} />
+                <textarea className="big-textarea" value={chinese} disabled={lessonLoading} onChange={(e) => { initialLessonCancelledRef.current = true; setChinese(e.target.value); }} placeholder={dt.sourcePlaceholder} />
                 {/* 帮助文字只在实际有话可说时出现（OCR 结果/失败原因）；常驻的"支持：拍照…"噪音已删 */}
                 {ocrNotes.chinese ? <div className={'ocr-note' + (String(ocrNotes.chinese).startsWith('识别失败') ? ' err' : '')}>{ocrNotes.chinese}</div> : null}
                 <input ref={chineseCamRef} type="file" accept="image/*" capture="environment" hidden onChange={(e) => { const f = Array.from(e.target.files || []); e.target.value = ''; handleUserOcrFiles('chinese', f); }} />
@@ -1577,7 +1588,7 @@ function App() {
                 <div className="panel-head">
                   <h2>{dt.draftTitle}</h2>
                   <div className="panel-tools">
-                    <button className="ghost-btn sm" onClick={saveDraftNow} title="把当前初稿存入草稿本；下次选这篇课文时会自动恢复">
+                    <button className="ghost-btn sm" onClick={saveDraftNow} disabled={lessonLoading} title="把当前初稿存入草稿本；下次选这篇课文时会自动恢复">
                       <Save size={14} />存草稿
                     </button>
                     <button className="ghost-btn sm" onClick={() => openUserCamera('english')} disabled={Boolean(ocrBusy)} title={dt.draftOcrTitle}>
@@ -1588,7 +1599,17 @@ function App() {
                     </button>
                   </div>
                 </div>
-                <textarea className="big-textarea" value={draft} onChange={(e) => { initialLessonCancelledRef.current = true; setDraft(e.target.value); }} placeholder={dt.draftPlaceholder} />
+                <textarea className="big-textarea" value={draft} disabled={lessonLoading} onChange={(e) => {
+                  initialLessonCancelledRef.current = true;
+                  if (!e.target.value.trim()) {
+                    if (!clearDraft(lessonKey)) {
+                      flashTip(setToast, '无法清空已保存的草稿，请检查浏览器存储空间', 4000);
+                      return;
+                    }
+                    setDraftRestored(null);
+                  }
+                  setDraft(e.target.value);
+                }} placeholder={dt.draftPlaceholder} />
                 {ocrNotes.english ? <div className={'ocr-note' + (String(ocrNotes.english).startsWith('识别失败') ? ' err' : '')}>{ocrNotes.english}</div> : null}
                 <input ref={englishCamRef} type="file" accept="image/*" capture="environment" hidden onChange={(e) => { const f = Array.from(e.target.files || []); e.target.value = ''; handleUserOcrFiles('english', f); }} />
                 <input ref={englishFileRef} type="file" accept="image/*" multiple hidden onChange={(e) => { const f = Array.from(e.target.files || []); e.target.value = ''; handleUserOcrFiles('english', f); }} />
@@ -1628,6 +1649,7 @@ function App() {
                     id="bt-original"
                     className="big-textarea original-textarea"
                     value={manualOriginal}
+                    disabled={lessonLoading}
                     onChange={(e) => { initialLessonCancelledRef.current = true; setManualOriginal(e.target.value); }}
                     placeholder="把这一课的英文原文粘贴到这里（课文原文 / 你要对标的范文都行）；也可以拍照或导入图片识别。留空则使用内置语料或 AI 素材自带的原文。"
                   />

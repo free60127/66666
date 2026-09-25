@@ -48,6 +48,7 @@ export function useLessons({
     return Number.isFinite(n) && n > 0 ? n : 18;
   });
   const [matchedLesson, setMatchedLesson] = useState(null);
+  const [lessonLoading, setLessonLoading] = useState(false);
   const [lessonQuery, setLessonQuery] = useState(''); // 课文搜索（348 课靠翻列表太慢）
 
   // 请求令牌：连点两课时，先发的慢请求若后返回，会把标题/中文覆盖成上一课的内容
@@ -55,6 +56,7 @@ export function useLessons({
   const lessonReqRef = useRef(0);
   const cancelPendingLesson = useCallback(() => {
     lessonReqRef.current += 1;
+    setLessonLoading(false);
     if (genTokenRef) genTokenRef.current += 1;
   }, [genTokenRef]);
 
@@ -133,6 +135,7 @@ export function useLessons({
   const selectLesson = useCallback(async (nextBook, nextLesson, autoGenerate = false, initialLoad = false) => {
     if (initialLoad && initialLessonCancelledRef.current) return;
     const reqId = (lessonReqRef.current += 1);
+    if (!initialLoad) setLessonLoading(true);
     const applySelection = () => {
       if (genTokenRef) genTokenRef.current += 1; // 切课即作废正在跑的生成任务，避免它完成时抢回结果页
       setBook(nextBook);
@@ -141,6 +144,13 @@ export function useLessons({
       setMode('lesson');
       setMatchConfidence('manual');
       setMatchScore(null);
+      // 与课文身份一起清空旧编辑内容：慢请求期间不能把上一课草稿存到新课名下。
+      setTitle('课文加载中…');
+      setChinese('');
+      setDraft('');
+      setManualOriginal('');
+      setGeneratedOriginal('');
+      setMaterialKeywords([]);
       safeSet('bt-book', String(nextBook));
       safeSet('bt-lesson', String(nextLesson));
     };
@@ -173,6 +183,8 @@ export function useLessons({
       setManualOriginal('');
       setMaterialKeywords([]);
       restoreDraftRef.current?.(`lesson:${nextBook}-${nextLesson}`);
+    } finally {
+      if (reqId === lessonReqRef.current) setLessonLoading(false);
     }
     // 走 ref 取当下的生成函数：否则 selectLesson 的依赖会一路拖到整个生成流程
     if (autoGenerate) setTimeout(() => runGenerateRef.current && runGenerateRef.current(nextLesson), 60);
@@ -186,6 +198,7 @@ export function useLessons({
     const lesson = lib?.lessons.find((l) => l.lesson === Number(lessonNo));
     if (!lesson) return;
     lessonReqRef.current += 1; // 作废仍在飞的内置课文请求，避免它回来覆盖
+    setLessonLoading(false);
     if (genTokenRef) genTokenRef.current += 1;
     setMyLibId(libId);
     setLessonId(lesson.lesson);
@@ -223,6 +236,7 @@ export function useLessons({
   return {
     lessons, setLessons, book, setBook, lessonId, setLessonId, matchedLesson, setMatchedLesson,
     lessonQuery, setLessonQuery, visibleLessons,
+    lessonLoading,
     selectLesson, selectMyLesson, cancelPendingLesson, applyMatchedLesson,
   };
 }

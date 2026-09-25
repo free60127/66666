@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach } from 'vitest';
+import { describe, expect, it, beforeEach, vi } from 'vitest';
 import { loadDraft, saveDraft, clearDraft, draftAgeText } from '../../src/draftBox.js';
 
 const snap = (draft, extra = {}) => ({ title: 'Lesson 2 · My Family', chinese: '中文', draft, manualOriginal: '原文', generatedOriginal: '', materialKeywords: [], direction: 'cn2en', ...extra });
@@ -30,6 +30,18 @@ describe('草稿本（draftBox）', () => {
     const all = JSON.parse(localStorage.getItem('bt-drafts'));
     expect(Object.keys(all).length).toBeLessThanOrEqual(30);
     expect(all['lesson:10-31']).toBeTruthy();
+  });
+
+  it('本机存储写入失败时不谎报保存或丢弃成功', () => {
+    const key = 'lesson:10-2';
+    expect(saveDraft(key, snap('旧内容'))).toBe(true);
+    const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementation((name) => {
+      if (name === 'bt-drafts') throw new DOMException('Storage full', 'QuotaExceededError');
+    });
+    expect(saveDraft(key, snap('新内容'))).toBe(false);
+    expect(clearDraft(key)).toBe(false);
+    expect(loadDraft(key)?.draft).toBe('旧内容');
+    setItem.mockRestore();
   });
 
   it('draftAgeText 分档文案', () => {

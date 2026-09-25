@@ -16,7 +16,8 @@
     "lint": "eslint .",
     "test:ui": "vitest run",
     "test:fit": "node tools/qa-probe-mobile-desktop.mjs",
-    "test:sim": "node tools/qa-user-sim.mjs"
+    "test:sim": "node tools/qa-user-sim.mjs",
+    "test:drafts": "npm run build && node tools/qa-drafts.mjs"
   },
   "dependencies": {
     "lucide-react": "0.468.0",

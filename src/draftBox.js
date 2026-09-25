@@ -21,7 +21,7 @@ const readAll = () => {
   } catch { return {}; }
 };
 
-const writeAll = (drafts) => { safeSet(KEY, JSON.stringify(drafts)); };
+const writeAll = (drafts) => safeSet(KEY, JSON.stringify(drafts));
 
 /** 读某一课的草稿；没有或已损坏返回 null。 */
 export function loadDraft(lessonKey) {
@@ -55,21 +55,21 @@ export function saveDraft(lessonKey, snapshot) {
   const entries = Object.entries(all);
   if (entries.length > MAX_DRAFTS) {
     entries.sort((a, b) => (b[1].savedAt || 0) - (a[1].savedAt || 0));
-    writeAll(Object.fromEntries(entries.slice(0, MAX_DRAFTS)));
+    return writeAll(Object.fromEntries(entries.slice(0, MAX_DRAFTS)));
   } else {
-    writeAll(all);
+    return writeAll(all);
   }
-  return true;
 }
 
 /** 丢弃某课的草稿（恢复横幅上的"丢弃"按钮）。 */
 export function clearDraft(lessonKey) {
-  if (!lessonKey) return;
+  if (!lessonKey) return false;
   const all = readAll();
   if (all[lessonKey]) {
     delete all[lessonKey];
-    writeAll(all);
+    return writeAll(all);
   }
+  return true;
 }
 
 /** 横幅文案：草稿是多久前保存的（"刚刚 / 5 分钟前 / 2 小时前 / 3 天前"）。 */
