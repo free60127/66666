@@ -78,6 +78,18 @@ const detail = await rooms.detail(teacher.token, advanced.id);
 assert.equal(detail.students[0].subs[0].mistakeCount, 1);
 assert.equal(detail.mistakeStats.categories[0].category, '搭配');
 assert.equal(detail.mistakeStats.patterns[0].students, 1);
+assert.equal(detail.mistakeStats.patterns[0].who[0], '小红');
+// 「课文」列标题归一：作业提交用作业名、共享课文提交核实后用课文名，AI 标题只作自由练习兜底
+const job3 = '52345678-1234-1234-1234-123456789abc';
+jobs.set(job3, { jobId: job3, kind: 'analyze', status: 'done', deleteToken: 'secret-s3', prompt: homework.prompt, direction: 'cn2en', createdAt: homework.createdAt + 2, data: { title: 'AI 随手起的标题', overall: { score: 66 }, sentences: [] }, finishedAt: Date.now() });
+assert.equal((await rooms.submit({ classId: advanced.id, studentKey: pupil.studentKey, jobId: job3, deleteToken: 'secret-s3', hwId: homework.id, ip: 'pupil4' })).submission.title, '自由作业');
+const job4 = '62345678-1234-1234-1234-123456789abc';
+jobs.set(job4, { jobId: job4, kind: 'analyze', status: 'done', deleteToken: 'secret-s4', prompt: '共享中文', direction: 'cn2en', createdAt: Date.now(), data: { title: 'AI 另一个标题', overall: { score: 70 }, sentences: [] }, finishedAt: Date.now() });
+assert.equal((await rooms.submit({ classId: advanced.id, studentKey: pupil.studentKey, jobId: job4, deleteToken: 'secret-s4', sharedLessonId: shared.id, ip: 'pupil5' })).submission.title, '共享课文更新');
+// 冒名防护：sharedLessonId 与练习内容对不上 → 回落 AI 标题，不冒用课文名
+const job5 = '72345678-1234-1234-1234-123456789abc';
+jobs.set(job5, { jobId: job5, kind: 'analyze', status: 'done', deleteToken: 'secret-s5', prompt: '跟课文无关的内容', direction: 'cn2en', createdAt: Date.now(), data: { title: 'AI 兜底标题', overall: { score: 60 }, sentences: [] }, finishedAt: Date.now() });
+assert.equal((await rooms.submit({ classId: advanced.id, studentKey: pupil.studentKey, jobId: job5, deleteToken: 'secret-s5', sharedLessonId: shared.id, ip: 'pupil6' })).submission.title, 'AI 兜底标题');
 assert.equal((await rooms.comment(other.token, advanced.id, { studentNo: '302', jobId: job2, comment: '注意 look for 的搭配。' })).status, 200);
 assert.equal((await rooms.comments(job2))[0].text, '注意 look for 的搭配。');
 assert.equal((await rooms.studentDashboard(advanced.id, pupil.studentKey)).student.subs[0].teacherComment.text, '注意 look for 的搭配。');
@@ -90,4 +102,8 @@ assert.equal((await rooms.list(other.token)).classes.filter((room) => room.id ==
 assert.equal((await rooms.removeCorpusLesson(teacher.token, advanced.id, shared.id)).status, 200);
 assert.equal((await rooms.saveCorpusLesson(teacher.token, advanced.id, null, { title: '替换课文', chinese: '新中文', english: 'New English' })).status, 201);
 assert.equal((await rooms.detail(teacher.token, advanced.id)).corpus.length, 1);
+// 归档后写操作全部关死（与"不能再布置/保存"一致）
+assert.equal((await rooms.archive(teacher.token, advanced.id)).status, 200);
+assert.equal((await rooms.updateHomework(teacher.token, advanced.id, homework.id, { title: '归档后改名' })).status, 400);
+assert.equal((await rooms.removeCorpusLesson(teacher.token, advanced.id, 'a'.repeat(24))).status, 400);
 console.log('✅ 教师班级阶段 1–3：权限、邀请、作业、共享语料、协作教师、评语、错题汇总测试通过');

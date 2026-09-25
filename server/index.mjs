@@ -1374,6 +1374,9 @@ function index(res) {
 // 而人写配置时习惯性会多打一个 "/" —— 那样会**静默**匹配不上（不报错，只是前端拿不到数据）。
 const ALLOWED_ORIGINS = [
   'https://free60127.github.io',
+  // huiyiben.cn：备案完成后自有域名的前端也要访问 API（服务器部署时同源，此处为过渡期双 origin 兜底）
+  'https://huiyiben.cn',
+  'https://www.huiyiben.cn',
   ...String(process.env.ALLOW_ORIGIN || '').split(','),
 ].map((s) => s.trim().replace(/\/+$/, '')).filter(Boolean);
 function applyCors(req, res) {

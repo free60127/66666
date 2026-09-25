@@ -60,7 +60,7 @@ export function useGeneration({
   mode, book, lessonId, myLibId, matchedLesson, lessonKey,
   settings, polishLevel, runJob, busy, cancelProgress, elapsedMsNow,
   genTokenRef, aliveRef, direction, view,
-  setView, setError, setHistoryOpen,
+  setView, setError, setHistoryOpen, setChinese,
   flashTip, setToast, runGenerateRef,
 }) {
   // 方向走 ref：runGenerate 只在提交那一刻需要它，放进依赖会让"切方向"重建整个提交函数
@@ -291,7 +291,14 @@ export function useGeneration({
     const classHomework = activeHomework();
     const id = overrideLessonId ?? lessonId;
     const dir = normalizeDirection(directionRef.current);
-    const cn = chinese.trim();
+    let cn = chinese.trim();
+    // 班级任务的提示词不可改：OCR/DOCX/手滑都可能把它改掉，而服务端会因 prompt 不一致
+    // 拒绝上报 —— 学生得整篇重做。提交前自动恢复原提示词，把陷阱消掉。
+    if (classHomework?.prompt && dir === 'cn2en' && cn && cn !== classHomework.prompt) {
+      setChinese(classHomework.prompt);
+      cn = classHomework.prompt;
+      flashTip(setToast, '班级作业的中文提示不能修改，已自动恢复', 4200);
+    }
     const df = draft.trim();
     // 提示语跟着方向走：英译汉时源栏装的是英文原文、初稿栏是中文译稿
     if (!cn) { setError(dir === 'en2cn' ? '请先填入要翻译的英文原文（或上传含英文的 DOCX）' : '请先上传包含中文提示的 DOCX，或填入中文提示'); return; }

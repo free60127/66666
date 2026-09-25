@@ -19,3 +19,24 @@ describe('班级作业进站提醒', () => {
     expect(pendingAssignments([{ ...dashboard, class: { ...dashboard.class, archivedAt: 900 } }], now)).toEqual([]);
   });
 });
+
+describe('进行中的班级任务持久化', () => {
+  it('存 localStorage 且 24 小时过期——关标签页/手机切后台不再丢作业归属', async () => {
+    const { activateHomework, activeHomework, clearActiveHomework } = await import('../../src/classroom.js');
+    clearActiveHomework();
+    expect(activeHomework()).toBeNull();
+    activateHomework('class-1', 'hw-9', { title: '今日作业', prompt: '今天的天气很好。', sharedLessonId: null });
+    const task = activeHomework();
+    expect(task.classId).toBe('class-1');
+    expect(task.hwId).toBe('hw-9');
+    expect(task.title).toBe('今日作业');
+    expect(task.prompt).toBe('今天的天气很好。');
+    const raw = JSON.parse(localStorage.getItem('bts-active-homework'));
+    expect(typeof raw.at).toBe('number');
+    raw.at = Date.now() - 25 * 3600 * 1000;
+    localStorage.setItem('bts-active-homework', JSON.stringify(raw));
+    expect(activeHomework()).toBeNull();
+    clearActiveHomework();
+    expect(activeHomework()).toBeNull();
+  });
+});

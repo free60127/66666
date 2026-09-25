@@ -70,8 +70,16 @@ export function TeacherHomeworkPanel({ detail, token, request, onChanged, onErro
     {!detail.homeworks.length && <p className="teacher-muted">还没有作业。</p>}
     {detail.homeworks.map((hw) => {
       const completed = detail.students.filter((student) => student.subs.some((sub) => sub.hwId === hw.id)).length;
+      // 催作业是教师最高频动作：未交名单直接可读、可复制进群
+      const missing = detail.students.filter((student) => !student.subs.some((sub) => sub.hwId === hw.id));
+      const copyMissing = () => {
+        const text = `【${hw.title}】未交（${missing.length} 人）：${missing.map((s) => s.name).join('、')}`;
+        navigator.clipboard?.writeText(text).then(() => onError('未交名单已复制'), () => {});
+      };
       return <details className="teacher-hw" key={hw.id}><summary><strong>{hw.title}</strong><span>{completed}/{detail.students.length} 已交 · 截止 {dateText(hw.dueAt)}{hw.closedAt ? ' · 已结束' : ''}</span></summary>
         <div className="teacher-hw-inner"><p>{hw.type === 'builtin' ? `内置课文：${hw.lessonTitle || `第 ${hw.book} 库 · 第 ${hw.lessonNo} 课`}` : hw.type === 'shared' ? '班级共享课文' : '自由题目'} · {hw.prompt.slice(0, 100)}{hw.prompt.length > 100 ? '…' : ''}</p>
+          {!missing.length ? <p className="teacher-hw-missing ok">全班都已提交。</p>
+            : <p className="teacher-hw-missing">未交（{missing.length} 人）：{missing.map((s) => s.name).join('、')} <button type="button" onClick={copyMissing}>复制名单</button></p>}
           <button type="button" disabled={busy} onClick={() => toggleClosed(hw)}>{hw.closedAt ? '重新开放' : '结束收集'}</button>
           <div className="teacher-scroll"><table><thead><tr><th>学生</th><th>学号</th><th>状态</th><th>最近成绩</th><th>结果</th></tr></thead><tbody>{detail.students.map((student) => {
             const sub = student.subs.filter((entry) => entry.hwId === hw.id).sort((a, b) => b.at - a.at)[0];
@@ -111,9 +119,13 @@ export function TeacherCorpusPanel({ detail, token, request, onChanged, onError 
 
 export function TeacherStatsPanel({ detail }) {
   const stats = detail.mistakeStats || { categories: [], patterns: [] };
+  // 点类别行 → 下钻到该类别的具体"原表达 → 建议表达"，统计才变成可教的数据
+  const [filter, setFilter] = useState('');
+  const shown = filter ? stats.patterns.filter((entry) => entry.category === filter) : stats.patterns;
+  useEffect(() => { setFilter(''); }, [detail.class.id]);
   return <section className="card teacher-extension"><h2>全班错题统计</h2><p className="teacher-muted">从学生上报的逐句批改中汇总错误与改进点；历史记录从启用此功能后的提交开始计入。</p>
-    <div className="teacher-stats-grid"><div><h3>问题类别</h3>{stats.categories.length ? <div className="teacher-scroll"><table><thead><tr><th>类别</th><th>次数</th><th>涉及学生</th></tr></thead><tbody>{stats.categories.map((entry) => <tr key={entry.category}><td>{entry.category}</td><td>{entry.count}</td><td>{entry.students}</td></tr>)}</tbody></table></div> : <p className="teacher-muted">暂无错误记录。</p>}</div>
-      <div><h3>高频表达问题</h3>{stats.patterns.length ? <div className="teacher-scroll"><table><thead><tr><th>类别</th><th>原表达</th><th>建议表达</th><th>次数</th><th>学生</th></tr></thead><tbody>{stats.patterns.map((entry, index) => <tr key={index}><td>{entry.category}</td><td>{entry.from}</td><td>{entry.to}</td><td>{entry.count}</td><td>{entry.students}</td></tr>)}</tbody></table></div> : <p className="teacher-muted">暂无高频问题。</p>}</div></div>
+    <div className="teacher-stats-grid"><div><h3>问题类别</h3>{stats.categories.length ? <div className="teacher-scroll"><table><thead><tr><th>类别</th><th>次数</th><th>涉及学生</th></tr></thead><tbody>{stats.categories.map((entry) => <tr key={entry.category} className={'stats-cat-row' + (filter === entry.category ? ' active' : '')} onClick={() => setFilter(filter === entry.category ? '' : entry.category)} title="点击查看该类别的具体表达问题"><td>{entry.category}</td><td>{entry.count}</td><td>{entry.students}</td></tr>)}</tbody></table></div> : <p className="teacher-muted">暂无错误记录。</p>}</div>
+      <div><h3>{filter ? `高频表达问题 · ${filter}` : '高频表达问题'}</h3>{filter && <button type="button" className="teacher-link" onClick={() => setFilter('')}>显示全部类别</button>}{shown.length ? <div className="teacher-scroll"><table><thead><tr><th>原表达</th><th>建议表达</th><th>次数</th><th>涉及学生</th></tr></thead><tbody>{shown.map((entry, index) => <tr key={index}><td>{entry.from}</td><td>{entry.to}</td><td>{entry.count}</td><td title={(entry.who || []).join('、')}>{(entry.who || []).slice(0, 4).join('、')}{(entry.who || []).length > 4 ? ` 等 ${entry.who.length} 人` : ''}</td></tr>)}</tbody></table></div> : <p className="teacher-muted">暂无高频问题。</p>}</div></div>
   </section>;
 }
 

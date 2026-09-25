@@ -56,24 +56,27 @@ export function createClassrooms({ kv, accounts, findJob, lessonLookup }) {
   function aggregateMistakes(students) {
     const categories = new Map();
     const patterns = new Map();
+    const addWho = (item, name) => {
+      if (name && !item.who.includes(name) && item.who.length < 20) item.who.push(name);
+    };
     for (const student of students) {
       for (const entry of student.errorCategories || []) {
-        const item = categories.get(entry.category) || { category: entry.category, count: 0, students: 0 };
+        const item = categories.get(entry.category) || { category: entry.category, count: 0, students: 0, who: [] };
         item.count += entry.count;
-        item.students += 1;
+        addWho(item, student.name);
         categories.set(entry.category, item);
       }
       for (const entry of student.errorPatterns || []) {
         const id = JSON.stringify([entry.category, entry.from, entry.to]);
-        const item = patterns.get(id) || { category: entry.category, from: entry.from, to: entry.to, count: 0, students: 0 };
+        const item = patterns.get(id) || { category: entry.category, from: entry.from, to: entry.to, count: 0, students: 0, who: [] };
         item.count += entry.count;
-        item.students += 1;
+        addWho(item, student.name);
         patterns.set(id, item);
       }
     }
     return {
-      categories: [...categories.values()].sort((a, b) => b.count - a.count).slice(0, 20),
-      patterns: [...patterns.values()].sort((a, b) => b.count - a.count).slice(0, 30),
+      categories: [...categories.values()].sort((a, b) => b.count - a.count).slice(0, 20).map(({ who, ...item }) => ({ ...item, students: who.length })),
+      patterns: [...patterns.values()].sort((a, b) => b.count - a.count).slice(0, 30).map(({ who, ...item }) => ({ ...item, students: who.length, who })),
     };
   }
   async function byStudent(id, sid) {
@@ -221,6 +224,7 @@ export function createClassrooms({ kv, accounts, findJob, lessonLookup }) {
     async updateHomework(token, id, hwId, payload) {
       const access = await owned(token, id);
       if (access.error) return access.error;
+      if (access.room.archivedAt) return fail(400, '已归档班级不能修改作业');
       const hw = read(await kv.get(P + id + ':hw:' + hwId));
       if (!hw) return fail(404, '作业不存在');
       if (payload.title !== undefined) {
@@ -265,6 +269,7 @@ export function createClassrooms({ kv, accounts, findJob, lessonLookup }) {
     async removeCorpusLesson(token, id, lessonId) {
       const access = await owned(token, id);
       if (access.error) return access.error;
+      if (access.room.archivedAt) return fail(400, '已归档班级不能修改共享语料');
       return serial('corpus:' + id, async () => {
         await kv.del(P + id + ':corpus:' + lessonId);
         const count = Number(await kv.get(P + id + ':corpus-count')) || 0;
@@ -346,7 +351,7 @@ export function createClassrooms({ kv, accounts, findJob, lessonLookup }) {
         return ok({ classId: id, className: room.name, studentKey: sid, student: { name: cleanName, studentNo: cleanNo } }, 201);
       });
     },
-    async submit({ classId, studentKey: sid, jobId, deleteToken, hwId, ip }) {
+    async submit({ classId, studentKey: sid, jobId, deleteToken, hwId, sharedLessonId, ip }) {
       const limited = await rateLimit(kv, P + 'rate:submit:' + ip, 60, 180);
       if (limited.failed) return fail(503, '服务暂时不可用');
       if (limited.over) return fail(429, '提交过于频繁，请稍后再试');
@@ -357,15 +362,24 @@ export function createClassrooms({ kv, accounts, findJob, lessonLookup }) {
       if (hwId && !hw) return fail(400, '这份作业不存在');
       const job = await findJob(jobId);
       if (!job || job.kind !== 'analyze' || job.status !== 'done' || !job.data || !job.deleteToken || !matchSecret(job.deleteToken, deleteToken)) return fail(403, '需要本次已完成练习的创建凭据');
-      if (hw && (job.prompt !== hw.prompt || job.direction !== 'cn2en' || job.createdAt < hw.createdAt)) return fail(400, '这次练习与指定作业不一致，请从班级作业重新开始');
+      if (hw && (job.prompt !== hw.prompt || job.direction !== 'cn2en' || job.createdAt < hw.createdAt)) return fail(400, '这次练习与指定作业不一致');
       if (hw?.closedAt && job.createdAt > hw.closedAt) return fail(400, '这份作业已结束');
+      // 「课文」列的教师视角标题：作业提交用作业名；共享课文提交须验证课文确实在班里、
+      // 且练习内容与课文一致（防冒名），才用课文名；其余（自由练习）才用 AI 生成的标题。
+      const sharedLesson = /^[a-f0-9]{24}$/.test(String(sharedLessonId || '')) ? String(sharedLessonId) : null;
+      let title = String(job.data.title || job.title || '回译练习').slice(0, 100);
+      if (hw) title = hw.title;
+      else if (sharedLesson) {
+        const lesson = read(await kv.get(P + classId + ':corpus:' + sharedLesson));
+        if (lesson && lesson.chinese === job.prompt) title = lesson.title;
+      }
       return serial('student:' + classId + ':' + sid, async () => {
         const student = await byStudent(classId, sid);
         if (!student) return fail(403, '未加入该班级');
         if (student.subs.some((sub) => sub.jobId === jobId)) return ok({ duplicate: true });
         const rawScore = job.data.overall?.score;
         const score = rawScore == null || rawScore === '' ? NaN : Number(rawScore);
-        const sub = { jobId, title: String(job.data.title || job.title || '回译练习').slice(0, 100), lesson: String(job.meta?.lessonId || job.data.lessonNo || '').slice(0, 40), score: Number.isFinite(score) ? score : null, at: Number(job.finishedAt || job.updatedAt || Date.now()), hwId: hw?.id || null, late: Boolean(hw && job.createdAt > hw.dueAt) };
+        const sub = { jobId, title, lesson: String(job.meta?.lessonId || job.data.lessonNo || '').slice(0, 40), score: Number.isFinite(score) ? score : null, at: Number(job.finishedAt || job.updatedAt || Date.now()), hwId: hw?.id || null, late: Boolean(hw && job.createdAt > hw.dueAt) };
         const findings = (Array.isArray(job.data.sentences) ? job.data.sentences : []).flatMap((sentence) => Array.isArray(sentence.findings) ? sentence.findings : []);
         student.errorCategories ||= [];
         student.errorPatterns ||= [];

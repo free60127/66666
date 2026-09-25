@@ -82,7 +82,16 @@ const SITE_TAGLINE = '你的私人英语工坊';
 function App() {
   const [settings, setSettings] = useState(loadSettings());
   const [classJoinOpen, setClassJoinOpen] = useState(false);
+  const [classJoinPrefill, setClassJoinPrefill] = useState('');
   const [reminderTasks, setReminderTasks] = useState([]);
+  // 教师发的入班链接（index.html#join=邀请码）：进站直接打开入班弹窗并预填邀请码
+  useEffect(() => {
+    const match = window.location.hash.match(/^#join=(\d{6})$/);
+    if (!match) return;
+    setClassJoinPrefill(match[1]);
+    setClassJoinOpen(true);
+    window.history.replaceState(null, '', window.location.pathname + window.location.search);
+  }, []);
   useEffect(() => {
     const rooms = memberships();
     if (!rooms.length) return;
@@ -411,7 +420,9 @@ function App() {
     initialLessonCancelledRef.current = true;
     cancelPendingLesson();
     clearActiveHomework();
-    if (task.hwId) activateHomework(task.classId, task.hwId);
+    // 进行中的班级任务整份记录（含标题/提示词/共享课文 ID）：上报时服务端要据此
+    // 把"课文"列归一成教师认得的名字，失败提示要能说出是哪份作业。
+    if (task.classId) activateHomework(task.classId, task.hwId, { title: task.title, prompt: task.prompt, sharedLessonId: task.sharedLessonId });
     setMyLibId('');
     setMatchedLesson(null);
     chooseDirection('cn2en');
@@ -469,7 +480,7 @@ function App() {
     mode, book, lessonId, myLibId, matchedLesson, lessonKey,
     settings, polishLevel, runJob, busy, cancelProgress, elapsedMsNow,
     genTokenRef, aliveRef,
-    setView, setError, setHistoryOpen,
+    setView, setError, setHistoryOpen, setChinese,
     flashTip, setToast, runGenerateRef,
   });
 
@@ -1825,7 +1836,7 @@ function App() {
 
       <BackToTop />
 
-      {classJoinOpen && <ClassJoinModal onClose={() => setClassJoinOpen(false)} onStart={startClassTask} />}
+      {classJoinOpen && <ClassJoinModal onClose={() => setClassJoinOpen(false)} onStart={startClassTask} initialCode={classJoinPrefill} />}
       <AssignmentReminder tasks={reminderTasks} onStart={(task) => { startClassTask(task); setReminderTasks([]); }} onClose={() => setReminderTasks([])} />
       {settingsOpen && (
         <div className="modal-mask" onClick={() => setSettingsOpen(false)}>

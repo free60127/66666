@@ -3,9 +3,9 @@ import { X } from 'lucide-react';
 import { clearFailedClassReports, failedClassReports, joinClass, leaveClass, memberships, pendingClassReports, retryClassReports, studentDashboard } from '../classroom.js';
 import './ClassJoinModal.css';
 
-export default function ClassJoinModal({ onClose, onStart }) {
+export default function ClassJoinModal({ onClose, onStart, initialCode = '' }) {
   const [rooms, setRooms] = useState(memberships);
-  const [form, setForm] = useState({ code: '', name: '', studentNo: '' });
+  const [form, setForm] = useState({ code: initialCode, name: '', studentNo: '' });
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [pending, setPending] = useState(pendingClassReports);
@@ -34,7 +34,10 @@ export default function ClassJoinModal({ onClose, onStart }) {
       setRooms(memberships());
       setPending(pendingClassReports());
       setForm({ ...form, code: '' });
-      setMessage('已加入「' + data.className + '」。以后完成的回译练习会自动交给教师。');
+      const dropped = (data.droppedNames || []).length
+        ? `为不超过 5 个班级，已自动退出最早加入的「${data.droppedNames.join('」「')}」——那里的成绩教师端仍保留。`
+        : '';
+      setMessage('已加入「' + data.className + '」。以后完成的回译练习会自动交给教师。' + dropped);
     } catch (error) { setMessage(error.message || '加入失败，请稍后重试'); }
     finally { setBusy(false); }
   };
@@ -50,12 +53,17 @@ export default function ClassJoinModal({ onClose, onStart }) {
       </form>
       {message && <p role="status" className="class-join-message">{message}</p>}
       {pending > 0 && <p role="status">有 {pending} 次练习待上报。<button type="button" onClick={async () => { await retryClassReports(); setPending(pendingClassReports()); setFailed(failedClassReports()); setRefreshId((n) => n + 1); }}>重试上报</button></p>}
-      {failed.length > 0 && <p role="alert">有 {failed.length} 次练习未能交给教师：{failed[failed.length - 1].reason}。请从班级作业重新开始。<button type="button" onClick={() => { clearFailedClassReports(); setFailed([]); }}>知道了</button></p>}
+      {failed.length > 0 && <p role="alert">
+        有 {failed.length} 次练习未能交给教师
+        {failed[failed.length - 1].hwTitle ? `（最近一次：「${failed[failed.length - 1].hwTitle}」）` : ''}
+        ：{failed[failed.length - 1].reason}。请从班级作业重新开始。
+        <button type="button" onClick={() => { clearFailedClassReports(); setFailed([]); }}>知道了</button>
+      </p>}
       {rooms.length > 0 && <div className="class-joined"><div className="class-joined-head"><h3>已加入的班级</h3><button type="button" onClick={() => setRefreshId((n) => n + 1)}>刷新作业与评语</button></div>{rooms.map((room) => {
         const dashboard = dashboards[room.classId];
         const feedback = (dashboard?.student?.subs || []).filter((sub) => sub.teacherComment?.text).sort((a, b) => b.teacherComment.at - a.teacherComment.at);
         return <section key={room.classId} className="class-room-card">
-          <div className="class-joined-row"><strong>{room.className} · {room.name}（{room.studentNo}）</strong><button type="button" onClick={() => { if (window.confirm('退出「' + room.className + '」？此设备之后不会再向该班级提交成绩。')) { leaveClass(room.classId); setRooms(memberships()); } }}>退出</button></div>
+          <div className="class-joined-row"><strong>{room.className} · {room.name}（{room.studentNo}）</strong><button type="button" onClick={() => { if (window.confirm('退出「' + room.className + '」？此设备之后不会再向该班级提交成绩。教师端已收到的成绩仍会保留。')) { leaveClass(room.classId); setRooms(memberships()); } }}>退出</button></div>
           {!dashboard ? <p>正在载入作业…</p> : dashboard.error ? <p role="alert">{dashboard.error}</p> : <>
             {feedback.length > 0 && <div className="class-feedback"><h4>教师评语（{feedback.length}）</h4>{feedback.map((sub) => <div className="class-feedback-item" key={sub.jobId}><strong>{sub.title}</strong><p>{sub.teacherComment.text}</p><small>{sub.teacherComment.teacher} · {new Date(sub.teacherComment.at).toLocaleString('zh-CN')}</small><a href={import.meta.env.BASE_URL + 'index.html#job=' + encodeURIComponent(sub.jobId)}>查看完整批改</a></div>)}</div>}
             <h4>教师布置的作业</h4>
@@ -66,7 +74,7 @@ export default function ClassJoinModal({ onClose, onStart }) {
             })}
             <h4>班级共享课文</h4>
             {!dashboard.corpus.length && <p className="class-join-note">暂无共享课文</p>}
-            {dashboard.corpus.map((lesson) => <div key={lesson.id} className="class-task-row"><span>{lesson.title}</span><button type="button" onClick={() => onStart({ title: lesson.title, prompt: lesson.chinese, reference: lesson.english })}>载入练习</button></div>)}
+            {dashboard.corpus.map((lesson) => <div key={lesson.id} className="class-task-row"><span>{lesson.title}</span><button type="button" onClick={() => onStart({ title: lesson.title, prompt: lesson.chinese, reference: lesson.english, classId: room.classId, sharedLessonId: lesson.id })}>载入练习</button></div>)}
           </>}
         </section>;
       })}</div>}

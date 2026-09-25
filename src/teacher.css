@@ -386,3 +386,16 @@ td a {
   .teacher-hw summary { display: block; }
   .teacher-hw summary span { display: block; margin-top: 5px; }
 }
+
+/* 分数着色：扫一眼看出谁掉队（90+ 优 / 60- 默认 / 60 以下 预警） */
+.score-badge { display: inline-block; min-width: 30px; text-align: center; border-radius: 6px; padding: 1px 6px; font-weight: 700; }
+.score-badge.good { color: #127c3e; background: rgba(23, 160, 88, .12); }
+.score-badge.low { color: #b3261e; background: rgba(211, 47, 47, .1); }
+/* 错题统计：类别行可点击下钻 */
+.stats-cat-row { cursor: pointer; }
+.stats-cat-row:hover td { background: rgba(31, 111, 235, .06); }
+.stats-cat-row.active td { background: rgba(31, 111, 235, .1); font-weight: 700; }
+/* 作业详情里的未交名单 */
+.teacher-hw-missing { font-size: 12.5px; color: #8a5a00; background: rgba(240, 173, 78, .12); border-radius: 6px; padding: 6px 9px; }
+.teacher-hw-missing.ok { color: #127c3e; background: rgba(23, 160, 88, .1); }
+.teacher-hw-missing button { margin-left: 6px; }
