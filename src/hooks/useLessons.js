@@ -13,6 +13,7 @@ import { safeGet, safeSet } from '../storage.js'
 import { normalizeDirection } from '../direction.js';
 import { DEMO_LESSONS } from '../demo.js';
 import { lessonLabel } from '../lessonLabel.js';
+import { loadDraft } from '../draftBox.js';
 
 /**
  * @param {object} o
@@ -29,7 +30,7 @@ export function useLessons({
   setTitle, setChinese, setDraft, setGeneratedOriginal, setManualOriginal, setMaterialKeywords,
   setMatchConfidence, setMatchScore, setMode,
   runGenerateRef, refreshStatus, setError, markSavedSnapshot, setBackendWaking, genTokenRef, direction,
-  initialLessonCancelledRef,
+  initialLessonCancelledRef, onDraftRestored,
 }) {
   // selectLesson 的 ref 版：首屏拉课表的 effect 里要用它（声明必须在那个 effect 之前，否则 TDZ）
   const selectLessonRef = useRef(null);
@@ -104,6 +105,30 @@ export function useLessons({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // 草稿恢复走 ref：恢复函数每轮渲染重建，塞进 selectLesson 的依赖会让它跟着重建。
+  // 选同一课时把上次写了一半的草稿填回编辑区（含首屏自动选课 = 刷新也不丢）。
+  // 源栏/答案栏的槽位语义随方向翻转：保存时方向与现在一致才整体恢复，
+  // 不一致只恢复初稿和标题（其余槽由课文内容填充，避免内容装错槽）。
+  const onDraftRestoredRef = useRef(onDraftRestored);
+  onDraftRestoredRef.current = onDraftRestored;
+  const restoreDraftRef = useRef(null);
+  restoreDraftRef.current = (lessonKey) => {
+    const saved = loadDraft(lessonKey);
+    if (!saved) return false;
+    const dir = normalizeDirection(directionRef.current);
+    const sameDir = saved.direction === dir;
+    if (saved.title) setTitle(saved.title);
+    setDraft(saved.draft);
+    if (sameDir) {
+      setChinese(saved.chinese || '');
+      setManualOriginal(saved.manualOriginal || '');
+      setGeneratedOriginal(saved.generatedOriginal || '');
+      setMaterialKeywords(Array.isArray(saved.materialKeywords) ? saved.materialKeywords : []);
+    }
+    if (onDraftRestoredRef.current) onDraftRestoredRef.current({ lessonKey, savedAt: saved.savedAt, sameDir });
+    return true;
+  };
+
   /** 选中内置课文：带回原文填入编辑区（并发请求用令牌丢弃过期结果） */
   const selectLesson = useCallback(async (nextBook, nextLesson, autoGenerate = false, initialLoad = false) => {
     if (initialLoad && initialLessonCancelledRef.current) return;
@@ -136,6 +161,7 @@ export function useLessons({
       setManualOriginal((dir === 'en2cn' ? lesson.chinese : lesson.english) || '');
       setMaterialKeywords([]);
       setMatchedLesson(lesson);
+      restoreDraftRef.current?.(`lesson:${nextBook}-${nextLesson}`);
       // 注意：内置课文不写 savedSnapshot —— 它还没进过课文库，用户随时可能想存进去
     } catch {
       if (reqId !== lessonReqRef.current || (initialLoad && initialLessonCancelledRef.current)) return;
@@ -146,6 +172,7 @@ export function useLessons({
       setGeneratedOriginal('');
       setManualOriginal('');
       setMaterialKeywords([]);
+      restoreDraftRef.current?.(`lesson:${nextBook}-${nextLesson}`);
     }
     // 走 ref 取当下的生成函数：否则 selectLesson 的依赖会一路拖到整个生成流程
     if (autoGenerate) setTimeout(() => runGenerateRef.current && runGenerateRef.current(nextLesson), 60);
@@ -174,6 +201,7 @@ export function useLessons({
     setManualOriginal((dir === 'en2cn' ? lesson.chinese : lesson.english) || '');
     setMaterialKeywords([]);
     setError('');
+    restoreDraftRef.current?.(lesson.book === 'my' && lesson.lid ? `lesson:my-${libId}-${lesson.lid}` : `lesson:${lesson.book}-${lesson.lesson}`);
     if (markSavedSnapshot) markSavedSnapshot(lesson);
   }, [myLibs, setMyLibId, genTokenRef, setChinese, setDraft, setGeneratedOriginal, setManualOriginal, setMatchConfidence, setMatchScore, setMaterialKeywords, setMode, setTitle, setError, markSavedSnapshot]);
 

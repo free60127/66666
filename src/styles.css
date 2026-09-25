@@ -1197,3 +1197,6 @@ mark.hl { background: #ffe3e3; color: inherit; padding: 0 2px; border-radius: 2p
 .more-field .ocr-mode { margin-left: auto; }
 .more-info { padding: 8px 10px 6px; font-size: 12px; line-height: 1.7; color: var(--muted); }
 .more-dot { display: inline-block; width: 7px; height: 7px; border-radius: 999px; background: var(--green); margin-right: 6px; }
+/* 草稿恢复横幅：蓝色系，与课文匹配横幅（青）/导入复核（黄）区分 */
+.match-banner.draft-banner { border-color: #bcd2f2; border-left-color: var(--blue); background: #eff4fd; color: #2a5ba8; }
+.match-banner.draft-banner .link { margin-left: auto; }

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { BookOpen, Camera, CheckCircle2, ChevronDown, ChevronRight, Cloud, Copy, Download, FileText, Flame, ImagePlus, Library, LoaderCircle, PanelLeftClose, PanelLeftOpen, Settings, Sparkles, Timer, Upload, UserRound, WandSparkles, X } from 'lucide-react'
+import { BookOpen, Camera, CheckCircle2, ChevronDown, ChevronRight, Cloud, Copy, Download, FileText, Flame, ImagePlus, Library, LoaderCircle, PanelLeftClose, PanelLeftOpen, Save, Settings, Sparkles, Timer, Upload, UserRound, WandSparkles, X } from 'lucide-react'
 // mammoth（894 KB 源码）只在"上传 DOCX"这一个功能里用到，
 // 改为 handleDocx 内动态 import，避免它被打进首屏主包。
 import { addSection as addLibSection, corpusToLibrary, deleteSection as deleteLibSection, ensureLessonIds, mergeLibraries, newLibraryId, renameSection as renameLibSection, renumberLibrary, saveLibraries, sectionsOf } from './lessonLibrary.js'
@@ -14,6 +14,7 @@ import {
   saveDeletedHistory, saveDeletedLibraries, saveDeletedLessons, saveDrillUsed, saveHistory,
 } from './storage.js'
 import { saveProgress } from './lessonProgress.js'
+import { clearDraft, draftAgeText, loadDraft, saveDraft } from './draftBox.js'
 import { dayStamp } from './format.js'
 import { saveDays } from './studyStreak.js'
 import { useTimer } from './hooks/useTimer.js'
@@ -383,6 +384,7 @@ function App() {
   }, [dir]);
 
   // 选课（hooks/useLessons.js）：内置课表 + 自建库选课；变量名沿用原来的
+  const [draftRestored, setDraftRestored] = useState(null); // 草稿恢复横幅（draftBox）
   const {
     lessons, book, setBook, lessonId, setLessonId, matchedLesson, setMatchedLesson,
     lessonQuery, setLessonQuery, visibleLessons,
@@ -394,6 +396,7 @@ function App() {
     setMatchConfidence, setMatchScore, setMode,
     runGenerateRef, refreshStatus, setError, markSavedSnapshot,
     setBackendWaking, genTokenRef, initialLessonCancelledRef,
+    onDraftRestored: setDraftRestored,
   });
 
   // useLessons 就位后，把「课文被改名/挪位」「重排后当前课变了」的处理接上
@@ -408,14 +411,25 @@ function App() {
   setMatchedLessonRef.current = setMatchedLesson;
   matchedLessonRef.current = matchedLesson; // 供 useLibraries 读「当前正在练的课」
 
+  // 切课确认：初稿非空时提醒"草稿已保留"（同一份内容只提醒一次，反复切课不打扰）
+  const draftConfirmRef = useRef('');
+  const draftGuardConfirm = useCallback(() => {
+    if (!draft.trim()) return true;
+    const hash = `${draft.length}:${draft.slice(0, 60)}`;
+    if (draftConfirmRef.current === hash) return true;
+    const ok = window.confirm('这一课的草稿已自动保留，下次进来可继续写。确认离开吗？');
+    if (ok) draftConfirmRef.current = hash;
+    return ok;
+  }, [draft]);
+
   /* ---------- 侧栏选课 = 用户手势，必须把视图切回编辑器 ----------
    * 实测 bug：在「结果页 / 自测题页」直接从侧栏点另一课，侧栏高亮变了、编辑区内容也换了，
    * 但屏幕**仍停在结果页** —— 用户看到的是"点了没反应"，只能自己想到去点顶栏的「编辑器」。
    * 修法放在这一层（而不是 useLessons 内部）：首屏自动选课也走 selectLesson，
    * 那种情况绝不能抢视图 —— 否则用 #job=xxx 分享链接打开时，
    * 迟到几秒的自动选课会把刚恢复出来的结果页顶掉。 */
-  const pickLesson = useCallback((b, l) => { clearActiveHomework(); initialLessonCancelledRef.current = true; setView('editor'); setDocxChoice(null); selectLesson(b, l); }, [selectLesson]);
-  const pickMyLesson = useCallback((libId, l) => { clearActiveHomework(); initialLessonCancelledRef.current = true; setView('editor'); setDocxChoice(null); selectMyLesson(libId, l); }, [selectMyLesson]);
+  const pickLesson = useCallback((b, l) => { if (!draftGuardConfirm()) return; clearActiveHomework(); initialLessonCancelledRef.current = true; setDraftRestored(null); setView('editor'); setDocxChoice(null); selectLesson(b, l); }, [selectLesson, draftGuardConfirm]);
+  const pickMyLesson = useCallback((libId, l) => { if (!draftGuardConfirm()) return; clearActiveHomework(); initialLessonCancelledRef.current = true; setDraftRestored(null); setView('editor'); setDocxChoice(null); selectMyLesson(libId, l); }, [selectMyLesson, draftGuardConfirm]);
   const startClassTask = (task) => {
     initialLessonCancelledRef.current = true;
     cancelPendingLesson();
@@ -460,6 +474,52 @@ function App() {
     : (myLibId && matchedLesson && matchedLesson.book === 'my' && matchedLesson.lid
       ? `lesson:my-${myLibId}-${matchedLesson.lid}`
       : `lesson:${book}-${lessonId}`);
+
+  /* ---------- 草稿本（src/draftBox.js）----------
+   * 三条写入路径：防抖自动保存（打字随时落盘）/「存草稿」按钮（给用户确定性）/
+   * pagehide·visibilitychange 兜底（手机切后台、直接杀进程没有任何退出事件）。
+   * 恢复在选同一课时自动发生（useLessons），恢复后横幅给「丢弃」入口。 */
+  const draftSnapshotRef = useRef(null);
+  draftSnapshotRef.current = {
+    key: lessonKey,
+    snap: { title, chinese, draft, manualOriginal, generatedOriginal, materialKeywords, direction: dir },
+  };
+  const draftDebounceRef = useRef(null);
+  useEffect(() => {
+    if (draftDebounceRef.current) clearTimeout(draftDebounceRef.current);
+    draftDebounceRef.current = setTimeout(() => {
+      const { key, snap } = draftSnapshotRef.current || {};
+      if (key && snap) saveDraft(key, snap);
+    }, 800);
+    return () => { if (draftDebounceRef.current) clearTimeout(draftDebounceRef.current); };
+  }, [title, chinese, draft, manualOriginal, generatedOriginal, materialKeywords, lessonKey, dir]);
+  useEffect(() => {
+    // 兜底：切后台/关闭页面时同步落盘，防抖窗口内的最后一次输入也不丢
+    const flush = () => {
+      const { key, snap } = draftSnapshotRef.current || {};
+      if (key && snap) saveDraft(key, snap);
+    };
+    const onHidden = () => { if (document.visibilityState === 'hidden') flush(); };
+    window.addEventListener('pagehide', flush);
+    document.addEventListener('visibilitychange', onHidden);
+    return () => {
+      window.removeEventListener('pagehide', flush);
+      document.removeEventListener('visibilitychange', onHidden);
+    };
+  }, []);
+  const saveDraftNow = () => {
+    const { key, snap } = draftSnapshotRef.current || {};
+    if (!snap?.draft?.trim()) { flashTip(setToast, '初稿还是空的，写了内容再来存', 3200); return; }
+    saveDraft(key, snap);
+    flashTip(setToast, '草稿已保存，下次选这篇课文可继续写', 3600);
+  };
+  const discardDraft = () => {
+    if (draftRestored) clearDraft(draftRestored.lessonKey);
+    setDraftRestored(null);
+    setDraft('');
+    flashTip(setToast, '草稿已丢弃', 2600);
+  };
+
   const { timer, toggle: toggleTimer, reset: resetTimer, elapsedMsNow, hasElapsed } = useTimer(lessonKey);
 
   /* ---------- 生成链路（hooks/useGeneration.js）----------
@@ -903,7 +963,8 @@ function App() {
    * 初稿是自己写的、清了找不回，非空时先确认一句；课文材料反正能恢复，直接清不啰嗦。 */
   const switchToFreeMode = useCallback(() => {
     if (mode === 'free') return; // 已是自由模式：再点按钮是无害的重复点击，绝不能把用户手打的内容清掉（夜间循环 R6 实测复现）
-    if (draft.trim() && !window.confirm('切换到自由模式会清空当前内容和标题。继续吗？')) return;
+    const hadDraft = Boolean(draft.trim());
+    if (hadDraft && !window.confirm('切换到自由模式会清空当前内容和标题。继续吗？')) return;
     initialLessonCancelledRef.current = true;
     setMode('free');
     setTitle('');
@@ -915,7 +976,23 @@ function App() {
     setMatchedLesson(null);
     setMatchConfidence('');
     setMatchScore(null);
-  }, [mode, draft, setTitle, setChinese, setDraft, setManualOriginal, setGeneratedOriginal, setMaterialKeywords, setMatchedLesson, setMatchConfidence, setMatchScore]);
+    // 静默清空（编辑区本来就是空的）且自由模式有旧草稿 → 自动恢复"上次写到一半的"；
+    // 用户刚确认过清空的路径不恢复——那是明确的"我要重新开始"。
+    if (!hadDraft) {
+      const saved = loadDraft('free');
+      if (saved) {
+        if (saved.title) setTitle(saved.title);
+        setDraft(saved.draft);
+        if (saved.direction === dir) {
+          setChinese(saved.chinese || '');
+          setManualOriginal(saved.manualOriginal || '');
+          setGeneratedOriginal(saved.generatedOriginal || '');
+          setMaterialKeywords(Array.isArray(saved.materialKeywords) ? saved.materialKeywords : []);
+        }
+        setDraftRestored({ lessonKey: 'free', savedAt: saved.savedAt, sameDir: saved.direction === dir });
+      }
+    }
+  }, [mode, draft, dir, setTitle, setChinese, setDraft, setManualOriginal, setGeneratedOriginal, setMaterialKeywords, setMatchedLesson, setMatchConfidence, setMatchScore]);
 
   /** 顶栏「编辑器」：只切回编辑视图，不动任何内容（只清 #job= 免得刷新跳回结果页）。 */
   const backToEditor = useCallback(() => {
@@ -1460,6 +1537,13 @@ function App() {
               </div>
             )}
             {generatedOriginal && <div className="match-banner"><Sparkles size={15} />已载入 AI 原创训练素材（无教材版权）：{title}{materialKeywords.length ? ` · 建议词汇：${materialKeywords.join('、')}` : ''}，请根据中文提示写出你的英文初稿</div>}
+            {draftRestored && draftRestored.lessonKey === lessonKey && (
+              <div className="match-banner draft-banner" role="status">
+                已恢复上次草稿（{draftAgeText(draftRestored.savedAt)}保存）
+                {!draftRestored.sameDir ? ' · 练习方向已改变，仅恢复初稿' : ''}
+                <button className="link" onClick={discardDraft} title="删除这份草稿并清空初稿">丢弃</button>
+              </div>
+            )}
             <div className="editor-grid">
               <div
                 className={'panel' + (dragOver === 'chinese' ? ' drag-on' : '')}
@@ -1493,6 +1577,9 @@ function App() {
                 <div className="panel-head">
                   <h2>{dt.draftTitle}</h2>
                   <div className="panel-tools">
+                    <button className="ghost-btn sm" onClick={saveDraftNow} title="把当前初稿存入草稿本；下次选这篇课文时会自动恢复">
+                      <Save size={14} />存草稿
+                    </button>
                     <button className="ghost-btn sm" onClick={() => openUserCamera('english')} disabled={Boolean(ocrBusy)} title={dt.draftOcrTitle}>
                       {ocrBusy === 'english' ? <LoaderCircle className="spin" size={14} /> : <Camera size={14} />}拍照
                     </button>
