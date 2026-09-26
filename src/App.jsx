@@ -85,13 +85,17 @@ function App() {
   const [classJoinOpen, setClassJoinOpen] = useState(false);
   const [classJoinPrefill, setClassJoinPrefill] = useState('');
   const [reminderTasks, setReminderTasks] = useState([]);
-  // 教师发的入班链接（index.html#join=邀请码）：进站直接打开入班弹窗并预填邀请码
+  // 教师发的入班链接（index.html#join=邀请码）：进站直接打开入班弹窗并预填邀请码；
+  // 其他 #join= 变体（位数不对/带字母）不是有效深链，顺手清掉避免刷新时反复解析
   useEffect(() => {
     const match = window.location.hash.match(/^#join=(\d{6})$/);
-    if (!match) return;
-    setClassJoinPrefill(match[1]);
-    setClassJoinOpen(true);
-    window.history.replaceState(null, '', window.location.pathname + window.location.search);
+    if (match) {
+      setClassJoinPrefill(match[1]);
+      setClassJoinOpen(true);
+    } else if (window.location.hash.startsWith('#join=')) {
+      window.history.replaceState(null, '', window.location.pathname + window.location.search);
+    }
+    if (match) window.history.replaceState(null, '', window.location.pathname + window.location.search);
   }, []);
   useEffect(() => {
     const rooms = memberships();
@@ -972,8 +976,15 @@ function App() {
    * 初稿是自己写的、清了找不回，非空时先确认一句；课文材料反正能恢复，直接清不啰嗦。 */
   const switchToFreeMode = useCallback(() => {
     if (mode === 'free') return; // 已是自由模式：再点按钮是无害的重复点击，绝不能把用户手打的内容清掉（夜间循环 R6 实测复现）
-    const hadDraft = Boolean(draft.trim());
-    if (hadDraft && !window.confirm('切换到自由模式会清空当前内容和标题。继续吗？')) return;
+    const freeSaved = loadDraft('free');
+    const hadContent = Boolean(draft.trim() || chinese.trim() || title.trim());
+    // 语义升级为"切换即交换草稿"：当前内容先落盘到当前课文键，再载入自由模式的草稿——
+    // 两边内容都不丢。否则"课文→自由→课文"往返一次，自由草稿就再也回不来了。
+    if (hadContent && !window.confirm(freeSaved
+      ? '切换到自由模式：当前内容会先存入草稿本，并载入上次的自由模式草稿。继续吗？'
+      : '切换到自由模式：当前内容会先存入草稿本。继续吗？')) return;
+    const { key, snap } = draftSnapshotRef.current || {};
+    if (hadContent && key && snap) saveDraft(key, snap);
     initialLessonCancelledRef.current = true;
     setMode('free');
     setTitle('');
@@ -985,23 +996,18 @@ function App() {
     setMatchedLesson(null);
     setMatchConfidence('');
     setMatchScore(null);
-    // 静默清空（编辑区本来就是空的）且自由模式有旧草稿 → 自动恢复"上次写到一半的"；
-    // 用户刚确认过清空的路径不恢复——那是明确的"我要重新开始"。
-    if (!hadDraft) {
-      const saved = loadDraft('free');
-      if (saved) {
-        if (saved.title) setTitle(saved.title);
-        setDraft(saved.draft);
-        if (saved.direction === dir) {
-          setChinese(saved.chinese || '');
-          setManualOriginal(saved.manualOriginal || '');
-          setGeneratedOriginal(saved.generatedOriginal || '');
-          setMaterialKeywords(Array.isArray(saved.materialKeywords) ? saved.materialKeywords : []);
-        }
-        setDraftRestored({ lessonKey: 'free', savedAt: saved.savedAt, sameDir: saved.direction === dir });
+    if (freeSaved) {
+      if (freeSaved.title) setTitle(freeSaved.title);
+      setDraft(freeSaved.draft);
+      if (freeSaved.direction === dir) {
+        setChinese(freeSaved.chinese || '');
+        setManualOriginal(freeSaved.manualOriginal || '');
+        setGeneratedOriginal(freeSaved.generatedOriginal || '');
+        setMaterialKeywords(Array.isArray(freeSaved.materialKeywords) ? freeSaved.materialKeywords : []);
       }
+      setDraftRestored({ lessonKey: 'free', savedAt: freeSaved.savedAt, sameDir: freeSaved.direction === dir });
     }
-  }, [mode, draft, dir, setTitle, setChinese, setDraft, setManualOriginal, setGeneratedOriginal, setMaterialKeywords, setMatchedLesson, setMatchConfidence, setMatchScore]);
+  }, [mode, draft, chinese, title, dir, setTitle, setChinese, setDraft, setManualOriginal, setGeneratedOriginal, setMaterialKeywords, setMatchedLesson, setMatchConfidence, setMatchScore]);
 
   /** 顶栏「编辑器」：只切回编辑视图，不动任何内容（只清 #job= 免得刷新跳回结果页）。 */
   const backToEditor = useCallback(() => {
@@ -1468,7 +1474,20 @@ function App() {
             <div className="modebar">
               <input ref={fileRef} type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden onChange={handleDocx} />
               <div className="modebar-seg" role="group" aria-label="练习模式">
-                <button className={mode === 'lesson' ? 'active' : ''} onClick={() => { initialLessonCancelledRef.current = true; setMode('lesson'); }}>课文模式</button>
+                <button className={mode === 'lesson' ? 'active' : ''} onClick={() => {
+                  initialLessonCancelledRef.current = true;
+                  // 自由→课文：先把自由内容存进草稿本（free 键），再干净载入当前课文。
+                  // 原来只 setMode('lesson')，会留下"空标题+自由草稿残留"的杂交状态，
+                  // 且再切回自由时因内容非空触发确认清空，草稿就此不可达。
+                  if (mode === 'free') {
+                    const { key, snap } = draftSnapshotRef.current || {};
+                    if (key && snap) saveDraft(key, snap);
+                    setDraftRestored(null);
+                    selectLesson(book, lessonId);
+                    return;
+                  }
+                  setMode('lesson');
+                }}>课文模式</button>
                 <button className={mode === 'free' ? 'active' : ''} onClick={switchToFreeMode} title="清空当前内容，从空白开始写">自由模式</button>
               </div>
               {/* 练习方向：换方向会把编辑区的三栏标签一起换掉（见 switchDirection） */}
