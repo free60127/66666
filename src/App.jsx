@@ -1120,7 +1120,11 @@ function App() {
 
       setBackupTip(`导入完成：新增 ${libsAdded} 个课文库、${lessonsAdded} 篇课文、${favAdded} 条收藏、${histAdded} 条历史（同名课文自动去重）。`);
     } catch (e) {
-      setBackupTip('导入失败：' + (e.message || '文件格式不正确'));
+      const raw = String(e?.message || '');
+      const notJson = /JSON|token|property|position/i.test(raw);
+      setBackupTip(notJson
+        ? '导入失败：备份文件不是有效的 JSON 格式，可能已损坏。请重新导出一份备份再试。'
+        : ('导入失败：' + (raw || '文件格式不正确')));
     }
   };
 
