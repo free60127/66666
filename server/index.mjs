@@ -819,6 +819,13 @@ async function callLLM({ baseUrl, model, apiKey, messages, timeoutMs }) {
       const limit = /max_tokens|output token|exceed|maximum|too large/i.test(t);
       const err = new Error('模型接口错误 ' + r.status + ': ' + t.slice(0, 500));
       err.limitTooLarge = limit;
+      // 401/403 = key 被拒（用户自带 key 填错最常见），429 = 限流/余额——
+      // 把供应商的英文 JSON 翻译成学生能行动的提示；其余原样保留便于排障。
+      if (r.status === 401 || r.status === 403) {
+        err.message = 'AI 服务拒绝了你的 API Key（401）：请到右上角 ⋮ →「AI 设置」检查 Key 是否填对，或清空 Key 改用服务端默认。';
+      } else if (r.status === 429) {
+        err.message = 'AI 服务限流或余额不足（429）：请稍后再试；若你用的是自己的 Key，请到 DeepSeek 控制台确认余额。';
+      }
       throw err;
     }
     const data = await r.json();
@@ -862,7 +869,13 @@ async function callLLMStream({ baseUrl, model, apiKey, messages }, { onDelta, ti
   });
   if (!r.ok) {
     const t = await r.text().catch(() => '');
-    throw new Error('模型接口错误 ' + r.status + ': ' + t.slice(0, 500));
+    // 401/403 = key 被拒（自带 key 填错最常见），429 = 限流/余额——译成可行动的中文提示
+    const friendly = (r.status === 401 || r.status === 403)
+      ? 'AI 服务拒绝了你的 API Key（401）：请到右上角 ⋮ →「AI 设置」检查 Key 是否填对，或清空 Key 改用服务端默认。'
+      : (r.status === 429
+        ? 'AI 服务限流或余额不足（429）：请稍后再试；若你用的是自己的 Key，请到 DeepSeek 控制台确认余额。'
+        : '');
+    throw new Error(friendly || ('模型接口错误 ' + r.status + ': ' + t.slice(0, 500)));
   }
   if (!r.body) throw new Error('模型接口没有返回流式响应体');
 
