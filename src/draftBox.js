@@ -31,6 +31,14 @@ export function loadDraft(lessonKey) {
   return draft && typeof draft.draft === 'string' && draft.draft.trim() ? draft : null;
 }
 
+/** 草稿架列表：[{ key, title, savedAt }]，按保存时间倒序——侧栏「草稿本」的展示数据。 */
+export function listDrafts() {
+  return Object.entries(readAll())
+    .filter(([, d]) => d && typeof d.draft === 'string' && d.draft.trim())
+    .map(([key, d]) => ({ key, title: String(d.title || '').slice(0, 60), savedAt: d.savedAt || 0 }))
+    .sort((a, b) => b.savedAt - a.savedAt);
+}
+
 /**
  * 保存草稿。初稿为空时不写入 —— 保留旧草稿：
  * 程序性清空（切课的瞬间）和"用户清空重写"在这里语义一致，

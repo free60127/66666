@@ -10,11 +10,11 @@ import { mergeFavorites, saveFavorites } from './favorites.js'
 import { DIRECTION_KEY, DIRECTIONS, directionMeta, directionText, normalizeDirection } from './direction.js'
 import {
   lessonTombstoneKey, loadDeletedFavorites, loadDeletedLibraries, loadDeletedLessons,
-  loadDrillUsed, loadResultCache, markDrillUsed, safeGet, safeSet, saveDeletedFavorites,
+  loadDrillUsed, loadResultCache, loadHistory, markDrillUsed, safeGet, safeSet, saveDeletedFavorites,
   saveDeletedHistory, saveDeletedLibraries, saveDeletedLessons, saveDrillUsed, saveHistory,
 } from './storage.js'
 import { saveProgress } from './lessonProgress.js'
-import { clearDraft, draftAgeText, loadDraft, saveDraft } from './draftBox.js'
+import { clearDraft, draftAgeText, listDrafts, loadDraft, saveDraft } from './draftBox.js'
 import { dayStamp } from './format.js'
 import { saveDays } from './studyStreak.js'
 import { useTimer } from './hooks/useTimer.js'
@@ -46,6 +46,7 @@ import BackToTop from './components/BackToTop.jsx'
 import MoreMenu from './components/MoreMenu.jsx'
 import ClassJoinModal from './components/ClassJoinModal.jsx'
 import AssignmentReminder from './components/AssignmentReminder.jsx'
+import OnboardingGoal from './components/OnboardingGoal.jsx'
 import { activateHomework, clearActiveHomework, memberships, pendingAssignments, studentDashboard } from './classroom.js'
 import LessonEditModal from './components/modals/LessonEditModal.jsx'
 const AI_LEVELS = ['小初', '高考英语', '四六级', '考研/专四', '专八'];
@@ -389,6 +390,8 @@ function App() {
 
   // 选课（hooks/useLessons.js）：内置课表 + 自建库选课；变量名沿用原来的
   const [draftRestored, setDraftRestored] = useState(null); // 草稿恢复横幅（draftBox）
+  // 首次入门目标选择：没有目标记录且从来没有生成过的访客才弹（老用户升级不弹）
+  const [goalOpen, setGoalOpen] = useState(() => !safeGet('bt-goal', '') && loadHistory().length === 0);
   const {
     lessons, book, setBook, lessonId, setLessonId, matchedLesson, setMatchedLesson,
     lessonQuery, setLessonQuery, visibleLessons, lessonLoading,
@@ -417,6 +420,7 @@ function App() {
 
   // 切课确认：初稿非空时提醒"草稿已保留"（同一份内容只提醒一次，反复切课不打扰）
   const draftSnapshotRef = useRef(null);
+  const [draftList, setDraftList] = useState(() => listDrafts()); // 侧栏草稿架
   const draftConfirmRef = useRef('');
   const draftGuardConfirm = useCallback(() => {
     if (!draft.trim()) return true;
@@ -499,6 +503,7 @@ function App() {
     draftDebounceRef.current = setTimeout(() => {
       const { key, snap } = draftSnapshotRef.current || {};
       if (key && snap) saveDraft(key, snap);
+      setDraftList(listDrafts()); // 侧栏草稿架同步
     }, 800);
     return () => { if (draftDebounceRef.current) clearTimeout(draftDebounceRef.current); };
   }, [title, chinese, draft, manualOriginal, generatedOriginal, materialKeywords, lessonKey, dir]);
@@ -519,7 +524,9 @@ function App() {
   const saveDraftNow = () => {
     const { key, snap } = draftSnapshotRef.current || {};
     if (!snap?.draft?.trim()) { flashTip(setToast, '初稿还是空的，写了内容再来存', 3200); return; }
-    flashTip(setToast, saveDraft(key, snap)
+    const okSave = saveDraft(key, snap);
+    setDraftList(listDrafts());
+    flashTip(setToast, okSave
       ? '草稿已保存，下次选这篇课文可继续写'
       : '草稿未能保存，请检查浏览器存储空间', 3600);
   };
@@ -530,7 +537,44 @@ function App() {
     }
     setDraftRestored(null);
     setDraft('');
+    setDraftList(listDrafts());
     flashTip(setToast, '草稿已丢弃', 2600);
+  };
+  /** 草稿架直达：点侧栏草稿本里的某一篇，切到那篇课文并恢复草稿。 */
+  const openDraft = (key) => {
+    setDraftRestored(null);
+    setView('editor');
+    if (key === 'free') {
+      // 当前内容先落盘（不打断用户），再切自由模式恢复 free 草稿
+      const { key: curKey, snap } = draftSnapshotRef.current || {};
+      if (curKey && snap?.draft?.trim()) saveDraft(curKey, snap);
+      const saved = loadDraft('free');
+      if (!saved) { flashTip(setToast, '这份草稿已不存在', 3000); setDraftList(listDrafts()); return; }
+      initialLessonCancelledRef.current = true;
+      cancelPendingLesson();
+      setMode('free');
+      setMyLibId('');
+      setMatchedLesson(null);
+      setMatchConfidence('');
+      setMatchScore(null);
+      if (saved.title) setTitle(saved.title); else setTitle('');
+      setDraft(saved.draft);
+      setChinese(saved.chinese || '');
+      setManualOriginal(saved.manualOriginal || '');
+      setGeneratedOriginal(saved.generatedOriginal || '');
+      setMaterialKeywords(Array.isArray(saved.materialKeywords) ? saved.materialKeywords : []);
+      setDraftRestored({ lessonKey: 'free', savedAt: saved.savedAt, sameDir: saved.direction === dir });
+      return;
+    }
+    const m = key.match(/^lesson:(\d+)-(\d+)$/);
+    if (m) { pickLesson(Number(m[1]), Number(m[2])); return; }
+    const my = key.match(/^lesson:my-([A-Za-z0-9]+)-(.+)$/);
+    if (my) {
+      const lib = myLibs.find((x) => x.id === my[1]);
+      const lesson = lib?.lessons.find((l) => String(l.lid) === my[2]);
+      if (lesson) pickMyLesson(my[1], lesson.lesson);
+      else flashTip(setToast, '这篇草稿所属的课文库已删除', 3600);
+    }
   };
 
   const { timer, toggle: toggleTimer, reset: resetTimer, elapsedMsNow, hasElapsed } = useTimer(lessonKey);
@@ -1411,6 +1455,8 @@ function App() {
         books={status?.books || []} directionName={directionMeta(dir).name}
         lessonProgress={lessonProgress} studyDays={studyDays}
         drillReady={drillReady} onOpenDrill={openDrill}
+        draftList={draftList} onOpenDraft={openDraft}
+        dueCount={favDueCount} onStartReview={startReview}
       />
 
       <main className="main">
@@ -1645,6 +1691,14 @@ function App() {
                   }
                   setDraft(e.target.value);
                 }} placeholder={dt.draftPlaceholder} />
+                {/* 实时词数（汉译英按词）/ 字数（英译汉按字），有参考答案时给长度对比——
+                    回译训练里"长度接近参考"是最直观的自检信号 */}
+                {(draft.trim() || manualOriginal.trim()) ? (
+                  <div className="draft-count">
+                    已写 {dir === 'cn2en' ? (draft.trim() ? draft.trim().split(/\s+/).length : 0) + ' 词' : draft.replace(/\s/g, '').length + ' 字'}
+                    {manualOriginal.trim() ? <span> · 参考 {dir === 'cn2en' ? manualOriginal.trim().split(/\s+/).length + ' 词' : manualOriginal.replace(/\s/g, '').length + ' 字'}</span> : null}
+                  </div>
+                ) : null}
                 {ocrNotes.english ? <div className={'ocr-note' + (String(ocrNotes.english).startsWith('识别失败') ? ' err' : '')}>{ocrNotes.english}</div> : null}
                 <input ref={englishCamRef} type="file" accept="image/*" capture="environment" hidden onChange={(e) => { const f = Array.from(e.target.files || []); e.target.value = ''; handleUserOcrFiles('english', f); }} />
                 <input ref={englishFileRef} type="file" accept="image/*" multiple hidden onChange={(e) => { const f = Array.from(e.target.files || []); e.target.value = ''; handleUserOcrFiles('english', f); }} />
@@ -1981,6 +2035,26 @@ function App() {
       <BackToTop />
 
       {classJoinOpen && <ClassJoinModal onClose={() => setClassJoinOpen(false)} onStart={startClassTask} initialCode={classJoinPrefill} />}
+      {goalOpen && (
+        <OnboardingGoal
+          onClose={() => { safeSet('bt-goal', 'skip'); setGoalOpen(false); }}
+          onPick={(goal) => {
+            safeSet('bt-goal', goal.key);
+            setPolishLevel(goal.level);
+            setGoalOpen(false);
+            // 带到对应级别的第一篇课文（回译课文按 section 分组）
+            setBuiltinTab('huiyi');
+            setMyLibId('');
+            const first = lessons.find((l) => l.book === 10 && l.section === goal.section);
+            if (first) {
+              setDraftRestored(null);
+              initialLessonCancelledRef.current = true;
+              cancelPendingLesson();
+              selectLesson(10, first.lesson);
+            }
+          }}
+        />
+      )}
       <AssignmentReminder tasks={reminderTasks} onStart={(task) => { startClassTask(task); setReminderTasks([]); }} onClose={() => setReminderTasks([])} />
       {settingsOpen && (
         <div className="modal-mask" onClick={() => setSettingsOpen(false)}>

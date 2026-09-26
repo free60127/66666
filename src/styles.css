@@ -1200,3 +1200,36 @@ mark.hl { background: #ffe3e3; color: inherit; padding: 0 2px; border-radius: 2p
 /* 草稿恢复横幅：蓝色系，与课文匹配横幅（青）/导入复核（黄）区分 */
 .match-banner.draft-banner { border-color: #bcd2f2; border-left-color: var(--blue); background: #eff4fd; color: #2a5ba8; }
 .match-banner.draft-banner .link { margin-left: auto; }
+
+/* ---------- 体验增强：初稿词数 / 今日推荐 / 草稿架 / 入门目标 ---------- */
+/* 初稿实时词数（对比参考答案长度） */
+.draft-count { font-size: 11.5px; color: var(--muted); padding: 2px 2px 0; }
+.draft-count span { color: #8a97a5; }
+/* 今日推荐：有收藏到期时前置的行动入口 */
+.today-reco { display: flex; align-items: center; gap: 7px; width: 100%; margin: 6px 0 2px; padding: 8px 10px; border: 1px solid rgba(66, 150, 255, .4); border-radius: 10px; background: linear-gradient(135deg, rgba(66, 150, 255, .12), rgba(66, 150, 255, .05)); color: #cfe2ff; font-size: 12.5px; text-align: left; }
+.today-reco:hover { border-color: rgba(66, 150, 255, .7); }
+.today-reco span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.today-reco i { font-style: normal; font-weight: 700; color: #fff; background: rgba(66, 150, 255, .35); border-radius: 999px; padding: 2px 9px; font-size: 11.5px; flex-shrink: 0; }
+/* 草稿架：写一半的课文列表（点直达） */
+.draft-shelf { margin: 6px 0 2px; border: 1px dashed rgba(255, 255, 255, .18); border-radius: 10px; overflow: hidden; }
+.draft-shelf-head { display: flex; align-items: center; gap: 6px; width: 100%; padding: 7px 10px; color: #c7d6df; font-size: 12.5px; background: transparent; }
+.draft-shelf-head:hover { background: rgba(255, 255, 255, .05); }
+.draft-shelf-head span { flex: 1; text-align: left; font-weight: 600; }
+.draft-shelf-head i { font-style: normal; font-size: 11px; color: #9fb3c2; background: rgba(255, 255, 255, .1); border-radius: 999px; padding: 1px 7px; }
+.draft-shelf-head .fold-chevron { transform: rotate(0); }
+.draft-shelf-head .fold-chevron.closed { transform: rotate(-90deg); }
+.draft-shelf-item { display: flex; align-items: center; gap: 6px; width: 100%; padding: 6px 10px 6px 26px; color: #c7d6df; font-size: 12px; text-align: left; border-top: 1px solid rgba(255, 255, 255, .06); }
+.draft-shelf-item:hover { background: rgba(255, 255, 255, .06); color: #fff; }
+.draft-shelf-item span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.draft-shelf-item small { color: #6f8b9c; font-size: 10.5px; flex-shrink: 0; }
+/* 入门目标选择弹窗 */
+.goal-modal { max-width: 420px; }
+.goal-lead { font-size: 12.5px; color: var(--muted); margin: 4px 0 12px; }
+.goal-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.goal-card { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; text-align: left; }
+.goal-card:hover { border-color: var(--brand); background: #f4f8ff; }
+.goal-icon { color: var(--brand); margin-bottom: 2px; }
+.goal-card strong { font-size: 14px; color: var(--text); }
+.goal-card small { font-size: 11.5px; color: var(--muted); line-height: 1.5; }
+.goal-skip { width: 100%; margin-top: 10px; padding: 7px; color: var(--muted); font-size: 12.5px; text-align: center; }
+.goal-skip:hover { color: var(--text); }

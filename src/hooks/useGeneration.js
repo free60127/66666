@@ -376,7 +376,10 @@ export function useGeneration({
           setStreamNote('');
           // attemptTime：这次练习的时间戳。结果页要靠它判断"哪次才算上一次"
           // （从历史里点开旧作业时，比它更晚的练习不能算"上次"）。
-          const enriched = { ...(data || {}), durationMs, lessonKey, attemptTime: Date.now() };
+          // workTitle：用户在顶栏写的作业标题优先展示（AI 起的 title 作副行），
+          // 历史列表也用它——否则用户改过标题的那篇在历史里根本找不到。
+          const workTitle = (title || '').trim() || (data && data.title) || '';
+          const enriched = { ...(data || {}), workTitle, durationMs, lessonKey, attemptTime: Date.now() };
           setResult(normalizeResult(enriched));
           if (jobId) setCurrentJobId(jobId);
           // 三种情况都不抢视图：生成期间用户切过课 / 点过「新建」/ 点过「取消等待」。
@@ -386,7 +389,7 @@ export function useGeneration({
           // 不该在任务完成的那一刻又被拽回结果页（轮询那条路径没切过，照旧在这里切）。
           if (!cancelled && myToken === genTokenRef.current && !streamViewRef.current) setView('result');
           if (jobId) {
-            addToHistory(jobId, (data && data.title) || title, enriched, durationMs, deleteToken);
+            addToHistory(jobId, workTitle, enriched, durationMs, deleteToken);
             void reportCompletedJob(jobId, deleteToken, classHomework);
             if (classHomework && activeHomework()?.classId === classHomework.classId && activeHomework()?.hwId === classHomework.hwId) clearActiveHomework();
             bumpProgress(lessonKey, enriched, durationMs);

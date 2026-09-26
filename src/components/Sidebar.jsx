@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { ChevronDown, Flame, FolderPlus, Library, ListOrdered, PenLine, Plus, Star, Target, Trash2, Upload, X } from 'lucide-react';
+import { ChevronDown, Flame, FolderPlus, Library, ListOrdered, NotebookPen, PenLine, Plus, Sparkles, Star, Target, Trash2, Upload, X } from 'lucide-react';
 import { doneSet, progressOf, summarize } from '../lessonProgress.js';
 import { summarizeStreak } from '../studyStreak.js';
 import { lessonKeyOf } from '../lessonLabel.js';
@@ -22,6 +22,8 @@ function Sidebar({
   mode, lessonId, onSelectLesson, onSelectMyLesson, onDeleteMyLesson, onEditMyLesson, onRenumberLib,
   lessonProgress, studyDays, books, directionName,
   drillReady, onOpenDrill,
+  draftList, onOpenDraft,
+  dueCount, onStartReview,
 }) {  // lessonKey 统一走 lessonLabel.lessonKeyOf —— 与生成/进度/错误训练用的是同一份实现，
   // 各写一份只要漂移一处（自建库用 lid 还是序号），就会出现"练过却不打星"或"错题归错课"。
   const keyOf = (l) => lessonKeyOf(l, activeLib);
@@ -31,6 +33,8 @@ function Sidebar({
   const streak = summarizeStreak(studyDays);
   // 语料 JSON 导入的文件选择器（不受控：选完即清空，同一文件可重复导入）
   const corpusFileRef = useRef(null);
+  // 草稿架展开态（纯视图偏好，留在本地）
+  const [openDrafts, setOpenDrafts] = useState(false);
 
   // 两个内置库的课文数（卡片上的角标，也是搜索框文案）
   const huiyiCount = lessons.filter((l) => l.book === 10).length;
@@ -159,6 +163,16 @@ function Sidebar({
           {/* 错误训练：放在"连续天数"和"本册进度"之间 —— 上面是激励（我坚持了多久），
               下面是进度（我做了多少），中间正好是"我错在哪、怎么补"。
               按钮上的数字是**这个课文库里可训练的错题数**，一眼看出点进去有没有东西。 */}
+          {/* 今日推荐：有收藏到期就前置一个"直接开始"的入口，省掉"练什么"的决策 */}
+          {dueCount > 0 && onStartReview ? (
+            <button className="today-reco" onClick={() => { onCloseOnMobile(); onStartReview(); }}
+              title="按间隔重复安排，这些收藏今天该复习了">
+              <Sparkles size={14} />
+              <span>今天有 {dueCount} 条收藏到期</span>
+              <i>开始复习</i>
+            </button>
+          ) : null}
+
           {onOpenDrill ? (
             <button className={'drill-entry' + (drillReady ? ' has' : '')} onClick={onOpenDrill}
               title={drillReady
@@ -168,6 +182,27 @@ function Sidebar({
               <span>错误训练</span>
               {drillReady ? <i>{drillReady}</i> : <em>暂无错题</em>}
             </button>
+          ) : null}
+
+          {/* 草稿架：写了一半的课文在这露面，点直达（不用再靠"切回那课"去发现） */}
+          {onOpenDraft && draftList.length > 0 ? (
+            <div className="draft-shelf">
+              <button type="button" className="draft-shelf-head" onClick={() => setOpenDrafts((v) => !v)}
+                aria-expanded={openDrafts} title="写了一半的初稿都在这里，点一篇可继续">
+                <NotebookPen size={13} />
+                <span>草稿本</span>
+                <i>{draftList.length}</i>
+                <ChevronDown size={12} className={'fold-chevron' + (openDrafts ? '' : ' closed')} />
+              </button>
+              {openDrafts && draftList.map((d) => (
+                <button type="button" key={d.key} className="draft-shelf-item"
+                  onClick={() => { onCloseOnMobile(); onOpenDraft(d.key); }}
+                  title={`保存于 ${new Date(d.savedAt).toLocaleString('zh-CN')} · 点击继续写`}>
+                  <span>{d.title || '未命名草稿'}</span>
+                  <small>{(() => { const ms = Date.now() - d.savedAt; return ms < 60000 ? '刚刚' : ms < 3600000 ? Math.floor(ms / 60000) + ' 分钟前' : ms < 86400000 ? Math.floor(ms / 3600000) + ' 小时前' : Math.floor(ms / 86400000) + ' 天前'; })()}</small>
+                </button>
+              ))}
+            </div>
           ) : null}
 
           {scopeStats.total > 0 ? (

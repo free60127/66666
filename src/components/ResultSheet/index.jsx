@@ -112,7 +112,9 @@ function ResultSheetImpl({ result, onBack, onCopy, onShare, shareTip, fav, histo
         </div>
       ) : null}
       <article className="sheet">
-        <header className="sheet-title"><span className="eyebrow">{dt.eyebrow}</span><h1>{result.title}</h1>
+        <header className="sheet-title">
+          <span className="eyebrow">{dt.eyebrow}{result.workTitle && result.title && result.workTitle !== result.title ? ` · AI 主题：${result.title}` : ''}</span>
+          <h1>{result.workTitle || result.title}</h1>
           {result.aiLevel ? <span className="sheet-duration">润色等级 {result.aiLevel}</span> : null}
           {result.durationMs ? <span className="sheet-duration">本次练习用时 {formatDuration(result.durationMs)}</span> : null}
         </header>
