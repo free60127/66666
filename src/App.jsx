@@ -2018,7 +2018,7 @@ function App() {
         <div className="modal-mask" onClick={() => setNewJobOpen(false)}>
           <div className="modal" ref={(el) => { modalRefs.current.newjob = el; }} role="dialog" aria-modal="true" aria-label="新建回译作业" onClick={(e) => e.stopPropagation()}>
             <div className="modal-head"><h2>新建回译作业</h2><button className="icon-btn" onClick={() => setNewJobOpen(false)} aria-label="关闭"><X size={16} /></button></div>
-            <p className="muted small">这会打开一份<b>空白作业</b>，当前这份不会自动保留。</p>
+            <p className="muted small">这会打开一份<b>空白作业</b>。当前内容已自动存入草稿本——下次选回这篇课文可继续写；想长期保留也可以存进课文库。</p>
             {templateDirty ? (
               <>
                 <p className="muted small">建议先把当前作业存进课文库——以后可以随时从左侧「我的课文库」里选出来继续练。</p>
