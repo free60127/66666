@@ -672,7 +672,13 @@ function App() {
       setMyLibId(targetId);
       flashTip(setToast, `已导入「${name}」：新增 ${fresh.length} 课${lessons.length - fresh.length ? `，跳过重复 ${lessons.length - fresh.length} 课` : ''}。其他设备用同步码登录即可看到`, 6000);
     } catch (e) {
-      flashTip(setToast, '导入失败：' + (e.message || '文件解析失败'), 5000);
+      // JSON.parse 的英文异常（如 "Unexpected token..."）对学生没有信息量，
+      // 按最常见成因翻译；只有确属其他错误才保留原文。
+      const raw = String(e?.message || '');
+      const notJson = /JSON|token|position/i.test(raw);
+      flashTip(setToast, notJson
+        ? '导入失败：文件不是有效的 JSON 格式。请确认是按 README「语料」格式导出的 .json 文件后重试'
+        : ('导入失败：' + (raw || '文件解析失败')), 5000);
     }
   };
 
