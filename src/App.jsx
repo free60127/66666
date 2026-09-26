@@ -1317,7 +1317,12 @@ function App() {
       });
     } catch (e) {
       setFileName('');
-      setError(e.message || 'DOCX 读取失败');
+      // 库的原始异常（如 mammoth 的 "Can't find end of central directory"）对学生是天书，
+      // 按常见成因翻译成可操作的提示；其余保留原文（真正的解析错误仍有线索可查）。
+      const raw = String(e?.message || '');
+      setError(/zip|central directory|corrupt|encrypted/i.test(raw)
+        ? '这个文件打不开：它不是有效的 Word 文档。请确认导出的是 .docx 格式（老版 .doc 请先另存为 .docx）再导入。'
+        : (raw || 'DOCX 读取失败'));
     } finally {
       setParsing(false);
     }
