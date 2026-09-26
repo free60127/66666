@@ -1424,6 +1424,7 @@ function App() {
           <input
             className="topbar-title"
             value={title}
+            maxLength={60}
             disabled={lessonLoading}
             onChange={(e) => { initialLessonCancelledRef.current = true; setTitle(e.target.value); }}
             placeholder={mode === 'lesson' ? '课文回译训练 · 作业标题' : '自由回译训练 · 作业标题'}

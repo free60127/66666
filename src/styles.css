@@ -129,7 +129,7 @@ textarea, input { font: inherit; }
 .topbar { height: 56px; min-height: 56px; background: var(--panel); border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 12px; padding: 0 18px; }
 /* 方案A：作业标题直接住在顶栏里（无边框输入框，点了就能改）。
    原来它在正文里占一整行「作业标题 [input]」；标题是唯一值得常驻顶栏的信息。 */
-.topbar-title { flex: 1 1 auto; min-width: 0; border: none; background: transparent; font-weight: 600; font-size: 15px; color: var(--text); padding: 7px 9px; border-radius: 8px; }
+.topbar-title { flex: 1 1 auto; min-width: 0; border: none; background: transparent; font-weight: 600; font-size: 15px; color: var(--text); padding: 7px 9px; border-radius: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .topbar-title::placeholder { color: #9aa6b1; font-weight: 500; }
 .topbar-title:focus { outline: none; background: #f2f5f8; box-shadow: 0 0 0 2px rgba(31, 111, 235, .18); }
 .status-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); background: #f2f5f8; border: 1px solid var(--line); padding: 5px 10px; border-radius: 999px; flex-shrink: 0; }
