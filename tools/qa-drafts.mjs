@@ -31,6 +31,7 @@ async function setupPage() {
   const page = await context.newPage();
   page.on('dialog', (dialog) => dialog.accept());
   await page.goto(base);
+  await page.locator('.goal-skip').click({ timeout: 8000 }).catch(() => {});
   await page.locator('.lesson-group-title.foldable').first().waitFor();
   await page.locator('.lesson-search input').fill('1');
   const rows = page.locator('.lesson-item');

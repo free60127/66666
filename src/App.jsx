@@ -390,8 +390,14 @@ function App() {
 
   // 选课（hooks/useLessons.js）：内置课表 + 自建库选课；变量名沿用原来的
   const [draftRestored, setDraftRestored] = useState(null); // 草稿恢复横幅（draftBox）
-  // 首次入门目标选择：没有目标记录且从来没有生成过的访客才弹（老用户升级不弹）
-  const [goalOpen, setGoalOpen] = useState(() => !safeGet('bt-goal', '') && loadHistory().length === 0);
+  // 首次入门目标选择：没有目标记录且从来没有生成过的访客才弹（老用户升级不弹）。
+  // 深链访客（教师入班链接 #join= / 分享链接 #job=）带着明确目的来，本次不拦——
+  // 否则入门弹窗会盖在入班/结果页上面，新学生点链接第一步就被问"你的目标"（R43 实测）。
+  const [goalOpen, setGoalOpen] = useState(() => {
+    const h = window.location.hash || '';
+    if (h.startsWith('#join=') || h.startsWith('#job=')) return false;
+    return !safeGet('bt-goal', '') && loadHistory().length === 0;
+  });
   const {
     lessons, book, setBook, lessonId, setLessonId, matchedLesson, setMatchedLesson,
     lessonQuery, setLessonQuery, visibleLessons, lessonLoading,

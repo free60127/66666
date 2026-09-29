@@ -448,7 +448,7 @@ export function useGeneration({
   const copyAll = async () => {
     if (!result) return;
     const text = [
-      result.title,
+      result.workTitle || result.title,
       result.aiLevel ? '润色等级：' + result.aiLevel : '',
       result.durationMs ? '本次练习用时：' + formatDuration(result.durationMs) : '', '', '【中文译文】', result.chinese, '', '【原稿】', result.draft, '',
       '【AI 修正版】', result.ai, '', '【课文原文】', result.original, '',

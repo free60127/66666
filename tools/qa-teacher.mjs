@@ -64,6 +64,8 @@ try {
   const studentContext = await browser.newContext({ viewport: { width: 1280, height: 850 } });
   const student = await studentContext.newPage();
   await student.goto(base);
+  // 新访客会弹「学习目标」入门弹窗（bt-goal 未设），关掉再继续——否则遮罩挡住所有点击
+  await student.locator('.goal-skip').click({ timeout: 8000 }).catch(() => {});
   await student.locator('.more-btn').click();
   await student.getByRole('button', { name: '加入教师班级' }).click();
   await student.getByLabel('班级邀请码').fill(code);
