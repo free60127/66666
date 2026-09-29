@@ -41,7 +41,7 @@ export function useLessons({
   const [lessons, setLessons] = useState([]);
   const [book, setBook] = useState(() => {
     const b = Number(safeGet('bt-book', ''));
-    return Number.isInteger(b) && b >= 1 && b <= 10 ? b : 10;
+    return Number.isInteger(b) && b >= 1 && b <= 11 ? b : 10;
   });
   const [lessonId, setLessonId] = useState(() => {
     const n = Number(safeGet('bt-lesson', ''));
@@ -242,7 +242,7 @@ export function useLessons({
 }
 
 /** 恢复上次打开的书册/课次；没有记录则默认该册第一课。
- *  ⚠️ 不要在这里硬编码册号白名单：书册状态本身恢复 1-9（四级/六级/英语一/英语二/专八是 5-9），
+ *  ⚠️ 不要在这里硬编码册号白名单：书册状态按课表动态恢复（四级/六级/英语一/英语二/专八/CATTI 是 5-9、11），
  *  这里曾写死 [1,2,3,4]，四六级用户每次刷新都被强制跳回第 2 册（实测复现）。
  *  现在改为：只要课表里确实存在该册号就恢复，否则才回落第 2 册。 */
 function pickInitialLesson(list) {

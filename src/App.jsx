@@ -472,8 +472,8 @@ function App() {
     setClassJoinOpen(false);
   };
 
-  // 内置课文库的两个「库」卡片：回译课文（book 10）/ 真题（book 5-9）。
-  // 记住上次选的库；没有记录时按上次练的册子推断（5-9 是真题，否则回译课文）。
+  // 内置课文库的两个「库」卡片：回译课文（book 10）/ 真题（book 5-9、11）。
+  // 记住上次选的库；没有记录时按上次练的册子推断（5-9、11 是真题，否则回译课文）。
   const [builtinTab, setBuiltinTab] = useState(() => {
     const t = safeGet('bt-lib-tab', '');
     if (t === 'huiyi' || t === 'exam') return t;

@@ -38,7 +38,7 @@ function Sidebar({
 
   // 两个内置库的课文数（卡片上的角标，也是搜索框文案）
   const huiyiCount = lessons.filter((l) => l.book === 10).length;
-  const examCount = lessons.filter((l) => l.book >= 5 && l.book <= 9).length;
+  const examCount = lessons.filter((l) => l.book >= 5 && l.book <= 11 && l.book !== 10).length;
   const builtinCount = builtinTab === 'huiyi' ? huiyiCount : examCount;
 
   // 组开合（回译课文的级别组 / 真题的各考试组）：存**展开的组**而不是折叠的组 ——
@@ -54,7 +54,7 @@ function Sidebar({
   };
 
   // 搜索匹配与「没有匹配」空态：必须和**实际渲染的列表**同一个口径 ——
-  // 内置库渲染的是「所选库卡片」的课文（回译课文=book 10 / 真题=book 5-9），
+  // 内置库渲染的是「所选库卡片」的课文（回译课文=book 10 / 真题=book 5-9、11），
   // 若用 visibleLessons（旧书册口径）判断空态，会出现"上面挂着没有匹配、
   // 下面却列着匹配结果"的精分现场。自建库仍渲染 visibleLessons，口径不变。
   const q = lessonQuery.trim().toLowerCase();
@@ -66,7 +66,7 @@ function Sidebar({
   };
   const listEmpty = activeLib
     ? visibleLessons.length === 0
-    : !lessons.some((l) => (builtinTab === 'huiyi' ? l.book === 10 : l.book >= 5 && l.book <= 9) && searchMatches(l));
+    : !lessons.some((l) => (builtinTab === 'huiyi' ? l.book === 10 : l.book >= 5 && l.book <= 11 && l.book !== 10) && searchMatches(l));
 
   return (
     <>
@@ -292,7 +292,7 @@ function Sidebar({
                 }
               } else {
                 // 内置课文库：只显示顶部选中的「库」卡片 —— 回译课文（book 10，按级别分组）
-                // 或真题（book 5-9，各考试一组）。组名点击可折叠；搜索时忽略折叠
+                // 或真题（book 5-9、11，各考试一组）。组名点击可折叠；搜索时忽略折叠
                 //（否则匹配到的课文在折叠组里会"看起来没搜到"）。匹配口径用外层的 searchMatches。
                 const searching = q.length > 0;
                 const foldBtn = (key, label) => {
@@ -323,7 +323,7 @@ function Sidebar({
                   });
                   groups.forEach((g) => pushGroup('huiyi:' + g.label, g.label, g.ls));
                 } else {
-                  [5, 6, 7, 8, 9]
+                  [5, 6, 7, 8, 11, 9] // CATTI（book 11）挂在英语（二）之后、专八之前
                     .map((b) => ({ label: ((books || []).find((x) => x.book === b) || {}).label || `第 ${b} 册`, ls: lessons.filter((l) => l.book === b && searchMatches(l)) }))
                     .filter((g) => g.ls.length)
                     .forEach((g) => pushGroup('exam:' + g.label, g.label, g.ls));

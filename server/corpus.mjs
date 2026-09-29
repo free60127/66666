@@ -33,7 +33,7 @@ function normalizeLesson(raw, book, source) {
   };
 }
 /* ---------- 内置库 ----------
- * 1-4 是新概念册次；5-9 是考试向的库（四级 / 六级 / 英语（一）/ 英语（二）/ 专八）。
+ * 1-4 是新概念册次；5-9、11 是考试向的库（四级 / 六级 / 英语（一）/ 英语（二）/ 专八 / CATTI）。
  * **九个库的语料一律不随仓库分发**（.gitignore 排除了 public/corpus/*.json）：
  * 教材全文与考试真题都受版权保护，使用者需自备有权使用的材料，按 README 的格式
  * 放进 public/corpus/ 的同名文件即可自动加载。
@@ -49,11 +49,13 @@ export const BOOK_META = {
   8: { label: '英语（二）', source: '英语（二）语料', file: 'english-2.json' },
   9: { label: '专八', source: '专八语料', file: 'tem8.json' },
   10: { label: '回译课文', source: '回译课文语料', file: 'huiyi.json' },
+  // CATTI 真题（用户自备语料，2026-09 收录）：挂在英语（二）与专八之间
+  11: { label: 'catti二笔/三笔', source: 'CATTI二三笔真题', file: 'catti.json' },
 };
 export const BOOK_IDS = Object.keys(BOOK_META).map(Number);
 export const isValidBook = (n) => BOOK_IDS.includes(Number(n));
 /** 每个库推荐的润色等级（前端切库时可以据此给个默认值；用户仍可自己改） */
-export const BOOK_LEVEL_HINT = { 5: '四六级', 6: '四六级', 7: '考研/专四', 8: '考研/专四', 9: '专八', 10: '四六级' };
+export const BOOK_LEVEL_HINT = { 5: '四六级', 6: '四六级', 7: '考研/专四', 8: '考研/专四', 9: '专八', 10: '四六级', 11: '考研/专四' };
 export function loadBook(book) {
   const meta = BOOK_META[Number(book)];
   if (!meta) return { book: Number(book), label: '', source: '', lessons: [] };
