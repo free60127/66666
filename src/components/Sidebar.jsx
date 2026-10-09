@@ -332,6 +332,7 @@ function Sidebar({
               return nodes;
             })()}
           </div>
+          <a className="icp" href="https://beian.miit.gov.cn/" target="_blank" rel="noreferrer">辽ICP备2026023090号</a>
         </div>
       </aside>
     </>
