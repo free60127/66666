@@ -1,12 +1,15 @@
 /** 登录会话、密码和注销；账号数据同步由 useCloudSync 管理。 */
 import { useEffect, useRef, useState } from 'react';
 import * as acct from '../account.js';
+import { authSendRegisterCode } from '../api.js';
 import { reconcileAccountClasses } from '../classroom.js';
 
 export function useAccount({ flash, beforeSignOut }) {
   const [account, setAccount] = useState(acct.loadAccount);
   const [accountsOn, setAccountsOn] = useState(false);
   const [recoveryOn, setRecoveryOn] = useState(false);
+  const [verifyOn, setVerifyOn] = useState(false); // 服务端要求注册时校验邮箱验证码
+  const [codeCooldown, setCodeCooldown] = useState(0); // 验证码发送倒计时（秒）
   const [authOpen, setAuthOpen] = useState(false);
   const [authMode, setAuthMode] = useState('login');
   const [authBusy, setAuthBusy] = useState(false);
@@ -24,6 +27,7 @@ export function useAccount({ flash, beforeSignOut }) {
         if (!alive) return;
         setAccountsOn(on);
         setRecoveryOn(Boolean(config.recoveryEnabled));
+        setVerifyOn(Boolean(config.emailVerify));
         const saved = acct.loadAccount();
         if (!on || !saved) return;
         const r = await acct.verifySession(saved.token);
@@ -39,6 +43,20 @@ export function useAccount({ flash, beforeSignOut }) {
 
   const authField = (key) => (event) => setAuthForm((form) => ({ ...form, [key]: event.target.value }));
   const manageField = (key) => (event) => setManageForm((form) => ({ ...form, [key]: event.target.value }));
+  /** 注册邮箱验证码：发送 + 60 秒倒计时（防刷；服务端另有每邮箱/每 IP 限频）。 */
+  const doSendRegisterCode = async () => {
+    if (authBusy || codeCooldown > 0) return;
+    const email = authForm.email.trim();
+    if (!email) { setAuthTip('请先填写邮箱'); return; }
+    setAuthBusy(true); setAuthTip('');
+    try {
+      const r = await authSendRegisterCode(email);
+      if (!r.ok) { setAuthTip(r.error || '发送失败'); return; }
+      setCodeCooldown(60);
+      setAuthTip('验证码已发送，15 分钟内有效。');
+    } catch (error) { setAuthTip(error.message || '发送失败'); }
+    finally { setAuthBusy(false); }
+  };
   const openAuth = (mode = 'login') => {
     setAuthMode(mode); setAuthTip(mode === 'forgot' && !recoveryOn ? '邮件找回暂未启用，请联系网站管理员。' : '');
     setAuthForm({ email: '', password: '', nickname: '', code: '' }); setAuthOpen(true);
@@ -47,7 +65,7 @@ export function useAccount({ flash, beforeSignOut }) {
     if (authBusy) return;
     setAuthBusy(true); setAuthTip('');
     try {
-      const r = await (register ? acct.signUp : acct.signIn)({ email: authForm.email.trim(), password: authForm.password, nickname: authForm.nickname.trim() });
+      const r = await (register ? acct.signUp : acct.signIn)({ email: authForm.email.trim(), password: authForm.password, nickname: authForm.nickname.trim(), code: authForm.code.trim() });
       if (!r.ok) { setAuthTip(r.error || '登录失败'); return; }
       setAccount(acct.loadAccount()); setAuthOpen(false);
       if (r.migrationError) flash(r.migrationError, 7000);
@@ -110,7 +128,8 @@ export function useAccount({ flash, beforeSignOut }) {
     } catch (error) { flash(error.message, 5000); }
     finally { setAuthBusy(false); }
   };
-  return { account, setAccount, accountsOn, recoveryOn, authOpen, setAuthOpen, authMode, authBusy, authTip, setAuthTip,
+  return { account, setAccount, accountsOn, recoveryOn, verifyOn, codeCooldown, doSendRegisterCode,
+    authOpen, setAuthOpen, authMode, authBusy, authTip, setAuthTip,
     authForm, authField, openAuth, doSignIn, doSignUp, doForgot, doReset,
     doSignOut: () => logout(false), doSignOutEverywhere: () => logout(true),
     manageForm, manageField, doChangePassword, doDeleteAccount };

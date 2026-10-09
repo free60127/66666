@@ -1255,7 +1255,7 @@ function Studio() {
   /* 账号身份先初始化，同步只访问该账号的 userId。退出前把最近修改送到云端。 */
   const syncActionRef = useRef(null);
   const {
-    account, accountsOn, recoveryOn, authOpen, setAuthOpen, authMode, authBusy, authTip, setAuthTip, authForm,
+    account, accountsOn, recoveryOn, verifyOn, codeCooldown, doSendRegisterCode, authOpen, setAuthOpen, authMode, authBusy, authTip, setAuthTip, authForm,
     authField, openAuth, doSignIn, doSignUp, doForgot, doReset, doSignOut, doSignOutEverywhere,
     manageForm, manageField, doChangePassword, doDeleteAccount,
   } = useAccount({
@@ -1952,6 +1952,21 @@ function Studio() {
                   disabled={authBusy || authMode === 'reset'}
                 />
               </label>
+
+              {authMode === 'register' && accountsOn ? (
+                <label className="auth-label">
+                  邮箱验证码
+                  <span className="verify-row">
+                    <input value={authForm.code} onChange={authField('code')} inputMode="numeric" maxLength={6}
+                      placeholder="6 位数字" autoComplete="one-time-code" disabled={authBusy} />
+                    <button type="button" className="ghost-btn sm" disabled={authBusy || codeCooldown > 0 || !authForm.email.trim()}
+                      onClick={doSendRegisterCode}
+                      title={!authForm.email.trim() ? '先填写邮箱' : '发送验证码到该邮箱'}>
+                      {codeCooldown > 0 ? codeCooldown + 's 后重发' : '发送验证码'}
+                    </button>
+                  </span>
+                </label>
+              ) : null}
 
               {authMode === 'register' ? (
                 <label className="auth-label">

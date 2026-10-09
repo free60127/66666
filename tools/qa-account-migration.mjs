@@ -25,7 +25,7 @@ await createAccounts({ kv }).register({ email, password, sync: await sealText(co
 const port = 8968;
 const base = `http://127.0.0.1:${port}`;
 const server = spawn(process.execPath, ['server/index.mjs'], { env: { ...process.env, PORT: String(port), DATA_DIR: dir,
-  UPSTASH_REDIS_REST_URL: '', UPSTASH_REDIS_REST_TOKEN: '', AI_API_KEY: '' }, stdio: 'ignore' });
+  EMAIL_VERIFY: '0', UPSTASH_REDIS_REST_URL: '', UPSTASH_REDIS_REST_TOKEN: '', AI_API_KEY: '' }, stdio: 'ignore' });
 let browser;
 const login = async (page, pass = password) => {
   await page.getByRole('button', { name: '登录 / 注册' }).click();

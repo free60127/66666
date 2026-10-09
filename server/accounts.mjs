@@ -32,6 +32,7 @@ const K_USER = (id) => PREFIX + 'user:' + id;
 const K_SESS = (h) => PREFIX + 'sess:' + h;
 const K_FAIL = (e) => PREFIX + 'fail:' + e;
 const K_RESET = (e) => PREFIX + 'reset:' + e;
+const K_VERIFY = (e) => PREFIX + 'verify:' + e; // 注册邮箱验证码（只存 SHA-256 哈希）
 const K_RATE = (s) => PREFIX + 'rate:' + s;
 
 /**
@@ -43,6 +44,7 @@ export const PBKDF2_ITERATIONS = Number(process.env.PBKDF2_ITERATIONS || 210000)
 
 const SESSION_TTL_SEC = 30 * 24 * 3600;   // 30 天
 const RESET_TTL_SEC = 15 * 60;            // 15 分钟
+const VERIFY_TTL_SEC = 15 * 60;           // 注册邮箱验证码同 15 分钟有效
 const FAIL_TTL_SEC = 15 * 60;
 const LOGIN_FAIL_MAX = 8;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
@@ -134,6 +136,9 @@ const readJson = (raw, fb = null) => { try { return raw ? JSON.parse(raw) : fb; 
  * @param {Array} [o.sent]    测试用：收集发出的邮件
  */
 export function createAccounts({ kv, mail, env = process.env, sent, onDelete }) {
+  // 注册邮箱验证开关：默认开启（假邮箱 = 一次性账号，永远收不到找回密码邮件）；
+  // 自托管未配 SMTP 时可设 EMAIL_VERIFY=0 关闭。测试同样用它关闭。
+  const emailVerifyOn = String(env.EMAIL_VERIFY ?? '1') !== '0';
   /** 发验证码失败的统一兜底文案 */
   const MAIL_FAIL = '邮件发送失败，请稍后重试或联系管理员';
   /**
@@ -179,9 +184,17 @@ export function createAccounts({ kv, mail, env = process.env, sent, onDelete }) 
 
   return {
     /* ---------- 注册 ---------- */
-    async register({ email, password, nickname, sync, ip, role }) {
+    async register({ email, password, nickname, sync, ip, role, code }) {
       const v = validate({ email, password, nickname });
       if (v.error) return { ok: false, status: 400, error: v.error };
+
+      // 邮箱验证（EMAIL_VERIFY=0 可关闭，供自托管未配 SMTP 的场景与测试）：
+      // 假邮箱注册的账号永远收不到找回密码邮件（等于一次性账号），必须挡在注册这一步。
+      if (emailVerifyOn) {
+        const err = await this.checkRegisterCode(v.email, code);
+        if (err) return { ok: false, status: 400, error: err };
+        await kv.del(K_VERIFY(v.email)); // 一码一用，用完即废
+      }
 
       const syncEnc = sanitizeSync(sync);
       if (syncEnc === undefined) return { ok: false, status: 400, error: '同步码密文格式不正确' };
@@ -391,6 +404,51 @@ export function createAccounts({ kv, mail, env = process.env, sent, onDelete }) 
     },
 
     /* ---------- 找回密码第 1 步：发验证码 ---------- */
+    /* ---------- 注册邮箱验证：发码（第 1 步）----------
+     * 假邮箱注册的账号永远无法找回密码（等于一次性账号），所以注册前必须过邮箱验证。
+     * 与忘记密码同一套基建：CSPRNG 出码 → 只存 SHA-256 哈希 → 15 分钟 TTL。
+     * 已注册的邮箱直接明确告知（注册场景直接说比让用户填完整张表才发现重复友好）。 */
+    async sendRegisterCode({ email, ip }) {
+      const v = validate({ email });
+      if (v.error) return { ok: false, status: 400, error: v.error };
+      const e = v.email;
+      const rEmail = await rateLimit(kv, K_RATE('verify:email:' + e), 3600, 5);
+      if (rEmail.over) return { ok: false, status: 429, error: '该邮箱发送过于频繁，请 1 小时后再试' };
+      const rIp = await rateLimit(kv, K_RATE('verify:ip:' + ip), 600, 10);
+      if (rIp.failed) return { ok: false, status: 503, error: '服务繁忙，请稍后再试' };
+      if (rIp.over) return { ok: false, status: 429, error: '发送太频繁，请稍后再试' };
+      if (await loadUserByEmail(e)) return { ok: false, status: 409, error: '该邮箱已注册，请直接登录' };
+
+      const code = String(randomInt(0, 1000000)).padStart(6, '0');
+      await kv.set(K_VERIFY(e), JSON.stringify({ h: sha256Hex(code), at: Date.now() }), VERIFY_TTL_SEC);
+
+      const service = env.SERVICE_NAME || '回译本';
+      const r = await mail({
+        to: e,
+        subject: `${service} - 注册验证码`,
+        text: `你的注册验证码是：${code}\n\n15 分钟内有效。请回填到注册页面完成注册。\n\n如果这不是你的操作，请忽略本邮件。`,
+        env, sent,
+      });
+      if (!r || !r.ok) {
+        console.error('register mail error:', JSON.stringify(r));
+        await kv.del(K_VERIFY(e)); // 发不出去就撤码，避免占着
+        const detail = r && r.error ? ` [${String(r.error).slice(0, 140)}]` : '';
+        return { ok: false, status: 503, error: (MAIL_REASON[r && r.code] || MAIL_FAIL) + detail };
+      }
+      return { ok: true, status: 200 };
+    },
+
+    /** 注册邮箱验证：校验码（第 2 步，register 内部调用）。 */
+    async checkRegisterCode(email, code) {
+      const e = String(email || '').trim().toLowerCase();
+      const stored = readJson(await kv.get(K_VERIFY(e)));
+      if (!stored) return '验证码已过期或未发送，请重新获取';
+      if (Date.now() - (stored.at || 0) > VERIFY_TTL_SEC * 1000) return '验证码已过期，请重新获取';
+      const given = sha256Hex(String(code || '').trim());
+      const ok = stored.h.length === given.length && timingSafeEqual(Buffer.from(stored.h), Buffer.from(given));
+      return ok ? '' : '验证码不正确，请核对邮件';
+    },
+
     async forgot({ email, ip }) {
       const e = String(email || '').trim().toLowerCase();
       if (!EMAIL_RE.test(e)) return { ok: false, status: 400, error: '邮箱格式不正确' };

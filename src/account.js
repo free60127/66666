@@ -37,21 +37,21 @@ export async function accountAvailable() {
   } catch { return false; }
 }
 export async function accountConfig() {
-  try { return await getAuthConfig(); } catch { return { enabled: false, recoveryEnabled: false }; }
+  try { return await getAuthConfig(); } catch { return { enabled: false, recoveryEnabled: false, emailVerify: false }; }
 }
 
 /** 把 apiRaw 的返回统一成 {ok, error, ...} */
 const wrap = (r) => (r.ok ? { ok: true, ...(r.data || {}) } : { ok: false, status: r.status, error: (r.data && r.data.error) || ('请求失败：HTTP ' + r.status) });
 
-export async function signUp({ email, password, nickname }) {
-  const r = wrap(await authRegister({ email, password, nickname }));
+export async function signUp({ email, password, nickname, code }) {
+  const r = wrap(await authRegister({ email, password, nickname, code }));
   if (r.ok) saveAccount(r.token, r.user);
-  return r;
+  return { ...r, classMembers: r.classMembers || [] };
 }
 export async function signIn({ email, password }) {
   const r = wrap(await authLogin({ email, password }));
   if (r.ok) saveAccount(r.token, r.user);
-  return r;
+  return { ...r, classMembers: r.classMembers || [] };
 }
 
 export async function signOut(token) {

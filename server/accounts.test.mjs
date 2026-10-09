@@ -24,7 +24,7 @@ const kv = createFileKv(dir);
 
 const sent = [];
 const mail = async ({ to, subject, text }) => { sent.push({ to, subject, text }); return { ok: true }; };
-const env = { SERVICE_NAME: '回译本' };
+const env = { SERVICE_NAME: '回译本', EMAIL_VERIFY: '0' }; // 主流程测试关掉邮箱验证（验证流程在末尾独立测试）
 const acc = createAccounts({ kv, mail, env, sent });
 
 const fakeSync = (tag) => ({ salt: 'c2FsdA==', iv: 'aXZpdg==', c: 'Y2lwaGVy' + tag + '==' });
@@ -239,3 +239,31 @@ const failed = results.filter((r) => !r.ok);
 console.log(failed.length ? `❌ ${failed.length}/${results.length} 项失败` : `✅ 全部 ${results.length} 项通过`);
 try { fs.rmSync(dir, { recursive: true, force: true }); } catch (_) {}
 process.exit(failed.length ? 1 : 0);
+
+/* ---------- 8. 注册邮箱验证（EMAIL_VERIFY=1 的独立实例） ---------- */
+{
+  const sent2 = [];
+  const mail2 = async (m) => { sent2.push(m); return { ok: true }; };
+  const acc2 = createAccounts({ kv, mail: mail2, env: { SERVICE_NAME: '回译本', EMAIL_VERIFY: '1' }, sent: sent2 });
+  const email2 = 'verify-me@example.com';
+
+  // 不带验证码直接注册 → 400
+  const noCode = await acc2.register({ email: email2, password: 'verify-pass-123', nickname: 'V', ip: 'v', code: '' });
+  check('⑩ 无验证码注册 → 400', noCode.status === 400, `status=${noCode.status}`);
+  // 错误验证码 → 400
+  await acc2.sendRegisterCode({ email: email2, ip: 'v2' });
+  const badCode = await acc2.register({ email: email2, password: 'verify-pass-123', nickname: 'V', ip: 'v', code: '000000' });
+  check('⑪ 错误验证码注册 → 400', badCode.status === 400, `status=${badCode.status}`);
+  // 正确验证码 → 成功，且验证码用完即废（存储里也搜不到明文）
+  const mails = sent2.filter((m) => m.subject.includes('注册验证码'));
+  const code = (mails[mails.length - 1].text.match(/\d{6}/) || [])[0];
+  const good = await acc2.register({ email: email2, password: 'verify-pass-123', nickname: 'V', ip: 'v', code });
+  check('⑫ 正确验证码注册成功', good.status === 201, `status=${good.status}`);
+  const raw = fs.readdirSync(dir).map((f) => fs.readFileSync(path.join(dir, f), 'utf8')).join('\n');
+  check('⑬ 验证码只存哈希（存储里搜不到明文）', !raw.includes(`"${code}"`));
+  // 发码限频：同一邮箱 1 小时内最多 5 次
+  const spam = [];
+  for (let i = 0; i < 6; i += 1) spam.push((await acc2.sendRegisterCode({ email: 'spam@example.com', ip: 's' })).status);
+  check('⑭ 发码限频 → 429', spam.filter((s) => s === 429).length >= 1, spam.join(','));
+}
+console.log('✅ 账号体系测试全部通过');

@@ -11,7 +11,7 @@ const base = `http://127.0.0.1:${port}`;
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bts-account-qa-'));
 const server = spawn(process.execPath, ['server/index.mjs'], {
   env: { ...process.env, PORT: String(port), DATA_DIR: dir,
-    UPSTASH_REDIS_REST_URL: '', UPSTASH_REDIS_REST_TOKEN: '', AI_API_KEY: '' },
+    EMAIL_VERIFY: '0', UPSTASH_REDIS_REST_URL: '', UPSTASH_REDIS_REST_TOKEN: '', AI_API_KEY: '' },
   stdio: 'ignore',
 });
 let browser;

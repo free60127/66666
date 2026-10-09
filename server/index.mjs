@@ -12,7 +12,7 @@ import { createResultReader, finalizeResult, SEGMENT_LABEL, usableOverall } from
 import { recognizeImage } from './ocr.mjs';
 import { MAX_SNAPSHOT_BYTES, createSyncStore } from './sync.mjs';
 import { createAccountData, openLegacySync } from './account-data.mjs';
-import { createUpstashKv, createFileKv } from './kv.mjs';
+import { createUpstashKv, createFileKv, rateLimit } from './kv.mjs';
 import { resolveClientIp, trustProxyHops, trustCloudflareHeader } from './client-ip.mjs';
 import { createAccounts } from './accounts.mjs';
 import { createClassrooms } from './classrooms.mjs';
@@ -132,7 +132,9 @@ const stat = {
  *   2) 客户端要用自定义接口，必须自带该接口的 key；
  *   3) 自定义接口默认禁止私网/环回/链路本地地址（防 SSRF）。
  */
-const ALLOW_SERVER_KEY = process.env.ALLOW_SERVER_KEY !== '0'; // 公共站点可设 0：强制访客自带 key
+const ALLOW_SERVER_KEY = process.env.ALLOW_SERVER_KEY !== '0';
+// 注册邮箱验证：默认开启（假邮箱=一次性账号）；自托管未配 SMTP 时可设 EMAIL_VERIFY=0 关闭
+const emailVerifyRequired = process.env.EMAIL_VERIFY !== '0'; // 公共站点可设 0：强制访客自带 key
 const ALLOW_PRIVATE_BASE = process.env.ALLOW_PRIVATE_BASE_URL === '1';
 
 
@@ -244,11 +246,66 @@ async function resolveEndpointFor(body) {
       if (!/^[a-f0-9]{32}$/.test(cid) || !/^[a-f0-9]{64}$/.test(sid)) continue;
       if (!await classrooms.memberIdentity(cid, sid)) continue;
       const k = await classrooms.classKey(cid);
-      if (k) return { baseUrl: 'https://api.deepseek.com/v1', apiKey: k, classKey: true };
+      if (k) return { baseUrl: 'https://api.deepseek.com/v1', apiKey: k, classKey: true, keySource: 'class', classId: cid };
     }
   }
-  return resolveEndpoint({ bodyBase: body.baseUrl, bodyKey: body.apiKey, fallbackBase: stat.baseUrl(), fallbackKey: envKey() });
+  const ep = resolveEndpoint({ bodyBase: body.baseUrl, bodyKey: body.apiKey, fallbackBase: stat.baseUrl(), fallbackKey: envKey() });
+  // keySource 供公共额度闸门计数：server = 站点代跑（计额度），own = 学生自带（不限）
+  return { ...ep, keySource: ep.apiKey && ep.apiKey === envKey() ? 'server' : 'own' };
 }
+
+const usageDay = () => new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+const posInt = (raw, fallback) => {
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 && String(raw ?? '').trim() !== '' ? Math.floor(n) : fallback;
+};
+/* ---------- 公共额度闸门 ----------
+ * 只有「站点 Key 代跑」的请求才消耗公共额度：
+ *   登录账号   FREE_DAILY_ACCOUNT 次/日
+ *   未登录访客 FREE_DAILY_IP 次/日（按 IP；学校机房共用出口也够用）
+ *   班级统一 Key 走教师自己的份额：CLASS_KEY_DAILY 次/班/日
+ * 学生自带 Key 完全不计数。全局熔断 DAILY_SERVER_BUDGET 是站点 Key 的全网日上限——
+ * 超了全网暂停（保护账单），次日自动恢复。窗口为滚动 24 小时。
+ * 计数发生在任务创建前：模型调用已产生成本，失败也计入。 */
+const FREE_DAILY_ACCOUNT = posInt(process.env.FREE_DAILY_ACCOUNT, 3);
+const FREE_DAILY_IP = posInt(process.env.FREE_DAILY_IP, 2);
+const DAILY_SERVER_BUDGET = posInt(process.env.DAILY_SERVER_BUDGET, 300);
+const CLASS_KEY_DAILY = posInt(process.env.CLASS_KEY_DAILY, 300);
+const gmt8Day = () => new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+
+
+/** 今日站点 Key 代跑次数（与闸门用同一个 KV 计数器；读失败按 0 算）。 */
+async function usageToday() {
+  try { return Number(await kv.get('bts:quota:global:' + usageDay())) || 0; }
+  catch { return 0; }
+}
+
+async function gateServerKeyUsage({ req, ep }) {
+  const day = gmt8Day();
+  // 班级 Key：只受班级日额度约束，不占全网预算
+  if (ep.keySource === 'class') {
+    const r = await rateLimit(kv, `bts:quota:class:${ep.classId}:${day}`, 86400, CLASS_KEY_DAILY);
+    if (r.over) return { blocked: true, status: 429, message: '本班级今日的统一 Key 额度已用完，请联系教师或明天再来' };
+    return { blocked: false, used: r.count, limit: CLASS_KEY_DAILY, pool: 'class' };
+  }
+  if (ep.keySource !== 'server') return { blocked: false, used: 0, limit: 0, pool: 'own' };
+  // 全局熔断：最坏情况的账单上界
+  const g = await rateLimit(kv, `bts:quota:global:${day}`, 86400, DAILY_SERVER_BUDGET);
+  if (g.over) return { blocked: true, status: 429, message: '今日全网免费额度已用完，明日自动恢复；在 ⋮ → AI 设置填自己的 Key 不受此限', pool: 'global' };
+  // 登录账号按账号计；未登录按 IP 计（XFF 已按可信代理层数解析）
+  const token = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+  const me = accounts && token ? await accounts.me(token) : null;
+  if (me?.ok) {
+    const r = await rateLimit(kv, `bts:quota:acct:${me.user.id}:${day}`, 86400, FREE_DAILY_ACCOUNT);
+    if (r.over) return { blocked: true, status: 429, message: `今日免费批改额度已用完（${FREE_DAILY_ACCOUNT} 次/日）：明天再来，或在 ⋮ → AI 设置填自己的 Key（不受限）`, used: r.count, limit: FREE_DAILY_ACCOUNT, pool: 'account' };
+    return { blocked: false, used: r.count, limit: FREE_DAILY_ACCOUNT, pool: 'account' };
+  }
+  const ip = clientIp(req);
+  const r2 = await rateLimit(kv, `bts:quota:ip:${ip}:${day}`, 86400, FREE_DAILY_IP);
+  if (r2.over) return { blocked: true, status: 429, message: `今日免费体验次数已用完（${FREE_DAILY_IP} 次/日）：登录账号可获更多额度，或在 ⋮ → AI 设置填自己的 Key（不受限）`, used: r2.count, limit: FREE_DAILY_IP, pool: 'ip' };
+  return { blocked: false, used: r2.count, limit: FREE_DAILY_IP, pool: 'ip' };
+}
+
 
 /* ---------- 限流（内存滑动窗口，按来源 IP） ----------
  * 只是"减速带"：挡脚本批量刷接口，不承担鉴权职责。
@@ -303,10 +360,6 @@ function recordClientError(entry) {
 /* env 解析注意：不能用 `Number(env) || 默认值` —— 0 是假值，会被悄悄换成默认值
    （实测：MAX_QUEUED_JOBS=0 本意是"不许排队"，结果被解析成 50）。
    统一走这里的 posInt()：只认正整数字符串，其余（含 0、空、NaN）一律回落默认值。 */
-const posInt = (raw, fallback) => {
-  const n = Number(raw);
-  return Number.isFinite(n) && n >= 0 && String(raw ?? '').trim() !== '' ? Math.floor(n) : fallback;
-};
 const RATE_BUCKET_MAX = Math.max(1, posInt(process.env.RATE_BUCKET_MAX, 20000));
 // 音标兜底查询是全站唯一会**代表服务器**去打第三方接口的 GET 端点：
 // 独立桶 + 独立上限，别让人借服务器 IP 刷 dictionaryapi.dev，也别和「生成」抢配额
@@ -1507,7 +1560,8 @@ const server = http.createServer(async (req, res) => {
     }
     if (p === '/api/auth/config') {
       return json(res, 200, { ok: true, enabled: accountsOn, store: kv.kind, durable: kvDurable,
-        recoveryEnabled: Boolean((process.env.SMTP_USER && process.env.SMTP_PASS) || process.env.SMTP_TEST_MODE === '1') });
+        recoveryEnabled: Boolean((process.env.SMTP_USER && process.env.SMTP_PASS) || process.env.SMTP_TEST_MODE === '1'),
+        emailVerify: emailVerifyRequired });
     }
     if (p.startsWith('/api/auth/')) {
       if (!accounts) {
@@ -1631,6 +1685,8 @@ const server = http.createServer(async (req, res) => {
         // 限流按什么算"一个客户端"：可信代理跳数配错会让限流失效（或被自己人误伤）
         // buckets：当前限流桶数（有界性的观测点 —— 被轮换 IP 打时它必须停在 RATE_BUCKET_MAX 附近）
         rateLimit: { perMin: RATE_MAX, trustProxyHops: TRUST_PROXY_HOPS, trustCfIp: TRUST_CF_IP, buckets: rateBuckets.size, bucketMax: RATE_BUCKET_MAX },
+        // 公共额度：今日站点 Key 代跑次数 / 全网日上限（滚动 24h 计数，GMT+8 日切）
+        usage: { day: usageDay(), serverKey: await usageToday(), budget: DAILY_SERVER_BUDGET, freePerAccount: FREE_DAILY_ACCOUNT, freePerIp: FREE_DAILY_IP, classKeyPerClass: CLASS_KEY_DAILY },
         // 并发闸门：同时在跑的模型任务数上限 / 排队上限（挡 OOM 用）
         concurrency: { maxInflight: MAX_INFLIGHT_JOBS, maxQueued: MAX_QUEUED_JOBS },
       });
@@ -1683,6 +1739,9 @@ const server = http.createServer(async (req, res) => {
       const style = String(body.style || '生活故事');
       const ep = await resolveEndpointFor(body);
       if (ep.error) return json(res, 400, { error: ep.error });
+      console.error('[dbg] ep =', JSON.stringify({ baseUrl: ep.baseUrl, apiKey: (ep.apiKey || '').slice(0, 12), keySource: ep.keySource, classKey: ep.classKey }));
+      const gate = await gateServerKeyUsage({ req, ep });
+      if (gate.blocked) return json(res, gate.status, { error: gate.message });
       const model = ep.classKey ? 'deepseek-chat' : String(body.model || '').trim() || stat.model();
       const { baseUrl, apiKey } = ep;
       if (!apiKey) return json(res, 400, { error: '未配置 AI_API_KEY：请复制 .env.example 为 .env 并填写，或在设置面板填入 API Key' });
@@ -1717,6 +1776,8 @@ const server = http.createServer(async (req, res) => {
 
       const ep = await resolveEndpointFor(body);
       if (ep.error) return json(res, 400, { error: ep.error });
+      const gate = await gateServerKeyUsage({ req, ep });
+      if (gate.blocked) return json(res, gate.status, { error: gate.message });
       const model = ep.classKey ? 'deepseek-chat' : String(body.model || '').trim() || stat.model();
       const { baseUrl, apiKey } = ep;
       // 视觉模型优先级：请求参数 > AI_VISION_MODEL > DeepSeek 路由默认 deepseek-flash > 主模型
@@ -1783,6 +1844,8 @@ const server = http.createServer(async (req, res) => {
         if (!items.length) return json(res, 400, { error: '没有需要批改的题目' });
         const ep = await resolveEndpointFor(body);
         if (ep.error) return json(res, 400, { error: ep.error });
+      const gate = await gateServerKeyUsage({ req, ep });
+      if (gate.blocked) return json(res, gate.status, { error: gate.message });
         const model = ep.classKey ? 'deepseek-chat' : String(body.model || '').trim() || stat.model();
         if (!ep.apiKey) return json(res, 400, { error: '未配置 AI_API_KEY：请复制 .env.example 为 .env 并填写，或在设置面板填入 API Key' });
         const jobId = randomUUID();
@@ -1810,6 +1873,8 @@ const server = http.createServer(async (req, res) => {
       const materials = drill ? String(body.materials || '').slice(0, MAX_SMALL_BYTES / 2) : '';
       const ep = await resolveEndpointFor(body);
       if (ep.error) return json(res, 400, { error: ep.error });
+      const gate = await gateServerKeyUsage({ req, ep });
+      if (gate.blocked) return json(res, gate.status, { error: gate.message });
       const model = ep.classKey ? 'deepseek-chat' : String(body.model || '').trim() || stat.model();
       const { baseUrl, apiKey } = ep;
       if (!apiKey) return json(res, 400, { error: '未配置 AI_API_KEY：请复制 .env.example 为 .env 并填写，或在设置面板填入 API Key' });
@@ -1910,6 +1975,8 @@ const server = http.createServer(async (req, res) => {
 
       const ep = await resolveEndpointFor(body);
       if (ep.error) return json(res, 400, { error: ep.error });
+      const gate = await gateServerKeyUsage({ req, ep });
+      if (gate.blocked) return json(res, gate.status, { error: gate.message });
       const model = ep.classKey ? 'deepseek-chat' : String(body.model || '').trim() || stat.model();
       const { baseUrl, apiKey } = ep;
       if (!apiKey) return json(res, 400, { error: '未配置 AI_API_KEY：请复制 .env.example 为 .env 并填写，或在设置面板填入 API Key' });
