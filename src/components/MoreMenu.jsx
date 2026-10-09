@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { BookOpen, Download, Flame, FolderPlus, GraduationCap, History, MoreVertical, Settings, Sparkles, Star } from 'lucide-react';
+import { BookOpen, Download, Flame, FolderPlus, GraduationCap, History, MoreVertical, Settings, Sparkles, Star, UserRound } from 'lucide-react';
 
 /**
  * 「更多」菜单（⋮）—— 全端统一（方案A 聚焦编辑）。
@@ -22,6 +22,7 @@ export default function MoreMenu({
   onOpenMaterial, materialBusy, onOpenSaveToLib,
   onOpenSettings, onOpenBackup,
   onOpenClass,
+  onOpenAuth, accountEmail, accountsOn,
   info, infoSub,
 }) {
   const [open, setOpen] = useState(false);
@@ -56,6 +57,11 @@ export default function MoreMenu({
       </button>
       {open ? (
         <div className="more-menu" role="menu">
+          {/* 登录/注册账号：置顶——这是新用户最容易迷路找不到的入口（2026-10 用户反馈） */}
+          {accountsOn && !accountEmail ? (
+            <Item icon={<UserRound size={15} />} label="登录 / 注册账号" onClick={onOpenAuth}
+              title="登录后学习数据跨设备同步，加入的教师班级也会自动恢复" />
+          ) : null}
           {view !== 'editor' ? <Item icon={<BookOpen size={15} />} label="返回编辑器" onClick={onBackToEditor} /> : null}
           {view === 'quiz' && hasQuiz ? <Item icon={<Sparkles size={15} />} label="看刚才那份自测题" onClick={onOpenQuiz} /> : null}
           <Item icon={<History size={15} />} label="历史结果" count={historyCount} onClick={onOpenHistory} />

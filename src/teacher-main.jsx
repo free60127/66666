@@ -32,6 +32,8 @@ function TeacherApp() {
   const [tab, setTab] = useState('scores');
   const [commentTarget, setCommentTarget] = useState(null);
   const [commentText, setCommentText] = useState('');
+  const [classKeyOpen, setClassKeyOpen] = useState(false);
+  const [classKeyDraft, setClassKeyDraft] = useState('');
   const token = account?.token || '';
 
   useEffect(() => {
@@ -55,7 +57,7 @@ function TeacherApp() {
     classRequest('/' + selectedId, token).then((data) => { if (active) setDetail(data); }).catch((error) => { if (active) setMessage(error.message); });
     return () => { active = false; };
   }, [selectedId, token]);
-  useEffect(() => { setTab('scores'); setCommentTarget(null); }, [selectedId]);
+  useEffect(() => { setTab('scores'); setCommentTarget(null); setClassKeyOpen(false); setClassKeyDraft(''); }, [selectedId]);
 
   const act = async (fn) => {
     setBusy(true); setMessage('');
@@ -117,6 +119,26 @@ function TeacherApp() {
     try { await navigator.clipboard.writeText(code); setMessage('邀请码已复制'); }
     catch { setMessage('邀请码：' + code); }
   };
+  // 密钥只上传，不从服务端回显；更换和清除分别是明确的操作。
+  const saveClassKey = (event) => {
+    event.preventDefault();
+    if (!classKeyDraft.trim()) return;
+    void act(async () => {
+      await classRequest('/' + detail.class.id + '/apikey', token, 'POST', { apiKey: classKeyDraft.trim() });
+      await reloadDetail();
+      setClassKeyDraft(''); setClassKeyOpen(false);
+      setMessage('班级 AI Key 已保存，班内学生练习可直接使用。');
+    });
+  };
+  const clearClassKey = () => {
+    if (!window.confirm('清除班级统一 AI Key？班内未自备 Key 的学生之后将无法用它批改。')) return;
+    void act(async () => {
+      await classRequest('/' + detail.class.id + '/apikey', token, 'POST', { apiKey: '' });
+      await reloadDetail();
+      setClassKeyDraft(''); setClassKeyOpen(false);
+      setMessage('班级 AI Key 已清除。');
+    });
+  };
   // 学生从微信/QQ 点链接直接进站并预填邀请码，比抄 6 位数省事得多
   const copyJoinLink = async () => {
     const link = new URL(import.meta.env.BASE_URL + 'index.html#join=' + detail.class.inviteCode, window.location.href).href;
@@ -157,7 +179,13 @@ function TeacherApp() {
         {classes.length === 0 && <p className="teacher-muted">还没有班级，先创建一个。</p>}
         {classes.map((room) => <button key={room.id} className={'teacher-room ' + (selectedId === room.id ? 'active' : '')} onClick={() => setSelectedId(room.id)}><span>{room.name}</span><small>{room.archivedAt ? '已归档' : `${room.studentCount} 人 · 邀请码 ${room.inviteCode}`}</small></button>)}
       </aside><section className="teacher-content">{!detail ? <div className="card teacher-empty">选择一个班级查看名单和成绩</div> : <>
-        <div className="card teacher-class-head"><div><h1>{detail.class.name}</h1><p>{detail.class.archivedAt ? '已归档' : `邀请码 ${detail.class.inviteCode} · 学生在「更多 → 加入教师班级」输入`} · {students.length} 名学生</p></div><div className="teacher-actions"><button onClick={refresh} disabled={busy}>刷新数据</button>{!detail.class.archivedAt && <button onClick={() => copyCode(detail.class.inviteCode)}>复制邀请码</button>}{!detail.class.archivedAt && <button onClick={copyJoinLink}>复制入班链接</button>}<button onClick={exportCsv}>导出 CSV</button>{!detail.class.archivedAt && detail.class.teacherUserId === account.user.id && <button className="teacher-danger" onClick={() => archive(detail.class)}>归档</button>}</div></div>
+        <div className="card teacher-class-head"><div><h1>{detail.class.name}</h1><p>{detail.class.archivedAt ? '已归档' : `邀请码 ${detail.class.inviteCode} · 学生在「更多 → 加入教师班级」输入`} · {students.length} 名学生</p></div><div className="teacher-actions"><button onClick={refresh} disabled={busy}>刷新数据</button>{!detail.class.archivedAt && <button onClick={() => copyCode(detail.class.inviteCode)}>复制邀请码</button>}{!detail.class.archivedAt && <button onClick={copyJoinLink}>复制入班链接</button>}<button onClick={exportCsv}>导出 CSV</button>{!detail.class.archivedAt && <button onClick={() => setClassKeyOpen((open) => !open)} aria-expanded={classKeyOpen}>{detail.hasClassKey ? '班级 AI Key：已配置' : '配置班级 AI Key'}</button>}{!detail.class.archivedAt && detail.class.teacherUserId === account.user.id && <button className="teacher-danger" onClick={() => archive(detail.class)}>归档</button>}</div></div>
+        {classKeyOpen && <form className="card teacher-key-panel" onSubmit={saveClassKey}>
+          <h2>班级统一 AI Key</h2>
+          <p className="teacher-muted">填写教师自己的 DeepSeek API Key。班内学生不用配置 Key 即可批改；学生自备 Key 时优先使用学生的。用量和费用由教师的 DeepSeek 账号承担。</p>
+          <label>DeepSeek API Key<input type="password" autoComplete="off" value={classKeyDraft} onChange={(event) => setClassKeyDraft(event.target.value)} placeholder={detail.hasClassKey ? '已配置；输入新 Key 可替换' : 'sk-…'} maxLength={200} /></label>
+          <div className="teacher-actions"><button className="teacher-primary" disabled={busy || !classKeyDraft.trim()}>保存 Key</button>{detail.hasClassKey && <button type="button" className="teacher-danger" disabled={busy} onClick={clearClassKey}>清除已有 Key</button>}<button type="button" onClick={() => { setClassKeyOpen(false); setClassKeyDraft(''); }}>取消</button></div>
+        </form>}
         <div className="teacher-tabs" role="tablist" aria-label="班级管理">{[['scores', '成绩'], ['homework', '作业'], ['corpus', '共享课文'], ['stats', '错题统计'], ['team', '协作教师']].map(([value, label]) => <button key={value} role="tab" aria-selected={tab === value} className={tab === value ? 'active' : ''} onClick={() => setTab(value)}>{label}</button>)}</div>
         {tab === 'scores' && <>
         <div className="card"><h2>成绩总览</h2><p className="teacher-muted">按学生与课文显示最近一次成绩。点击分数查看完整批改。</p><div className="teacher-scroll"><table><thead><tr><th>姓名</th><th>学号</th><th>加入时间</th><th>最近活跃</th>{lessons.map((lesson) => <th key={lesson}>{lesson}</th>)}</tr></thead><tbody>{students.map((student) => <tr key={student.studentNo}><td>{student.name}</td><td>{student.studentNo}</td><td>{date(student.joinedAt)}</td><td>{date(student.lastActiveAt)}</td>{lessons.map((lesson) => { const sub = latest(student, lesson); return <td key={lesson}>{sub ? <a className={'score-badge' + scoreClass(sub.score)} href={resultUrl(sub.jobId)} target="_blank" rel="noreferrer" title={`${date(sub.at)} · 查看完整批改`}>{sub.score ?? '查看'}</a> : '—'}</td>; })}</tr>)}</tbody></table></div>{students.length === 0 && <p className="teacher-muted">暂无学生。请复制邀请码给学生。</p>}</div>

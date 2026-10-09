@@ -20,6 +20,7 @@ import { saveDays } from './studyStreak.js'
 import { useTimer } from './hooks/useTimer.js'
 import { useCloudSync } from './hooks/useCloudSync.js'
 import { useAccount } from './hooks/useAccount.js'
+import { loadAccount } from './account.js'
 import { useJobRunner } from './hooks/useJobRunner.js'
 import { useModals } from './hooks/useModals.js'
 import { useLibraries } from './hooks/useLibraries.js'
@@ -86,28 +87,54 @@ function App() {
   const [classJoinOpen, setClassJoinOpen] = useState(false);
   const [classJoinPrefill, setClassJoinPrefill] = useState('');
   const [reminderTasks, setReminderTasks] = useState([]);
+  const [classKeyAvailable, setClassKeyAvailable] = useState(false);
+  // 深链入班的「先登录」编排：openAuth 在后面的 useAccount 里（TDZ），用 ref 透传
+  const joinAuthRef = useRef(null);
+  const joinAuthPendingRef = useRef(false);
+  const joinAuthWasOpenRef = useRef(false);
   // 教师发的入班链接（index.html#join=邀请码）：进站直接打开入班弹窗并预填邀请码；
+  // 未登录的访客先弹登录/注册（学习数据跨设备同步），完成或跳过后再弹入班；
   // 其他 #join= 变体（位数不对/带字母）不是有效深链，顺手清掉避免刷新时反复解析
   useEffect(() => {
     const match = window.location.hash.match(/^#join=(\d{6})$/);
-    if (match) {
-      setClassJoinPrefill(match[1]);
-      setClassJoinOpen(true);
-    } else if (window.location.hash.startsWith('#join=')) {
-      window.history.replaceState(null, '', window.location.pathname + window.location.search);
+    if (!match) {
+      if (window.location.hash.startsWith('#join=')) {
+        window.history.replaceState(null, '', window.location.pathname + window.location.search);
+      }
+      return;
     }
-    if (match) window.history.replaceState(null, '', window.location.pathname + window.location.search);
+    setClassJoinPrefill(match[1]);
+    if (loadAccount()) {
+      setClassJoinOpen(true);
+    } else {
+      joinAuthPendingRef.current = true;
+      joinAuthRef.current?.('login', '登录后学习数据可跨设备同步；不需要的话点「跳过」直接加入班级');
+    }
+    window.history.replaceState(null, '', window.location.pathname + window.location.search);
   }, []);
   useEffect(() => {
-    const rooms = memberships();
-    if (!rooms.length) return;
     let active = true;
-    Promise.allSettled(rooms.map(studentDashboard)).then((results) => {
+    const refreshClasses = async () => {
+      const rooms = memberships();
+      if (!rooms.length) { setClassKeyAvailable(false); setReminderTasks([]); return; }
+      const results = await Promise.allSettled(rooms.map(studentDashboard));
       if (!active) return;
       const joined = new Set(memberships().map((room) => room.classId));
-      setReminderTasks(pendingAssignments(results.filter((item) => item.status === 'fulfilled' && joined.has(item.value.class?.id)).map((item) => item.value)));
-    });
-    return () => { active = false; };
+      const dashboards = results.filter((item) => item.status === 'fulfilled' && joined.has(item.value.class?.id)).map((item) => item.value);
+      setClassKeyAvailable(dashboards.some((dashboard) => dashboard.hasClassKey && !dashboard.class?.archivedAt));
+      setReminderTasks(pendingAssignments(dashboards));
+    };
+    void refreshClasses();
+    const refreshWhenVisible = () => { if (document.visibilityState === 'visible') void refreshClasses(); };
+    window.addEventListener('bts:class-memberships-changed', refreshClasses);
+    window.addEventListener('focus', refreshWhenVisible);
+    document.addEventListener('visibilitychange', refreshWhenVisible);
+    return () => {
+      active = false;
+      window.removeEventListener('bts:class-memberships-changed', refreshClasses);
+      window.removeEventListener('focus', refreshWhenVisible);
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
+    };
   }, []);
   /* ---------- 练习方向（汉译英 / 英译汉）----------
    * 缺省就是汉译英（normalizeDirection 会把空值/脏值兜到默认），**进站不再拦人**：
@@ -624,7 +651,7 @@ function App() {
    * 而新加的引导块只看「服务端」，于是本地填了 Key 的用户会看到
    * 「上面说已配置、下面说还差一步」的自相矛盾。
    */
-  const hasAiKey = Boolean(status?.hasKey || settings.apiKey);
+  const hasAiKey = Boolean(status?.hasKey || settings.apiKey || classKeyAvailable);
 
   /**
    * 课文搜索：课号、中英标题、关键词都能命中。
@@ -1242,7 +1269,7 @@ function App() {
   /* ---------- 账号 ----------
    * 状态与动作都在 hooks/useAccount.js；变量名沿用原来的，调用点不用改。 */
   const {
-    account, accountsOn, authOpen, setAuthOpen, authMode, authBusy, authTip, authForm, bindPw, setBindPw,
+    account, accountsOn, authOpen, setAuthOpen, authMode, authBusy, authTip, setAuthTip, authForm, bindPw, setBindPw,
     authField, openAuth, doSignIn, doSignUp, doForgot, doReset, doSignOut, doSignOutEverywhere, doBindSync,
   } = useAccount({
     syncCode, setSyncCode, setSyncLost, runSync,
@@ -1250,6 +1277,25 @@ function App() {
   });
   authOpenRef.current = authOpen; // 供 useModals 的 Esc/焦点陷阱识别账号弹窗
   closeAuthRef.current = () => setAuthOpen(false);
+  // 深链入班：账号完成后继续入班；访客明确关闭登录框后也允许加入。
+  joinAuthRef.current = (mode, tip) => { openAuth(mode); setAuthTip(tip || ''); };
+  const prevAccountRef = useRef(null);
+  useEffect(() => {
+    const before = prevAccountRef.current;
+    prevAccountRef.current = account;
+    if (!account || before) return; // 只在「未登录 → 已登录」的跃迁时动作
+    if (joinAuthPendingRef.current) {
+      joinAuthPendingRef.current = false;
+      setClassJoinOpen(true);
+    }
+  }, [account]);
+  // 深链访客关掉登录弹窗（跳过登录）→ 直接进入班弹窗，不让人卡在登录一步
+  useEffect(() => {
+    if (authOpen) { joinAuthWasOpenRef.current = true; return; }
+    if (!joinAuthWasOpenRef.current || !joinAuthPendingRef.current) return;
+    joinAuthPendingRef.current = false;
+    setClassJoinOpen(true);
+  }, [authOpen]);
 
   /** 打开「编辑课文」弹窗（改标题 / 改序号） */
   // 适配：调用点仍是 openLessonEdit(libId, lesson)，这里补上弹窗 setter
@@ -1485,10 +1531,11 @@ function App() {
           />
           <div className="status-chip" title={status ? (status.model + ' @ ' + status.baseUrl) : '请先启动后端 npm run server'}>
             <span className={'dot ' + (status ? 'ok' : 'err')} />
-            {status ? (hasAiKey ? 'AI 已配置' : '未配置 API Key') : '后端未连接'}
+            {status ? (classKeyAvailable && !settings.apiKey && !status.hasKey ? '班级 AI 已配置' : hasAiKey ? 'AI 已配置' : '未配置 API Key') : '后端未连接'}
             {status ? <span className="chip-detail">{' · ' + status.model}</span> : null}
             {status?.corpusLessons ? <span className="chip-detail">{' · ' + status.corpusLessons + ' 课'}</span> : null}
           </div>
+          {accountsOn && <button className="account-entry" type="button" onClick={() => account ? openBackup() : openAuth('login')} title={account ? `已登录 ${account.user.email}，点击管理账号` : '登录或注册账号，换设备恢复学习数据'}><UserRound size={16} /><span>{account ? '我的账号' : '登录 / 注册'}</span></button>}
           {/* 全端统一的 ⋮ 菜单：低频入口都在这里（桌面端不再平铺那四个按钮） */}
           <MoreMenu
             view={view}
@@ -1508,6 +1555,9 @@ function App() {
             onOpenSettings={openSettings}
             onOpenBackup={openBackup}
             onOpenClass={() => setClassJoinOpen(true)}
+            onOpenAuth={() => openAuth('login')}
+            accountEmail={account?.user?.email || ''}
+            accountsOn={accountsOn}
             info={status ? (hasAiKey ? 'AI 已配置 · ' + status.model : '未配置 API Key') : '后端未连接'}
             infoSub={status?.corpusLessons ? status.corpusLessons + ' 课可用' : ''}
           />
@@ -1934,12 +1984,10 @@ function App() {
 
               {authMode === 'register' ? (
                 <p className="muted small">
-                  账号只存两样东西：<b>你的邮箱</b>，和<b>用你的密码加密后的同步码</b>。
-                  密码本身经过 PBKDF2 哈希后才存储，服务端无法还原；
-                  同步码更是服务端也解不开的密文。
+                  账号保存邮箱、加密后的同步凭据，以及你加入的班级身份；密码以哈希形式保存。
+                  登录后可在别的设备恢复学习数据和班级，不用手抄同步码。
                   <br />
-                  这些数据存放在境外服务器（Cloudflare/Render 所在区域）。
-                  你可以随时注销账号并删除全部数据。<b>本服务面向 14 周岁以上用户。</b>
+                  你可以在设置中注销账号；已交给教师的班级成绩仍保留在教师班级中。<b>本服务面向 14 周岁以上用户。</b>
                 </p>
               ) : null}
 
@@ -1961,6 +2009,7 @@ function App() {
             {authTip ? <div className="backup-tip" role="status" aria-live="polite">{authTip}</div> : null}
 
             <div className="modal-actions">
+              {joinAuthPendingRef.current && <button className="ghost-btn" onClick={() => setAuthOpen(false)} disabled={authBusy}>暂不登录，直接入班</button>}
               {authMode === 'login' ? (
                 <>
                   <button className="primary-btn" onClick={doSignIn} disabled={authBusy || !authForm.email || !authForm.password}>

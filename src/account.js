@@ -69,7 +69,7 @@ export async function signUp({ email, password, nickname, syncCode }) {
   const r = wrap(await authRegister({ email, password, nickname, sync }));
   if (!r.ok) return r;
   saveAccount(r.token, r.user);
-  return { ok: true, user: r.user, syncCode: syncCode || '' };
+  return { ok: true, user: r.user, syncCode: syncCode || '', classMembers: r.classMembers || [] };
 }
 
 /**
@@ -89,11 +89,15 @@ export async function signIn({ email, password }) {
   let syncError = '';
   const hasSync = isBox(r.sync);
   if (hasSync) {
-    const plain = await openText(r.sync, password);
-    if (plain) syncCode = plain;
-    else syncError = '账号里的同步码解不开（可能是重置过密码）。已登录，但需要重新设置同步码。';
+    try {
+      const plain = await openText(r.sync, password);
+      if (plain) syncCode = plain;
+      else syncError = '账号里的同步码解不开（可能是重置过密码）。已登录，但需要重新设置同步码。';
+    } catch {
+      syncError = '账号里的同步码暂时无法解开。账号已登录，请在备份与恢复中重新绑定同步码。';
+    }
   }
-  return { ok: true, user: r.user, syncCode, hasSync, syncError };
+  return { ok: true, user: r.user, syncCode, hasSync, syncError, classMembers: r.classMembers || [] };
 }
 
 export async function signOut(token) {
@@ -120,7 +124,7 @@ export async function verifySession(token) {
     const u = r.data && r.data.user;
     if (u) saveAccount(token, u);
     const sync = (r.data && r.data.sync) || null;
-    return { ok: true, user: u, sync, hasSync: isBox(sync) };
+    return { ok: true, user: u, sync, hasSync: isBox(sync), classMembers: r.data?.classMembers || [] };
   }
   if (r.status === 401) clearAccount();
   return { ok: false, status: r.status };

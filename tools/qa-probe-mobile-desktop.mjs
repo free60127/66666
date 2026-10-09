@@ -127,6 +127,8 @@ async function closeAnyModal(page) {
 async function runDevice(label, ctxOpts) {
   console.log(`\n========== ${label} ==========`);
   const ctx = await browser.newContext(ctxOpts);
+  // 这套几何探针测编辑器流程；目标选择弹窗由新用户流程单独测试。
+  await ctx.addInitScript(() => localStorage.setItem('bt-goal', 'cet'));
   const page = await ctx.newPage();
   const errors = [];
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
@@ -144,7 +146,7 @@ async function runDevice(label, ctxOpts) {
   // 于是 scrollWidth === innerWidth 永远成立 —— 这个检查会假通过。
   const DEVICE_W = ctxOpts.viewport?.width || 0;
 
-  /* ---- 1b. 新访客首屏：直接进编辑器（方向选择页已删） ----
+  /* ---- 1b. 已选择目标的访客：直接进编辑器（方向选择页已删） ----
      原来第一次访问会弹一页"今天想练哪个方向"，用户明确说删掉。
      这里改成守住"**没有任何遮罩挡着首屏**"—— 这仍然是最贵的回归：
      一旦进站弹了什么东西，后面所有点击都会被拦掉。 */
@@ -158,7 +160,7 @@ async function runDevice(label, ctxOpts) {
         active: document.querySelector('.modebar-seg[aria-label="练习方向"] button.active')?.textContent.trim() || '',
       };
     });
-    ok(`[${label}] 新访客进站不弹任何遮罩`, blocking.masks === 0, `遮罩 ${blocking.masks} 个`);
+    ok(`[${label}] 已选目标后进站不弹遮罩`, blocking.masks === 0, `遮罩 ${blocking.masks} 个`);
     ok(`[${label}] 直接可用的编辑器 + 方向默认汉译英`, blocking.editorVisible && blocking.active === '汉译英',
       `编辑器可见=${blocking.editorVisible} 方向=${blocking.active || '(无)'}`);
   }

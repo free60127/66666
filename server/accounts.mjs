@@ -108,6 +108,22 @@ export function sanitizeSync(value) {
 }
 
 const publicUser = (u) => ({ id: u.id, email: u.email, nickname: u.nickname || '', role: u.role || 'student' });
+/** 班级成员身份（跨设备恢复用）：入班成功后绑定到账号，登录时随响应下发。 */
+const sanitizeClassMembers = (list) => {
+  if (!Array.isArray(list)) return [];
+  return list
+    .filter((m) => m && /^[a-f0-9]{32}$/.test(String(m.classId || '')) && /^[a-f0-9]{64}$/.test(String(m.studentKey || '')))
+    .slice(0, 10)
+    .map((m) => ({
+      classId: String(m.classId),
+      studentKey: String(m.studentKey),
+      name: String(m.name || '').slice(0, 30),
+      studentNo: String(m.studentNo || '').slice(0, 30),
+      className: String(m.className || '').slice(0, 40),
+      at: Number(m.at) || 0,
+    }));
+};
+const withClassMembers = (u) => sanitizeClassMembers(u.classMembers);
 const readJson = (raw, fb = null) => { try { return raw ? JSON.parse(raw) : fb; } catch { return fb; } };
 
 /**
@@ -200,7 +216,7 @@ export function createAccounts({ kv, mail, env = process.env, sent }) {
       }
 
       const token = await issueSession(user);
-      return { ok: true, status: 201, token, user: publicUser(user), sync: syncEnc };
+      return { ok: true, status: 201, token, user: publicUser(user), sync: syncEnc, classMembers: withClassMembers(user) };
     },
 
     /* ---------- 登录 ---------- */
@@ -234,7 +250,7 @@ export function createAccounts({ kv, mail, env = process.env, sent }) {
 
       await kv.del(K_FAIL(v.email));
       const token = await issueSession(user, device);
-      return { ok: true, status: 200, token, user: publicUser(user), sync: user.syncEnc || null };
+      return { ok: true, status: 200, token, user: publicUser(user), sync: user.syncEnc || null, classMembers: withClassMembers(user) };
     },
 
     /* ---------- 会话 ---------- */
@@ -263,7 +279,31 @@ export function createAccounts({ kv, mail, env = process.env, sent }) {
     async me(token) {
       const u = await sessionUser(token);
       if (!u) return { ok: false, status: 401, error: 'unauthorized' };
-      return { ok: true, status: 200, user: publicUser(u), sync: u.syncEnc || null };
+      return { ok: true, status: 200, user: publicUser(u), sync: u.syncEnc || null, classMembers: withClassMembers(u) };
+    },
+
+    /** 入班成功后把班级成员身份绑到账号：换设备登录即自动恢复（不用再输邀请码）。 */
+    async bindClass(token, entry) {
+      const u = await sessionUser(token);
+      if (!u) return { ok: false, status: 401, error: '请先登录账号' };
+      const one = sanitizeClassMembers([entry]);
+      if (!one.length) return { ok: false, status: 400, error: '班级成员信息格式不正确' };
+      const list = sanitizeClassMembers(u.classMembers).filter((m) => m.classId !== one[0].classId);
+      list.unshift(one[0]);
+      u.classMembers = list.slice(0, 10);
+      u.updatedAt = Date.now();
+      await kv.set(K_USER(u.id), JSON.stringify(u));
+      return { ok: true, status: 200, classMembers: u.classMembers };
+    },
+
+    async unbindClass(token, classId) {
+      const u = await sessionUser(token);
+      if (!u) return { ok: false, status: 401, error: '请先登录账号' };
+      if (!/^[a-f0-9]{32}$/.test(String(classId || ''))) return { ok: false, status: 400, error: '班级编号不正确' };
+      u.classMembers = sanitizeClassMembers(u.classMembers).filter((m) => m.classId !== classId);
+      u.updatedAt = Date.now();
+      await kv.set(K_USER(u.id), JSON.stringify(u));
+      return { ok: true, status: 200, classMembers: u.classMembers };
     },
 
     /** 开放教师身份：已有账号登录后也可启用，无需重复注册邮箱。 */

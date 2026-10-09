@@ -133,6 +133,8 @@ textarea, input { font: inherit; }
 .topbar-title::placeholder { color: #9aa6b1; font-weight: 500; }
 .topbar-title:focus { outline: none; background: #f2f5f8; box-shadow: 0 0 0 2px rgba(31, 111, 235, .18); }
 .status-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); background: #f2f5f8; border: 1px solid var(--line); padding: 5px 10px; border-radius: 999px; flex-shrink: 0; }
+.account-entry { display:inline-flex; align-items:center; gap:6px; flex-shrink:0; border:1px solid var(--line); background:var(--panel); color:var(--text); border-radius:8px; padding:6px 9px; font-size:13px; font-weight:600; }
+.account-entry:hover { background:#f2f5f8; }
 .dot { width: 8px; height: 8px; border-radius: 50%; }
 .dot.ok { background: var(--green); }
 .dot.err { background: #e0a30a; }
@@ -392,6 +394,7 @@ mark.hl { background: #ffe3e3; color: inherit; padding: 0 2px; border-radius: 2p
   /* 整页滚动的内容：最后一屏别被 home indicator 压住 */
   .editor, .result { padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px)); }
   .topbar-title { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .more-wrap { margin-left: auto; }
   .status-chip { margin-left: 0; order: 9; flex-basis: 100%; justify-content: center; max-width: 100%; padding: 5px 8px; font-size: 11px; }
   /* 手机上只留「AI 已配置」：模型名（deepseek-chat）与课数对学习者是无意义噪音，还占一整行 */
   .status-chip .chip-detail { display: none; }

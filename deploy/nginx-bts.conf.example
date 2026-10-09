@@ -4,7 +4,7 @@
 #   - read/send 超时给足 300s（生成批改要 1-2 分钟，留余量）
 #   - client_max_body_size 放宽（DOCX/OCR 图片上传）
 server {
-    listen 80;
+    listen 80 default_server;
     server_name huiyiben.cn www.huiyiben.cn;
 
     client_max_body_size 25m;

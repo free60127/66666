@@ -65,6 +65,20 @@ assert.equal(builtinHomework.lessonTitle, '内置第一课');
 assert.equal((await rooms.createHomework(other.token, advanced.id, { title: '共享作业', type: 'shared', sharedLessonId: shared.id, dueAt })).homework.reference, 'Shared English');
 assert.equal((await rooms.createHomework(other.token, advanced.id, { title: '坏课文', type: 'builtin', book: 99, lessonNo: 1, dueAt })).status, 400);
 const pupil = await rooms.join({ code: advanced.inviteCode, name: '小红', studentNo: '302', ip: 'pupil' });
+assert.equal(await rooms.memberIdentity(advanced.id, 'f'.repeat(64)), null);
+assert.deepEqual(await rooms.memberIdentity(advanced.id, pupil.studentKey), {
+  classId: advanced.id, studentKey: pupil.studentKey, className: advanced.name, name: '小红', studentNo: '302',
+});
+assert.equal((await rooms.saveApiKey(other.token, advanced.id, 'sk-class-test')).hasClassKey, true);
+assert.equal(await rooms.classKey(advanced.id), 'sk-class-test');
+assert.equal((await rooms.detail(teacher.token, advanced.id)).hasClassKey, true);
+assert.equal(JSON.stringify(await rooms.detail(teacher.token, advanced.id)).includes('sk-class-test'), false);
+assert.equal((await rooms.studentDashboard(advanced.id, pupil.studentKey)).hasClassKey, true);
+assert.equal((await rooms.saveApiKey(pupil.studentKey, advanced.id, 'sk-hijack')).status, 403);
+const bound = await accounts.bindClass(other.token, await rooms.memberIdentity(advanced.id, pupil.studentKey));
+assert.equal(bound.classMembers[0].studentKey, pupil.studentKey);
+assert.equal((await accounts.login({ email: other.user.email, password: 'testpass123', ip: 'student-other-device' })).classMembers[0].classId, advanced.id);
+assert.equal((await accounts.unbindClass(other.token, advanced.id)).classMembers.length, 0);
 assert.equal((await rooms.studentDashboard(advanced.id, 'f'.repeat(64))).status, 403);
 assert.equal((await rooms.studentDashboard(advanced.id, pupil.studentKey)).homeworks.length, 3);
 const job2 = '22345678-1234-1234-1234-123456789abc';
@@ -104,6 +118,9 @@ assert.equal((await rooms.saveCorpusLesson(teacher.token, advanced.id, null, { t
 assert.equal((await rooms.detail(teacher.token, advanced.id)).corpus.length, 1);
 // 归档后写操作全部关死（与"不能再布置/保存"一致）
 assert.equal((await rooms.archive(teacher.token, advanced.id)).status, 200);
+assert.equal(await rooms.memberIdentity(advanced.id, pupil.studentKey), null);
+assert.equal(await rooms.classKey(advanced.id), '');
+assert.equal((await rooms.saveApiKey(teacher.token, advanced.id, 'sk-new')).status, 400);
 assert.equal((await rooms.updateHomework(teacher.token, advanced.id, homework.id, { title: '归档后改名' })).status, 400);
 assert.equal((await rooms.removeCorpusLesson(teacher.token, advanced.id, 'a'.repeat(24))).status, 400);
 console.log('✅ 教师班级阶段 1–3：权限、邀请、作业、共享语料、协作教师、评语、错题汇总测试通过');

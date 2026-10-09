@@ -220,6 +220,26 @@ async function resolveEndpoint({ bodyBase, bodyKey, fallbackBase, fallbackKey })
   return { baseUrl: base.replace(/\/+$/, ''), apiKey: key };
 }
 
+/**
+ * 带班级统一 Key 的接入点解析：body.classes（学生所在班 [{classId, studentKey}]）里
+ * 第一个配置了 Key 且学生确实是成员的班生效——教师配一次，全班学生练习不用自带 Key。
+ * 优先级不变：学生自带 Key > 班级 Key > 服务端 AI_API_KEY。
+ */
+async function resolveEndpointFor(body) {
+  // 个人 Key 永远优先；班级 Key 只发往固定的 DeepSeek 地址，不能被客户端自定义 Base URL 带走。
+  if (!normalizeApiKey(body.apiKey).key && classrooms && Array.isArray(body.classes)) {
+    for (const c of body.classes.slice(0, 5)) {
+      const cid = String(c?.classId || '');
+      const sid = String(c?.studentKey || '');
+      if (!/^[a-f0-9]{32}$/.test(cid) || !/^[a-f0-9]{64}$/.test(sid)) continue;
+      if (!await classrooms.memberIdentity(cid, sid)) continue;
+      const k = await classrooms.classKey(cid);
+      if (k) return { baseUrl: 'https://api.deepseek.com/v1', apiKey: k, classKey: true };
+    }
+  }
+  return resolveEndpoint({ bodyBase: body.baseUrl, bodyKey: body.apiKey, fallbackBase: stat.baseUrl(), fallbackKey: envKey() });
+}
+
 /* ---------- 限流（内存滑动窗口，按来源 IP） ----------
  * 只是"减速带"：挡脚本批量刷接口，不承担鉴权职责。
  *
@@ -1532,6 +1552,11 @@ const server = http.createServer(async (req, res) => {
         register: () => accounts.register({ ...body, ip, role: 'student' }),
         'teacher-register': () => accounts.register({ ...body, ip, role: 'teacher' }),
         'become-teacher': () => accounts.becomeTeacher(token),
+        'bind-class': async () => {
+          const member = await classrooms.memberIdentity(String(body.classId || ''), String(body.studentKey || ''));
+          return member ? accounts.bindClass(token, member) : { ok: false, status: 403, error: '请先加入该班级' };
+        },
+        'unbind-class': () => accounts.unbindClass(token, body.classId),
         login: () => accounts.login({ ...body, ip, device: body.device }),
         logout: () => accounts.logout(token),
         'logout-all': () => accounts.logoutAll(token),
@@ -1575,6 +1600,7 @@ const server = http.createServer(async (req, res) => {
         else if (/^corpus\/[a-f0-9]{24}$/.test(action) && req.method === 'POST') result = await classrooms.saveCorpusLesson(token, classId, action.split('/')[1], body);
         else if (/^corpus\/[a-f0-9]{24}$/.test(action) && req.method === 'DELETE') result = await classrooms.removeCorpusLesson(token, classId, action.split('/')[1]);
         else if (action === 'comments' && req.method === 'POST') result = await classrooms.comment(token, classId, body);
+        else if (action === 'apikey' && req.method === 'POST') result = await classrooms.saveApiKey(token, classId, body.apiKey);
         else return json(res, 405, { error: 'method not allowed' });
       }
       if (!result.ok) return json(res, result.status || 400, { error: result.error });
@@ -1653,9 +1679,9 @@ const server = http.createServer(async (req, res) => {
       if (!topic) return json(res, 400, { error: '请填写主题，例如：春节、人工智能、城市通勤' });
       const level = String(body.level || '中级');
       const style = String(body.style || '生活故事');
-      const model = String(body.model || '').trim() || stat.model();
-      const ep = await resolveEndpoint({ bodyBase: body.baseUrl, bodyKey: body.apiKey, fallbackBase: stat.baseUrl(), fallbackKey: envKey() });
+      const ep = await resolveEndpointFor(body);
       if (ep.error) return json(res, 400, { error: ep.error });
+      const model = ep.classKey ? 'deepseek-chat' : String(body.model || '').trim() || stat.model();
       const { baseUrl, apiKey } = ep;
       if (!apiKey) return json(res, 400, { error: '未配置 AI_API_KEY：请复制 .env.example 为 .env 并填写，或在设置面板填入 API Key' });
 
@@ -1687,13 +1713,15 @@ const server = http.createServer(async (req, res) => {
       const image = String(body.image || '');
       if (!image) return json(res, 400, { error: '缺少图片（image 字段）' });
 
-      const model = String(body.model || '').trim() || stat.model();
-      const ep = await resolveEndpoint({ bodyBase: body.baseUrl, bodyKey: body.apiKey, fallbackBase: stat.baseUrl(), fallbackKey: envKey() });
+      const ep = await resolveEndpointFor(body);
       if (ep.error) return json(res, 400, { error: ep.error });
+      const model = ep.classKey ? 'deepseek-chat' : String(body.model || '').trim() || stat.model();
       const { baseUrl, apiKey } = ep;
       // 视觉模型优先级：请求参数 > AI_VISION_MODEL > DeepSeek 路由默认 deepseek-flash > 主模型
-      const visionModel = String(body.visionModel || '').trim() || defaultVisionModel(baseUrl, model);
-      const visionEp = await resolveEndpoint({
+      const visionModel = ep.classKey && !normalizeApiKey(body.visionApiKey).key
+        ? defaultVisionModel(baseUrl, model)
+        : String(body.visionModel || '').trim() || defaultVisionModel(baseUrl, model);
+      const visionEp = ep.classKey && !normalizeApiKey(body.visionApiKey).key ? ep : await resolveEndpoint({
         bodyBase: body.visionBaseUrl,
         bodyKey: body.visionApiKey || apiKey,
         fallbackBase: envVisionBase() || baseUrl,
@@ -1751,9 +1779,9 @@ const server = http.createServer(async (req, res) => {
           .filter((it) => it.question || it.answer);
         const items = parsed.map((it, i) => ({ ...it, index: i }));
         if (!items.length) return json(res, 400, { error: '没有需要批改的题目' });
-        const model = String(body.model || '').trim() || stat.model();
-        const ep = await resolveEndpoint({ bodyBase: body.baseUrl, bodyKey: body.apiKey, fallbackBase: stat.baseUrl(), fallbackKey: envKey() });
+        const ep = await resolveEndpointFor(body);
         if (ep.error) return json(res, 400, { error: ep.error });
+        const model = ep.classKey ? 'deepseek-chat' : String(body.model || '').trim() || stat.model();
         if (!ep.apiKey) return json(res, 400, { error: '未配置 AI_API_KEY：请复制 .env.example 为 .env 并填写，或在设置面板填入 API Key' });
         const jobId = randomUUID();
         saveJob({ jobId, kind: 'quiz', title: '批改 · ' + items.length + ' 题', status: 'pending', createdAt: Date.now(), data: null, error: null });
@@ -1778,9 +1806,9 @@ const server = http.createServer(async (req, res) => {
       const count = Math.max(1, Math.min(MAX_DRILL_COUNT, Number(body.count) || 10));
       const level = normalizeLevel(body.level);
       const materials = drill ? String(body.materials || '').slice(0, MAX_SMALL_BYTES / 2) : '';
-      const model = String(body.model || '').trim() || stat.model();
-      const ep = await resolveEndpoint({ bodyBase: body.baseUrl, bodyKey: body.apiKey, fallbackBase: stat.baseUrl(), fallbackKey: envKey() });
+      const ep = await resolveEndpointFor(body);
       if (ep.error) return json(res, 400, { error: ep.error });
+      const model = ep.classKey ? 'deepseek-chat' : String(body.model || '').trim() || stat.model();
       const { baseUrl, apiKey } = ep;
       if (!apiKey) return json(res, 400, { error: '未配置 AI_API_KEY：请复制 .env.example 为 .env 并填写，或在设置面板填入 API Key' });
 
@@ -1878,9 +1906,9 @@ const server = http.createServer(async (req, res) => {
       // 润色等级：小初 / 高考英语 / 四六级 / 考研·专四 / 专八
       const level = normalizeLevel(body.level);
 
-      const model = String(body.model || '').trim() || stat.model();
-      const ep = await resolveEndpoint({ bodyBase: body.baseUrl, bodyKey: body.apiKey, fallbackBase: stat.baseUrl(), fallbackKey: envKey() });
+      const ep = await resolveEndpointFor(body);
       if (ep.error) return json(res, 400, { error: ep.error });
+      const model = ep.classKey ? 'deepseek-chat' : String(body.model || '').trim() || stat.model();
       const { baseUrl, apiKey } = ep;
       if (!apiKey) return json(res, 400, { error: '未配置 AI_API_KEY：请复制 .env.example 为 .env 并填写，或在设置面板填入 API Key' });
 

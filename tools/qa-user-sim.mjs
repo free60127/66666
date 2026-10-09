@@ -85,6 +85,8 @@ const profiles = [
 
 async function newPage(options) {
   const context = await browser.newContext(options);
+  // 通用旅程从已选择学习目标的状态开始，避免首次目标选择遮住与本测试无关的操作。
+  await context.addInitScript(() => localStorage.setItem('bt-goal', 'cet'));
   const page = await context.newPage();
   page.setDefaultTimeout(12000);
   const errors = [];
@@ -154,7 +156,7 @@ async function journey(name, options) {
         const r = el.getBoundingClientRect();
         return { left: r.left, right: r.right, width: window.innerWidth, text: el.innerText };
       });
-      check(`[${name}] 更多菜单不越界且入口可见`, menu.left >= 0 && menu.right <= menu.width + 1 && menu.text.includes('收藏夹') && menu.text.includes('历史结果'));
+      check(`[${name}] 更多菜单不越界且入口可见`, menu.left >= 0 && menu.right <= menu.width + 1 && menu.text.includes('收藏夹') && menu.text.includes('历史结果'), JSON.stringify(menu));
       await page.keyboard.press('Escape');
     }
     if (LIVE) {

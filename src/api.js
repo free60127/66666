@@ -76,7 +76,17 @@ export const getStatus = () => api('/api/status', {}, TIMEOUT.fast);
 export const getLessons = (book) => api('/api/lessons' + (book ? '?book=' + book : ''), {}, TIMEOUT.fast);
 export const getLesson = (book, n) => api('/api/lessons/' + (n == null ? book : book + '/' + n), {}, TIMEOUT.fast);
 export const matchLesson = (payload) => api('/api/match', { method: 'POST', body: JSON.stringify(payload) });
-export const analyze = (payload) => api('/api/analyze', { method: 'POST', body: JSON.stringify(payload) });
+// AI 请求统一带上本机班级成员凭据，服务端验证后才会使用教师配置的 Key。
+// 放在 API 边界避免「批改能用班级 Key、素材/拍照/自测却仍提示没 Key」的断裂体验。
+const withClasses = (payload) => {
+  let classes = [];
+  try {
+    const rows = JSON.parse(localStorage.getItem('bts-class-memberships') || '[]');
+    if (Array.isArray(rows)) classes = rows.slice(0, 5).map(({ classId, studentKey }) => ({ classId, studentKey }));
+  } catch { /* 无本地存储时按普通请求处理 */ }
+  return { ...payload, classes };
+};
+export const analyze = (payload) => api('/api/analyze', { method: 'POST', body: JSON.stringify(withClasses(payload)) });
 export const getAnalyzeJob = (jobId) => api('/api/analyze/' + jobId, {}, TIMEOUT.fast);
 /**
  * 删除某次作业：本机历史 + 服务端记录一起删（分享链接随即失效）。
@@ -87,17 +97,17 @@ export const deleteAnalyzeJob = (jobId, deleteToken) => api(
   { method: 'DELETE', headers: { 'Content-Type': 'application/json', ...(deleteToken ? { 'X-Delete-Token': deleteToken } : {}) } },
   TIMEOUT.fast,
 );
-export const generateMaterial = (payload) => api('/api/generate-material', { method: 'POST', body: JSON.stringify(payload) });
+export const generateMaterial = (payload) => api('/api/generate-material', { method: 'POST', body: JSON.stringify(withClasses(payload)) });
 export const getMaterialJob = (jobId) => api('/api/generate-material/' + jobId, {}, TIMEOUT.fast);
 // 拍照 / 图片识别：提交图片 → 轮询识别结果（要上传 base64 图片，给更长的超时）
-export const ocr = (payload) => api('/api/ocr', { method: 'POST', body: JSON.stringify(payload ?? {}) }, TIMEOUT.upload);
+export const ocr = (payload) => api('/api/ocr', { method: 'POST', body: JSON.stringify(withClasses(payload ?? {})) }, TIMEOUT.upload);
 export const getOcrJob = (jobId) => api('/api/ocr/' + jobId, {}, TIMEOUT.fast);
 // 音标兜底查询（模型没返回 phonetic 时用）
 export const getPhonetic = (word) => api('/api/phonetic?word=' + encodeURIComponent(word));
 // 收藏知识点自测题：提交 → 轮询结果。
 // 同一个端点三种模式：出题（默认）/ mode:'drill'（错误训练）/ mode:'grade'（批改自测卷）——
 // 批改复用同一条任务链路，所以轮询用的还是 getQuizJob。
-export const quiz = (payload) => api('/api/quiz', { method: 'POST', body: JSON.stringify(payload ?? {}) });
+export const quiz = (payload) => api('/api/quiz', { method: 'POST', body: JSON.stringify(withClasses(payload ?? {})) });
 export const getQuizJob = (jobId) => api('/api/quiz/' + jobId, {}, TIMEOUT.fast);
 
 /* ---------- 云同步（同步码） ---------- */

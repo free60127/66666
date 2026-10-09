@@ -37,7 +37,8 @@ export default function ClassJoinModal({ onClose, onStart, initialCode = '' }) {
       const dropped = (data.droppedNames || []).length
         ? `为不超过 5 个班级，已自动退出最早加入的「${data.droppedNames.join('」「')}」——那里的成绩教师端仍保留。`
         : '';
-      setMessage('已加入「' + data.className + '」。以后完成的回译练习会自动交给教师。' + dropped);
+      setMessage('已加入「' + data.className + '」。以后完成的回译练习会自动交给教师。' + dropped
+        + (data.bindingError ? ` 账号绑定暂时失败（${data.bindingError}），本机入班有效；下次登录会重试。` : ''));
     } catch (error) { setMessage(error.message || '加入失败，请稍后重试'); }
     finally { setBusy(false); }
   };
@@ -63,7 +64,7 @@ export default function ClassJoinModal({ onClose, onStart, initialCode = '' }) {
         const dashboard = dashboards[room.classId];
         const feedback = (dashboard?.student?.subs || []).filter((sub) => sub.teacherComment?.text).sort((a, b) => b.teacherComment.at - a.teacherComment.at);
         return <section key={room.classId} className="class-room-card">
-          <div className="class-joined-row"><strong>{room.className} · {room.name}（{room.studentNo}）</strong><button type="button" onClick={() => { if (window.confirm('退出「' + room.className + '」？此设备之后不会再向该班级提交成绩。教师端已收到的成绩仍会保留。')) { leaveClass(room.classId); setRooms(memberships()); } }}>退出</button></div>
+          <div className="class-joined-row"><strong>{room.className} · {room.name}（{room.studentNo}）</strong><button type="button" onClick={async () => { if (!window.confirm('退出「' + room.className + '」？退出后账号与此设备都不会再向该班级提交成绩。教师端已收到的成绩仍会保留。')) return; try { await leaveClass(room.classId); setRooms(memberships()); } catch (error) { setMessage('退出失败：' + (error.message || '请稍后重试')); } }}>退出</button></div>
           {!dashboard ? <p>正在载入作业…</p> : dashboard.error ? <p role="alert">{dashboard.error}</p> : <>
             {feedback.length > 0 && <div className="class-feedback"><h4>教师评语（{feedback.length}）</h4>{feedback.map((sub) => <div className="class-feedback-item" key={sub.jobId}><strong>{sub.title}</strong><p>{sub.teacherComment.text}</p><small>{sub.teacherComment.teacher} · {new Date(sub.teacherComment.at).toLocaleString('zh-CN')}</small><a href={import.meta.env.BASE_URL + 'index.html#job=' + encodeURIComponent(sub.jobId)}>查看完整批改</a></div>)}</div>}
             <h4>教师布置的作业</h4>

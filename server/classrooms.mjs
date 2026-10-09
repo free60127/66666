@@ -83,6 +83,20 @@ export function createClassrooms({ kv, accounts, findJob, lessonLookup }) {
     if (!/^[a-f0-9]{32}$/.test(String(id)) || !/^[a-f0-9]{64}$/.test(String(sid))) return null;
     return read(await kv.get(studentKey(id, sid)));
   }
+  /** 班级统一 AI Key：教师配置，成员练习时代批改用。存独立键，detail 接口永不返回内容。 */
+  const apiKeyKey = (id) => P + id + ':apikey';
+  async function classKey(id) {
+    if (!/^[a-f0-9]{32}$/.test(String(id))) return '';
+    const room = read(await kv.get(key(id)));
+    if (!room || room.archivedAt) return '';
+    return String(await kv.get(apiKeyKey(id)) || '');
+  }
+  async function memberIdentity(classId, studentKeyRaw) {
+    const [student, room] = await Promise.all([byStudent(classId, studentKeyRaw), kv.get(key(classId))]);
+    const parsedRoom = read(room);
+    if (!student || !parsedRoom || parsedRoom.archivedAt) return null;
+    return { classId, studentKey: studentKeyRaw, className: parsedRoom.name, name: student.name, studentNo: student.studentNo };
+  }
   return {
     async list(token) {
       const user = await teacher(token);
@@ -126,6 +140,16 @@ export function createClassrooms({ kv, accounts, findJob, lessonLookup }) {
       }
       return ok({ class: room });
     },
+    async saveApiKey(token, id, apiKey) {
+      const access = await owned(token, id);
+      if (access.error) return access.error;
+      if (access.room.archivedAt) return fail(400, '已归档班级不能配置 AI Key');
+      const clean = String(apiKey || '').trim();
+      if (!clean) { await kv.del(apiKeyKey(id)); return ok({ hasClassKey: false }); }
+      if (clean.length > 200 || !/^[!-~]+$/.test(clean)) return fail(400, 'API Key 格式不正确');
+      await kv.set(apiKeyKey(id), clean);
+      return ok({ hasClassKey: true });
+    },
     async detail(token, id) {
       const ownedRoom = await owned(token, id);
       if (ownedRoom.error) return ownedRoom.error;
@@ -138,7 +162,7 @@ export function createClassrooms({ kv, accounts, findJob, lessonLookup }) {
         Promise.all([room.teacherUserId, ...(room.teachers || [])].map((teacherId) => accounts.publicUserById(teacherId))),
       ]);
       const validStudents = students.filter(Boolean);
-      return ok({ class: room, students: validStudents.map(({ studentKey: _secret, ...publicData }) => publicData), homeworks: titledHomeworks(homeworks), corpus, teachers: teachers.filter(Boolean), mistakeStats: aggregateMistakes(validStudents) });
+      return ok({ class: room, students: validStudents.map(({ studentKey: _secret, ...publicData }) => publicData), homeworks: titledHomeworks(homeworks), corpus, teachers: teachers.filter(Boolean), mistakeStats: aggregateMistakes(validStudents), hasClassKey: Boolean(await kv.get(apiKeyKey(id))) });
     },
     async addTeacher(token, id, email) {
       const access = await owner(token, id);
@@ -285,7 +309,7 @@ export function createClassrooms({ kv, accounts, findJob, lessonLookup }) {
       const room = read(await kv.get(key(classId)));
       if (!room) return fail(404, '班级不存在');
       const [homeworks, corpus] = await Promise.all([slotItems(classId, 'hw', 100), slotItems(classId, 'corpus', 100)]);
-      return ok({ class: { id: room.id, name: room.name, archivedAt: room.archivedAt }, student: { name: student.name, studentNo: student.studentNo, subs: student.subs }, homeworks: titledHomeworks(homeworks), corpus });
+      return ok({ class: { id: room.id, name: room.name, archivedAt: room.archivedAt }, student: { name: student.name, studentNo: student.studentNo, subs: student.subs }, homeworks: titledHomeworks(homeworks), corpus, hasClassKey: Boolean(await classKey(classId)) });
     },
     async comment(token, id, { studentNo, jobId, comment }) {
       const access = await owned(token, id);
@@ -406,5 +430,8 @@ export function createClassrooms({ kv, accounts, findJob, lessonLookup }) {
         return ok({ submission: sub }, 201);
       });
     },
+    /** 供 analyze 端点解析班级统一 Key（服务端内部调用，不经过 HTTP）。 */
+    classKey,
+    memberIdentity,
   };
 }
