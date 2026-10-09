@@ -107,7 +107,7 @@ export function renumberLibrary(list, libId) {
     ...lib,
     lessons: [...lib.lessons]
       .sort((a, b) => (Number(a.lesson) || 0) - (Number(b.lesson) || 0))
-      .map((l, i) => (l.lesson === i + 1 ? l : { ...l, lesson: i + 1 })),
+      .map((l, i) => (l.lesson === i + 1 ? l : { ...l, lesson: i + 1, createdAt: Date.now() })),
   }));
 }
 
@@ -120,7 +120,7 @@ export function renameLesson(list, libId, lid, patch = {}) {
   return mapLib(list, libId, (lib) => ({
     ...lib,
     lessons: lib.lessons.map((l) => (l.lid === lid
-      ? { ...l, title_cn: titleCn || l.title_cn, title_en: titleEn }
+      ? { ...l, title_cn: titleCn || l.title_cn, title_en: titleEn, createdAt: Date.now() }
       : l)),
   }));
 }
@@ -146,7 +146,7 @@ export function moveLesson(list, libId, lid, targetNo) {
   if (to === from && (Number(ordered[from].lesson) || 0) === want) return list;
   const moving = ordered.splice(from, 1)[0];
   ordered.splice(to, 0, moving);
-  return mapLib(list, libId, (x) => ({ ...x, lessons: ordered.map((l, i) => (l.lesson === i + 1 ? l : { ...l, lesson: i + 1 })) }));
+  return mapLib(list, libId, (x) => ({ ...x, lessons: ordered.map((l, i) => (l.lesson === i + 1 ? l : { ...l, lesson: i + 1, createdAt: Date.now() })) }));
 }
 
 /** 新建一个空库，返回新列表。 */
@@ -306,6 +306,7 @@ export function upsertLesson(list, libId, entry, { preserveTimestamp = false } =
         lessons: lib.lessons.map((l) =>
           // lid 保持不变：同一条课文换个标题重存，练习历史仍然认得它
           l === dup ? { ...l, title_cn: titleCn, chinese, english: english || l.english,
+            ...(preserveTimestamp ? { lesson: Number(entry.lesson) || l.lesson } : {}),
             ...(Object.prototype.hasOwnProperty.call(entry, 'title_en') ? { title_en: String(entry.title_en || '') } : {}),
             ...(Object.prototype.hasOwnProperty.call(entry, 'section') ? { section: String(entry.section || '').trim() } : {}),
             createdAt: preserveTimestamp ? Math.max(Number(l.createdAt) || 0, Number(entry.createdAt) || 0) : Date.now() } : l,
@@ -369,9 +370,10 @@ export function mergeLibraries(current, incoming) {
         const local = list.find((l) => l.id === clean.id);
         const old = (lesson.lid && local.lessons.find((l) => l.lid === lesson.lid))
           || local.lessons.find((l) => l.title_cn === lesson.title_cn && l.chinese === lesson.chinese);
-        const incoming = !remoteOwnsGroups
-          ? { ...lesson, section: old ? old.section : (sectionsOf(exists).includes(lesson.section) ? lesson.section : '') }
-          : lesson;
+        // An older cloud copy must not overwrite an edit made since the previous sync.
+        const content = old && (Number(old.createdAt) || 0) > (Number(lesson.createdAt) || 0) ? old : lesson;
+        const incoming = { ...content, section: remoteOwnsGroups ? lesson.section
+          : old ? old.section : (sectionsOf(exists).includes(lesson.section) ? lesson.section : '') };
         // 同步不是用户编辑：不能生成新的时间戳，否则每次合并都触发下一次自动同步。
         const r = upsertLesson(list, clean.id, incoming, { preserveTimestamp: true });
         list = r.list;

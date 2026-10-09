@@ -1475,7 +1475,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     /* 学习数据只接受登录会话，userId 由服务端决定，客户端不能指定别人。 */
-    if (p === '/api/account-data' || p === '/api/account-data/migrate') {
+    if (p === '/api/account-data' || p === '/api/account-data/migrate' || p === '/api/account-data/delta') {
       if (!accounts) return json(res, 503, { error: '账号功能暂不可用' });
       const token = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '');
       const identity = await accounts.me(token);
@@ -1487,6 +1487,12 @@ const server = http.createServer(async (req, res) => {
         result = await accountData.migrate(identity.user.id, String(body.code || '').trim().toLowerCase());
         // 没有密码时无法核对旧保险箱是否指向本次导入的码；保留它到下一次登录自动核对。
         if (result.ok && !identity.sync) await accounts.completeMigration(token);
+      } else if (p === '/api/account-data/delta' && req.method === 'GET') {
+        const since = url.searchParams.get('since');
+        result = { ...await accountData.readChanges(identity.user.id, since === null ? -1 : Number(since)), legacyPending: Boolean(identity.sync) };
+      } else if (p === '/api/account-data/delta' && req.method === 'POST') {
+        if (rateLimited(req, 'account-data', 60)) return json(res, 429, { error: '同步过于频繁，请稍后重试' });
+        result = await accountData.patch(identity.user.id, await readBody(req, MAX_SNAPSHOT_BYTES + 256 * 1024));
       } else if (p === '/api/account-data' && req.method === 'GET') {
         result = { ...await accountData.read(identity.user.id), legacyPending: Boolean(identity.sync) };
       } else if (p === '/api/account-data' && req.method === 'POST') {

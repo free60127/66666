@@ -13,6 +13,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomBytes } from 'node:crypto';
+import { materializeDocument } from '../src/syncDelta.js';
+import { changesFromDocument, readRedisChanges, writeRedisChanges } from './delta-store.mjs';
 
 const CODE_RE = /^[a-f0-9]{32}$/;
 /** 单份快照上限（纯文本数据，正常远小于这个数） */
@@ -242,7 +244,11 @@ export function createUpstashStore({ url, token, prefix = 'bts:sync:' }) {
     durable: true,
     get casMode() { return casMode; },
     async read(code) {
-      return parse(await call(['GET', prefix + code]));
+      return materializeDocument(parse(await call(['GET', prefix + code])));
+    },
+    async readChanges(code, since) { return readRedisChanges(call, prefix + code, since); },
+    async patch(code, baseVersion, ops, meta) {
+      return writeRedisChanges(call, prefix + code, baseVersion, ops, meta, { version: 0, data: emptySnapshot() });
     },
     async write(code, doc) {
       await call(['SET', prefix + code, JSON.stringify(doc)]);
@@ -259,7 +265,7 @@ export function createUpstashStore({ url, token, prefix = 'bts:sync:' }) {
         try {
           const res = await call(['EVAL', CAS_LUA, '1', key, String(base), JSON.stringify(doc)]);
           if (Array.isArray(res) && Number(res[0]) === 1) return { ok: true };
-          return { ok: false, current: parse(Array.isArray(res) ? res[1] : '') };
+          return { ok: false, current: materializeDocument(parse(Array.isArray(res) ? res[1] : '')) };
         } catch (e) {
           casMode = 'lock';
           if (!warned) { warned = true; console.warn('⚠️  Upstash 不支持 EVAL，已退回加锁写入（原子性稍弱但仍正确）：', e.message); }
@@ -271,7 +277,7 @@ export function createUpstashStore({ url, token, prefix = 'bts:sync:' }) {
         const got = await call(['SET', lockKey, '1', 'NX', 'EX', '5']);
         if (got !== null) {
           try {
-            const cur = parse(await call(['GET', key]));
+            const cur = materializeDocument(parse(await call(['GET', key])));
             const curV = cur && Number.isFinite(Number(cur.version)) ? Number(cur.version) : 0;
             if (base >= 0 && curV !== base) return { ok: false, current: cur };
             await call(['SET', key, JSON.stringify(doc)]);
@@ -282,7 +288,7 @@ export function createUpstashStore({ url, token, prefix = 'bts:sync:' }) {
         }
         await new Promise((r) => setTimeout(r, 25 + i * 10));
       }
-      return { ok: false, current: parse(await call(['GET', key])) };
+      return { ok: false, current: materializeDocument(parse(await call(['GET', key]))) };
     },
   };
 }
@@ -315,13 +321,28 @@ export function createFileStore(dir) {
     }
   };
   const readRaw = (file) => { try { return fs.readFileSync(file, 'utf8'); } catch { return null; } };
+  const storedDoc = (code) => {
+    const raw = readRaw(fileOf(code));
+    try { return raw ? JSON.parse(raw) : null; } catch { return null; }
+  };
 
   return {
     kind: 'file',
     durable: false,
     casMode: 'sync',
     async read(code) {
-      try { return JSON.parse(readRaw(fileOf(code))); } catch { return null; }
+      return materializeDocument(storedDoc(code));
+    },
+    async readChanges(code, since) { return changesFromDocument(storedDoc(code), since); },
+    async patch(code, baseVersion, ops, meta) {
+      const current = storedDoc(code);
+      if (current?.deleted) return { ok: false, deleted: true };
+      if ((current?.version || 0) !== baseVersion) return { ok: false, version: current?.version || 0 };
+      const doc = current?.deltaFormat === 1 ? current : { deltaFormat: 1, baseRaw: JSON.stringify(current || { version: 0, data: emptySnapshot() }), baseVersion, frames: [] };
+      doc.frames.push({ version: baseVersion + 1, opsRaw: JSON.stringify(ops) });
+      Object.assign(doc, { updatedAt: meta.updatedAt, device: meta.device, version: baseVersion + 1 });
+      writeAtomic(fileOf(code), JSON.stringify(doc));
+      return { ok: true, compact: doc.frames.length >= 32 || JSON.stringify(doc.frames).length > 65536 };
     },
     async write(code, doc) {
       writeAtomic(fileOf(code), JSON.stringify(doc));
@@ -336,7 +357,7 @@ export function createFileStore(dir) {
       const file = fileOf(code);
       const raw = readRaw(file);
       let cur = null;
-      try { cur = raw ? JSON.parse(raw) : null; } catch { cur = null; } // 损坏文件当"不存在"，可被重建
+      try { cur = raw ? materializeDocument(JSON.parse(raw)) : null; } catch { cur = null; }
       const curV = cur && Number.isFinite(Number(cur.version)) ? Number(cur.version) : 0;
       const base = Number.isFinite(Number(baseVersion)) ? Number(baseVersion) : -1;
       if (base >= 0 && curV !== base) return { ok: false, current: cur };

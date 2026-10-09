@@ -16,7 +16,7 @@ const email = 'migration-browser@example.com';
 const code = 'e'.repeat(32);
 const fixture = { ...emptySnapshot(), libraries: [{ id: 'qa-library', name: '迁移课文库', createdAt: 1,
   sections: ['旧分组'], sectionsUpdatedAt: 2,
-  lessons: [{ lid: 'qa-lesson', lesson: 1, title_cn: '迁移课文标题', chinese: '旧云端中文提示', english: 'Legacy English reference.', section: '旧分组' }] }],
+  lessons: [{ lid: 'qa-lesson', lesson: 1, title_cn: '迁移课文标题', chinese: '旧云端中文提示'.repeat(3000), english: 'Legacy English reference.'.repeat(1000), section: '旧分组' }] }],
   favorites: [{ id: 'qa-favorite', title: '迁移收藏', kind: 'word', body: '测试释义' }],
   history: [{ jobId: 'legacy-job', title: '迁移历史', time: 1 }], days: ['2026-10-09'] };
 const kv = createFileKv(path.join(dir, 'kv'));
@@ -62,7 +62,7 @@ try {
   await backup.getByRole('button', { name: '立即同步' }).click();
   await backup.getByText('同步完成，学习数据已保存到账号').waitFor();
   let idleWrites = 0;
-  page.on('request', (r) => { if (r.url() === base + '/api/account-data' && r.method() === 'POST') idleWrites++; });
+  page.on('request', (r) => { if (r.url().startsWith(base + '/api/account-data') && r.method() === 'POST') idleWrites++; });
   await new Promise((resolve) => setTimeout(resolve, 6500));
   assert.ok(idleWrites <= 1, '无编辑时不会因合并时间戳不断上传');
   assert.equal(await backup.getByRole('textbox', { name: '旧版数据迁移凭据' }).isVisible(), false);
@@ -82,6 +82,29 @@ try {
   await page.waitForFunction(() => JSON.parse(localStorage.getItem('bt-lesson-libraries') || '[]').length > 0);
   console.log('PASS 桌面：退出隐藏私人数据，再登录恢复；修改密码不丢数据');
 
+  await page.getByRole('button', { name: '我的账号' }).click();
+  await backup.getByRole('button', { name: '立即同步' }).click();
+  await backup.getByText('同步完成，学习数据已保存到账号').waitFor();
+  await backup.getByRole('button', { name: '关闭', exact: true }).first().click();
+  await page.locator('.lib-tab').filter({ hasText: '迁移课文库' }).click();
+  const editButton = page.getByRole('button', { name: '编辑这节课' }).first();
+  if (!(await editButton.isVisible())) await page.getByText('旧分组', { exact: true }).click();
+  await editButton.click();
+  const editor = page.getByRole('dialog', { name: '编辑课文', exact: true });
+  await editor.getByLabel('标题（中文）', { exact: true }).fill('增量修改后的标题');
+  const saved = page.waitForResponse((r) => r.url() === base + '/api/account-data/delta' && r.request().method() === 'POST' && r.status() === 200);
+  await editor.getByRole('button', { name: '保存', exact: true }).click();
+  const response = await saved;
+  const upload = response.request().postData();
+  assert.ok(Buffer.byteLength(upload) < 2048, '改标题只上传增量，不重传大课文');
+  assert.equal(upload.includes('Legacy English reference.'), false);
+  assert.ok(Buffer.byteLength(await response.text()) < 2048);
+  const token = await page.evaluate(() => localStorage.getItem('bt-acct-token'));
+  const stored = await (await fetch(base + '/api/account-data', { headers: { Authorization: 'Bearer ' + token } })).json();
+  assert.equal(stored.data.libraries[0].lessons[0].title_cn, '增量修改后的标题');
+  assert.equal(stored.data.libraries[0].lessons[0].english, fixture.libraries[0].lessons[0].english);
+  console.log('PASS 桌面真实编辑课文：上传与返回均小于 2KB，未重传课文正文');
+
   for (const name of ['Pixel 7', 'iPhone 13']) {
     const context = await browser.newContext(devices[name]);
     const mobile = await context.newPage();
@@ -91,6 +114,7 @@ try {
     const close = mobile.getByRole('button', { name: '收起侧栏' });
     if (await close.isVisible()) await close.click();
     await login(mobile, 'updated-pass-123');
+    assert.equal(await mobile.evaluate(() => JSON.parse(localStorage.getItem('bt-lesson-libraries'))[0].lessons[0].title_cn), '增量修改后的标题');
     await mobile.getByRole('button', { name: '我的账号' }).click();
     await mobile.getByRole('dialog', { name: '备份与恢复' }).getByText('账号云同步').waitFor();
     assert.ok(await mobile.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), name + ' no horizontal overflow');

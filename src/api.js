@@ -113,6 +113,8 @@ export const getQuizJob = (jobId) => api('/api/quiz/' + jobId, {}, TIMEOUT.fast)
 /* ---------- 账号学习数据 ---------- */
 export const readAccountData = (token) => api('/api/account-data', { headers: { Authorization: 'Bearer ' + token } });
 export const writeAccountData = (token, payload) => apiRaw('/api/account-data', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify(payload) });
+export const readAccountChanges = (token, since = -1) => api('/api/account-data/delta?since=' + since, { headers: { Authorization: 'Bearer ' + token } });
+export const patchAccountData = (token, payload) => apiRaw('/api/account-data/delta', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify(payload) });
 export const migrateAccountData = (token, code) => api('/api/account-data/migrate', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify({ code }) }, TIMEOUT.upload);
 
 /* 会话令牌可撤销，只有登录账号可访问对应 userId 的学习数据。 */

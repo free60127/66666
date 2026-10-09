@@ -1,7 +1,8 @@
 /** 学习数据以 userId 为主键；旧同步码仅用于一次性认领，迁移可重试且不会覆盖已有数据。 */
 import { createHash, webcrypto } from 'node:crypto';
-import { emptySnapshot, isValidSyncCode, sanitizeSnapshot, SNAPSHOT_LIMITS } from './sync.mjs';
-import { mergeSnapshot, mergeHistory } from '../src/syncMerge.js';
+import { emptySnapshot, isValidSyncCode, sanitizeSnapshot, SNAPSHOT_LIMITS, MAX_SNAPSHOT_BYTES } from './sync.mjs';
+import { mergeSnapshot, mergeHistory, applyLibraryTombstones } from '../src/syncMerge.js';
+import { applySnapshotPatch, diffSnapshot } from '../src/syncDelta.js';
 
 const ownerKey = (code) => 'bts:legacy-owner:' + createHash('sha256').update(code).digest('hex');
 const deletedKey = (userId) => 'bts:user-data-deleted:' + userId;
@@ -28,8 +29,94 @@ export async function openLegacySync(box, password) {
 }
 
 export function createAccountData({ kv, store, legacyStore }) {
+  // Bound the process cache; Redis remains authoritative through atomic version checks.
+  const cache = new Map();
+  let cacheBytes = 0;
+  const remember = (id, doc) => {
+    if (cache.has(id)) { cacheBytes -= cache.get(id).bytes; cache.delete(id); }
+    const bytes = Buffer.byteLength(JSON.stringify(doc || null));
+    if (!doc || doc.deleted || bytes > 2.5 * 1024 * 1024) return;
+    cache.set(id, { doc, bytes, at: Date.now() }); cacheBytes += bytes;
+    while (cache.size > 64 || cacheBytes > 16 * 1024 * 1024) {
+      const oldest = cache.keys().next().value;
+      cacheBytes -= cache.get(oldest).bytes; cache.delete(oldest);
+    }
+  };
+  const cached = (id) => {
+    const item = cache.get(id);
+    if (!item || Date.now() - item.at > 10 * 60 * 1000) return null;
+    cache.delete(id); cache.set(id, item);
+    return item.doc;
+  };
+  const applyFrames = (doc, result) => {
+    let next = doc || { version: 0, data: emptySnapshot() };
+    for (const frame of result.frames || []) {
+      if (frame.version !== next.version + 1) throw new Error('云端增量版本不连续');
+      next = { ...next, version: frame.version, data: applySnapshotPatch(next.data, JSON.parse(frame.opsRaw)) };
+    }
+    if (next.version !== result.version) throw new Error('云端增量版本不正确');
+    return { ...next, updatedAt: result.updatedAt };
+  };
   return {
     async read(userId) { return { ok: true, ...publicDoc(await store.read(userId)) }; },
+    async readChanges(userId, since) {
+      if (!Number.isSafeInteger(since) || since < -1) return fail(400, '数据版本不正确');
+      const result = await store.readChanges(userId, since);
+      if (result.kind === 'full') {
+        remember(userId, result.doc);
+        return { ok: true, mode: 'full', ...publicDoc(result.doc) };
+      }
+      const previous = cached(userId);
+      if ((previous?.version || 0) === since) remember(userId, applyFrames(previous, result));
+      return { ok: true, mode: 'delta', version: result.version, updatedAt: result.updatedAt,
+        changes: (result.frames || []).map((f) => ({ version: f.version, ops: JSON.parse(f.opsRaw) })) };
+    },
+    async patch(userId, input) {
+      if (!input || typeof input !== 'object' || Array.isArray(input)) return fail(400, '增量请求格式不正确');
+      const { baseVersion, ops, device } = input;
+      if (await kv.get(deletedKey(userId))) return fail(401, '账号已注销');
+      if (!Number.isSafeInteger(baseVersion) || baseVersion < 0) return fail(400, '数据版本不正确');
+      let current = cached(userId);
+      if (!current || current.version !== baseVersion) current = await store.read(userId);
+      if (current?.deleted) return fail(401, '账号已注销');
+      if ((current?.version || 0) !== baseVersion) return { ...fail(409, '其它设备已更新，请重新合并'), version: current?.version || 0 };
+      let proposed;
+      try { proposed = applySnapshotPatch(current?.data || emptySnapshot(), ops); }
+      catch (error) { return fail(400, error.message); }
+      const check = sanitizeSnapshot(proposed);
+      if (!check.ok) return fail(413, check.error);
+      // The patch is already based on this exact version; merging an old snapshot again would undo edits.
+      const deadFavorites = new Set(check.data.deletedFavorites);
+      const merged = { data: { ...check.data,
+        libraries: applyLibraryTombstones(check.data.libraries, check.data.deletedLibraries, check.data.deletedLessons),
+        favorites: check.data.favorites.filter((f) => !deadFavorites.has(f.id)),
+        history: mergeHistory([], check.data.history, SNAPSHOT_LIMITS.history, check.data.deletedHistory) } };
+      if (Buffer.byteLength(JSON.stringify(merged.data)) > MAX_SNAPSHOT_BYTES) return fail(413, '学习数据过大（上限 2MB）');
+      const canonical = diffSnapshot(current?.data || emptySnapshot(), merged.data);
+      if (!canonical.length) {
+        const latest = await store.readChanges(userId, baseVersion);
+        const version = latest.kind === 'full' ? latest.doc?.version || 0 : latest.version;
+        if (version !== baseVersion) return { ...fail(409, '其它设备已更新，请重新合并'), version };
+        remember(userId, current);
+        return { ok: true, version: baseVersion, ops: [] };
+      }
+      const next = { ...current, version: baseVersion + 1, updatedAt: Date.now(),
+        device: String(device || '').slice(0, 40), data: merged.data };
+      let saved = await store.patch(userId, baseVersion, canonical, next);
+      // Compact occasionally, instead of sending the full snapshot on every write.
+      if (!saved.ok && saved.compact) {
+        const compacted = await store.compareAndSwap(userId, baseVersion, current);
+        if (compacted.ok) saved = await store.patch(userId, baseVersion, canonical, next);
+      }
+      if (!saved.ok) return saved.deleted ? fail(401, '账号已注销')
+        : { ...fail(409, '其它设备已更新，请重新合并'), version: saved.version };
+      remember(userId, next);
+      if (saved.compact) {
+        try { await store.compareAndSwap(userId, next.version, next); }
+        catch { console.warn('账号增量日志整理暂未完成，将在下一次同步重试'); }
+      }
+      return { ok: true, version: next.version, updatedAt: next.updatedAt, ops: canonical };
+    },
     async write(userId, { baseVersion, data, device }) {
       if (await kv.get(deletedKey(userId))) return fail(401, '账号已注销');
       if (!Number.isInteger(baseVersion) || baseVersion < 0) return fail(400, '数据版本不正确');
@@ -42,6 +129,7 @@ export function createAccountData({ kv, store, legacyStore }) {
       if (!merged.ok) return fail(413, merged.error);
       const next = { ...current, version: baseVersion + 1, updatedAt: Date.now(), device: String(device || '').slice(0, 40), data: merged.data };
       const cas = await store.compareAndSwap(userId, baseVersion, next);
+      if (cas.ok) remember(userId, next);
       return cas.ok ? { ok: true, ...publicDoc(next) } : { ...fail(409, '其它设备已更新，请重新合并'), ...publicDoc(cas.current) };
     },
     async migratedOwner(code) { return kv.get(ownerKey(code)); },
@@ -69,12 +157,16 @@ export function createAccountData({ kv, store, legacyStore }) {
         if (!merged.ok) return fail(413, merged.error);
         const next = { ...current, version: (current?.version || 0) + 1, updatedAt: Date.now(), data: merged.data,
           legacyCodes: [...(current?.legacyCodes || []), code] };
-        if ((await store.compareAndSwap(userId, current?.version || 0, next)).ok) return { ok: true, migrated: true, ...publicDoc(next) };
+        if ((await store.compareAndSwap(userId, current?.version || 0, next)).ok) {
+          remember(userId, next);
+          return { ok: true, migrated: true, ...publicDoc(next) };
+        }
       }
       return fail(503, '数据正在更新，请稍后再试；旧数据已保留');
     },
     async remove(userId) {
       await kv.set(deletedKey(userId), '1');
+      remember(userId, null);
       // 原子写空的注销标记，阻止注销前已通过鉴权的迟到请求把数据重新写回来。
       for (let attempt = 0; attempt < 10; attempt += 1) {
         const doc = await store.read(userId);

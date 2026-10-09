@@ -56,6 +56,17 @@ try {
   assert.equal(spoof.status, 200);
   assert.equal((await request('/api/account-data', undefined, login.token)).data.favorites.length, 1);
   console.log('PASS 无登录无法访问、客户端伪造 userId 无效、旧数据不能被另一账号重复认领');
+  assert.equal((await request('/api/account-data/delta')).status, 401);
+  assert.equal((await request('/api/account-data/delta?since=NaN', undefined, other.token)).status, 400);
+  const incrementalBase = await request('/api/account-data/delta', undefined, other.token);
+  assert.equal(incrementalBase.mode, 'full');
+  assert.equal((await request('/api/account-data/delta?since=1', undefined, other.token)).changes.length, 0);
+  const incremental = await request('/api/account-data/delta', { baseVersion: 1, userId: login.user.id,
+    ops: [{ op: 'set', path: ['progress', '10|2'], value: { n: 1, best: 88, last: 88, at: 2, ms: 10 } }] }, other.token);
+  assert.equal(incremental.status, 200); assert.equal(incremental.data, undefined);
+  assert.equal((await request('/api/account-data/delta?since=1', undefined, other.token)).changes.length, 1);
+  assert.equal((await request('/api/account-data', undefined, login.token)).data.progress['10|2'], undefined);
+  console.log('PASS 增量 HTTP 接口鉴权、版本参数校验、账号隔离和旧完整读取兼容');
   const payload = { baseVersion: data.version, data: { ...data.data, history: data.data.history.slice(0, 20) } };
   const pair = await Promise.all([request('/api/account-data', payload, login.token), request('/api/account-data', payload, login.token)]);
   assert.deepEqual(pair.map((r) => r.status).sort(), [200, 409]);

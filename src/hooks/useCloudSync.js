@@ -15,6 +15,7 @@ export function useCloudSync({ account, local, applyMerged, flash }) {
   const rerunRef = useRef(false);
   const mountedRef = useRef(true);
   const lastSyncRef = useRef(0);
+  const baselineRef = useRef(null);
   const runRef = useRef(null);
   const localRef = useRef(local); localRef.current = local;
   const applyRef = useRef(applyMerged); applyRef.current = applyMerged;
@@ -43,9 +44,10 @@ export function useCloudSync({ account, local, applyMerged, flash }) {
           } else { setLegacyPending(true); throw error; }
         }
       }
-      const res = await syncOnce({ token, local: localRef.current });
+      const res = await syncOnce({ token, local: localRef.current, baseline: baselineRef.current });
       if (!stillCurrent()) return { ok: false };
       if (!res.ok) { setSyncTip(res.error || '同步失败'); return res; }
+      baselineRef.current = res.baseline;
       setLegacyPending(Boolean(res.legacyPending));
       // 请求期间新产生的本机写入仍需保留；下次推送会将它们送到账号。
       const settled = mergeSnapshot(localRef.current, res.merged);
@@ -94,6 +96,7 @@ export function useCloudSync({ account, local, applyMerged, flash }) {
     try {
       await migrateAccountData(token, codeInput.trim().toLowerCase());
       if (!stillCurrent()) return;
+      baselineRef.current = null;
       saveSyncCode(''); setCodeInput(''); setLegacyPending(false);
       busyRef.current = false;
       await runRef.current(true);

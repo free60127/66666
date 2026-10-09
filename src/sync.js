@@ -1,6 +1,7 @@
 /** 账号云同步：登录会话访问账号快照，旧码仅留作升级迁移凭据。 */
-import { readAccountData, writeAccountData } from './api.js';
-import { mergeSnapshot } from './syncMerge.js';
+import { readAccountChanges, patchAccountData } from './api.js';
+import { mergeSnapshot, mergeHistory } from './syncMerge.js';
+import { applySnapshotPatch, diffSnapshot, snapshotData } from './syncDelta.js';
 
 const CODE_KEY = 'bt-sync-code';
 const META_KEY = 'bt-sync-meta';
@@ -37,47 +38,39 @@ export {
   HISTORY_LIMIT, applyLibraryTombstones, mergeDeleted, mergeHistory, mergeSnapshot,
 } from './syncMerge.js';
 
-export async function syncOnce({ token, local, device, maxAttempts = 3 }) {
+export async function syncOnce({ token, local, device, baseline, maxAttempts = 3 }) {
   if (!token) return { ok: false, error: '请先登录账号' };
-  const remote = await readAccountData(token);
-  let baseVersion = remote.version;
-  let payload = mergeSnapshot(local, remote.data);
-
+  // A baseline belongs to one login session. First access (or a compacted journal) restores a full snapshot.
+  let remote = baseline?.token === token ? baseline : null;
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-    const r = await writeAccountData(token, {
-      baseVersion,
-      device: device || deviceId(),
-      data: {
-        libraries: payload.libraries,
-        favorites: payload.favorites,
-        history: payload.history,
-        // 墓碑一起推上去：其它设备才会知道"这条已被删除"，否则它们本机的旧副本会把它并回来。
-        // 四类都要推（历史 / 课文库 / 课文 / 收藏）—— 少推一类，那一类的删除就会在别的设备上复活。
-        deletedHistory: payload.deletedHistory,
-        deletedLibraries: payload.deletedLibraries || [],
-        deletedLessons: payload.deletedLessons || [],
-        deletedFavorites: payload.deletedFavorites || [],
-        // 逐课进度：换设备也能看到"我练过哪些课"（历史只留 20 条，进度才是完整记录）
-        progress: payload.progress || {},
-        // 学习日期：连续天数跨设备一致
-        days: payload.days || [],
-      },
-    });
-    if (r.ok) return { ok: true, version: r.data.version, merged: mergeSnapshot(payload, r.data.data), added: payload.added, legacyPending: remote.legacyPending };
-    if (r.status === 409 && r.data) {
-      // 其它设备抢先写了：拿云端最新数据重新合并后再推
-      baseVersion = r.data.version;
-      payload = mergeSnapshot(
-        {
-          libraries: payload.libraries, favorites: payload.favorites, history: payload.history,
-          deletedHistory: payload.deletedHistory,
-          deletedLibraries: payload.deletedLibraries, deletedLessons: payload.deletedLessons, deletedFavorites: payload.deletedFavorites,
-          progress: payload.progress, days: payload.days,
-        },
-        r.data.data,
-      );
-      continue;
+    const response = await readAccountChanges(token, remote?.version ?? -1);
+    if (response.mode === 'full') remote = { token, version: response.version, data: snapshotData(response.data) };
+    else {
+      if (!remote) throw new Error('同步基线不存在，请重新同步');
+      for (const frame of response.changes || []) {
+        if (frame.version !== remote.version + 1) throw new Error('同步版本不连续，请刷新页面');
+        remote = { ...remote, version: frame.version, data: applySnapshotPatch(remote.data, frame.ops) };
+      }
+      if (remote.version !== response.version) throw new Error('同步版本不正确，请刷新页面');
     }
+    const payload = mergeSnapshot(local, remote.data);
+    const data = snapshotData(payload);
+    // The UI displays only 20 jobs; that display limit must not repeatedly delete the server archive.
+    data.history = mergeHistory(payload.history, remote.data.history, 200, payload.deletedHistory);
+    const ops = diffSnapshot(remote.data, data);
+    if (!ops.length) return { ok: true, version: remote.version, merged: payload, baseline: remote,
+      added: payload.added, legacyPending: response.legacyPending };
+    const r = await patchAccountData(token, {
+      baseVersion: remote.version,
+      device: device || deviceId(),
+      ops,
+    });
+    if (r.ok) {
+      remote = { token, version: r.data.version, data: applySnapshotPatch(remote.data, r.data.ops) };
+      return { ok: true, version: remote.version, merged: mergeSnapshot(payload, remote.data), baseline: remote,
+        added: payload.added, legacyPending: response.legacyPending };
+    }
+    if (r.status === 409) continue;
     return { ok: false, error: (r.data && r.data.error) || ('同步失败：HTTP ' + r.status) };
   }
   return { ok: false, error: '云端数据变动频繁，请稍后再试' };
