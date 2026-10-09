@@ -1580,6 +1580,7 @@ const server = http.createServer(async (req, res) => {
       const handlers = {
         register: () => accounts.register({ ...body, ip, role: 'student' }),
         'teacher-register': () => accounts.register({ ...body, ip, role: 'teacher' }),
+        'verify-email': () => accounts.sendRegisterCode({ email: body.email, ip }),
         'become-teacher': () => accounts.becomeTeacher(token),
         'bind-class': async () => {
           const member = await classrooms.memberIdentity(String(body.classId || ''), String(body.studentKey || ''));
