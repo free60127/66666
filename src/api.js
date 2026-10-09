@@ -110,22 +110,12 @@ export const getPhonetic = (word) => api('/api/phonetic?word=' + encodeURICompon
 export const quiz = (payload) => api('/api/quiz', { method: 'POST', body: JSON.stringify(withClasses(payload ?? {})) });
 export const getQuizJob = (jobId) => api('/api/quiz/' + jobId, {}, TIMEOUT.fast);
 
-/* ---------- 云同步（同步码） ---------- */
-export const getSyncInfo = () => api('/api/sync/info');export const createSyncCode = () => api('/api/sync/new', { method: 'POST' });
-/** 拉取云端快照；码不存在时抛出的错误带 status=404，调用方据此区分"云端数据没了"与"网络故障"。 */
-export async function pullCloudSync(code) {
-  const r = await apiRaw('/api/sync/' + encodeURIComponent(code));
-  if (r.ok) return r.data;
-  const err = new Error((r.data && r.data.error) || ('读取云端数据失败：HTTP ' + r.status));
-  err.status = r.status;
-  throw err;
-}
-export const pushCloudSync = (code, payload) =>
-  apiRaw('/api/sync/' + encodeURIComponent(code), { method: 'POST', body: JSON.stringify(payload) });
+/* ---------- 账号学习数据 ---------- */
+export const readAccountData = (token) => api('/api/account-data', { headers: { Authorization: 'Bearer ' + token } });
+export const writeAccountData = (token, payload) => apiRaw('/api/account-data', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify(payload) });
+export const migrateAccountData = (token, code) => api('/api/account-data/migrate', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify({ code }) }, TIMEOUT.upload);
 
-/* ---------- 账号（可选：服务端配了持久存储才启用） ----------
- * 账号只是"帮你记住同步码"的一层，不替代同步码 —— 同步码仍然是数据主键。
- * 用 apiRaw 而不是 api：401（会话过期）需要和"网络错误"区分开，前者要清掉本地 token。 */
+/* 会话令牌可撤销，只有登录账号可访问对应 userId 的学习数据。 */
 const authPost = (path, payload, token, timeoutMs) => apiRaw('/api/auth/' + path, {
   method: 'POST',
   headers: {
@@ -142,7 +132,6 @@ export const authBecomeTeacher = (token) => authPost('become-teacher', {}, token
 export const authLogin = (p) => authPost('login', p);
 export const authLogout = (token) => authPost('logout', {}, token);
 export const authLogoutAll = (token) => authPost('logout-all', {}, token);
-export const authSetSync = (token, sync) => authPost('sync', { sync }, token);
 export const authChangePassword = (token, p) => authPost('change-password', p, token);
 export const authDeleteAccount = (token, p) => authPost('delete-account', p, token);
 // 发信走 SMTP，可能几秒才回来，给上传档超时

@@ -1,238 +1,117 @@
-/**
- * 账号（可选功能）：只是"帮你记住同步码"的一层 —— 换设备时不用手抄 32 位同步码。
- * 登录后用密码解开账号里存的同步码 → 存到本机 → 之后完全走原有的同步流程。
- * 服务端没配持久存储时账号功能是关闭的，所以这块出问题也不影响主流程。
- *
- * 抽出来的原因：这是一整套独立状态（账号 / 验证码流程 / 绑定同步码）+ 9 个异步动作，
- * 与编辑逻辑毫无关系，却在 App 里占了 177 行。
- */
-import { useEffect, useRef, useState } from 'react'
+/** 登录会话、密码和注销；账号数据同步由 useCloudSync 管理。 */
+import { useEffect, useRef, useState } from 'react';
 import * as acct from '../account.js';
-import { createNewSyncCode, saveSyncCode } from '../sync.js'
-import { reconcileAccountClasses } from '../classroom.js'
+import { reconcileAccountClasses } from '../classroom.js';
 
-export function useAccount({ syncCode, setSyncCode, setSyncLost, runSync, flash }) {
+export function useAccount({ flash, beforeSignOut }) {
   const [account, setAccount] = useState(acct.loadAccount);
-  const [accountsOn, setAccountsOn] = useState(false); // 服务端是否启用了账号功能
-  const [accountHasSync, setAccountHasSync] = useState(false); // 账号里是否已存有同步码（没存就得绑，否则多设备各用各的）
+  const [accountsOn, setAccountsOn] = useState(false);
+  const [recoveryOn, setRecoveryOn] = useState(false);
   const [authOpen, setAuthOpen] = useState(false);
-  const [authMode, setAuthMode] = useState('login'); // login | register | forgot
+  const [authMode, setAuthMode] = useState('login');
   const [authBusy, setAuthBusy] = useState(false);
   const [authTip, setAuthTip] = useState('');
-  const [authForm, setAuthForm] = useState({ email: '', password: '', nickname: '', code: '', syncCode: '' });
-  const [bindPw, setBindPw] = useState(''); // 「把本机同步码存进账号」时要现输一次密码（密码不落盘）
+  const [authForm, setAuthForm] = useState({ email: '', password: '', nickname: '', code: '' });
+  const [manageForm, setManageForm] = useState({ oldPassword: '', newPassword: '', password: '' });
   const flashRef = useRef(flash);
   flashRef.current = flash;
-
-  /* ---------- 账号 ----------
-   * 账号的作用只有一个：**换设备时不用抄同步码**。
-   * 登录后用密码解开账号里存的同步码 → 存到本机 → 之后完全走原有的同步流程。
-   * 没有账号时一切照旧，所以这块出问题也不影响主流程。 */
   useEffect(() => {
     let alive = true;
     (async () => {
-      const on = await acct.accountAvailable();
-      if (!alive) return;
-      setAccountsOn(on);
-      if (!on) return;
-      const saved = acct.loadAccount();
-      if (!saved) return;
-      // 本地令牌可能已过期/被踢：校验一次，失效就清掉，别显示一个假的"已登录"
-      const r = await acct.verifySession(saved.token);
-      if (!alive) return;
-      if (!r.ok) { setAccount(null); return; }
-      setAccount({ token: saved.token, user: r.user || saved.user });
-      setAccountHasSync(Boolean(r.hasSync));
-      const failures = await reconcileAccountClasses(saved.token, r.classMembers, r.user?.id);
-      if (alive && failures.length) flashRef.current('部分班级未能绑到账号：' + failures.join('、'), 6000);
+      try {
+        const config = await acct.accountConfig();
+        const on = Boolean(config.enabled);
+        if (!alive) return;
+        setAccountsOn(on);
+        setRecoveryOn(Boolean(config.recoveryEnabled));
+        const saved = acct.loadAccount();
+        if (!on || !saved) return;
+        const r = await acct.verifySession(saved.token);
+        if (!alive) return;
+        if (!r.ok) { if (r.status === 401) setAccount(null); return; }
+        setAccount({ token: saved.token, user: r.user });
+        const failures = await reconcileAccountClasses(saved.token, r.classMembers, r.user.id);
+        if (alive && failures.length) flashRef.current('部分班级尚未连接账号：' + failures.join('、'), 6000);
+      } catch (error) { if (alive) flashRef.current('账号连接暂未完成：' + error.message, 5000); }
     })();
     return () => { alive = false; };
   }, []);
 
-  const authField = (k) => (e) => setAuthForm((f) => ({ ...f, [k]: e.target.value }));
+  const authField = (key) => (event) => setAuthForm((form) => ({ ...form, [key]: event.target.value }));
+  const manageField = (key) => (event) => setManageForm((form) => ({ ...form, [key]: event.target.value }));
   const openAuth = (mode = 'login') => {
-    setAuthMode(mode);
-    setAuthTip('');
-    setAuthForm({ email: '', password: '', nickname: '', code: '', syncCode: '' });
-    setAuthOpen(true);
+    setAuthMode(mode); setAuthTip(mode === 'forgot' && !recoveryOn ? '邮件找回暂未启用，请联系网站管理员。' : '');
+    setAuthForm({ email: '', password: '', nickname: '', code: '' }); setAuthOpen(true);
   };
-
-  /** 登录/注册成功后：账号里带回同步码就切过去并同步一次。 */
-  const applyAccountSync = async (code) => {
-    if (!code) return;
-    if (code === syncCode) {
-      // 码相同也要跑一次同步 —— 用户点"登录"的意图就是"把数据对上"。
-      // 原先这里直接 return，导致本机攒着没推上去的数据在登录后依然不动。
-      flash('已登录；正在同步…', 2600);
-      await runSync(true);
-      return;
-    }
-    if (syncCode && !window.confirm(
-      '账号里存着另一串同步码。\n\n'
-      + '用账号里的那串吗？\n\n'
-      + '本机数据不会丢 —— 两边的课文库 / 收藏 / 历史会自动合并，'
-      + '然后一起传到账号的那串码上。\n'
-      + '（如果两台设备本来就该同步，选「确定」）'
-    )) return;
-    saveSyncCode(code);
-    setSyncCode(code);
-    setSyncLost(false);
-    flash('已从账号取回同步码，正在同步…', 3000);
-    await runSync(true, code); // runSync 闭包里的 syncCode 还是旧的，显式传新码
-  };
-
-  const doSignIn = async () => {
+  const authenticate = async (register) => {
     if (authBusy) return;
     setAuthBusy(true); setAuthTip('');
-    let signedIn = false;
     try {
-      const r = await acct.signIn({ email: authForm.email.trim(), password: authForm.password });
+      const r = await (register ? acct.signUp : acct.signIn)({ email: authForm.email.trim(), password: authForm.password, nickname: authForm.nickname.trim() });
       if (!r.ok) { setAuthTip(r.error || '登录失败'); return; }
-      signedIn = true;
-      const acc = acct.loadAccount();
-      setAccount(acc);
-      setAccountHasSync(r.hasSync);
-      setAuthOpen(false);
-      flash('已登录：' + r.user.email, 3200);
-
-      const failures = await reconcileAccountClasses(acc.token, r.classMembers, r.user?.id);
-      if (failures.length) flash('部分班级未能绑到账号：' + failures.join('、'), 6000);
-
-      // 账号里从没存过同步码，而本机有 —— 立刻绑上去。
-      // 不绑的后果很隐蔽：两台设备各自保留自己的码，各同步各的，永远碰不上面（实测复现过）。
-      // 此刻手上正好有密码，不用再让用户输一次。
-      if (!r.hasSync && acc) {
-        const code = syncCode || await createNewSyncCode();
-        if (!syncCode) { saveSyncCode(code); setSyncCode(code); }
-        const b = await acct.bindSyncCode(acc.token, code, authForm.password);
-        setAccountHasSync(b.ok);
-        flash(b.ok
-          ? '学习数据已连接账号，换设备登录即可恢复'
-          : '同步码存入账号失败：' + (b.error || '未知原因'), 5000);
-        if (!syncCode) await runSync(true, code);
-      }
-
-      if (r.syncError) flash(r.syncError, 6000);
-      await applyAccountSync(r.syncCode);
-    } catch (e) {
-      if (signedIn) flash('已登录，但自动同步尚未完成：' + (e.message || '网络错误'), 6500);
-      else setAuthTip(e.message || '网络错误');
-    } finally { setAuthBusy(false); }
+      setAccount(acct.loadAccount()); setAuthOpen(false);
+      if (r.migrationError) flash(r.migrationError, 7000);
+      else flash(register ? '注册成功，学习数据将自动保存到账号' : '登录成功，正在恢复学习数据', 3500);
+    } catch (error) { setAuthTip(error.message || '网络错误'); }
+    finally { setAuthBusy(false); }
   };
-
-  const doSignUp = async () => {
-    if (authBusy) return;
-    setAuthBusy(true); setAuthTip('');
-    let signedUp = false;
-    try {
-      // 本机已有同步码就顺手加密存进账号 —— 这样别的设备一登录就能取回
-      const r = await acct.signUp({
-        email: authForm.email.trim(),
-        password: authForm.password,
-        nickname: authForm.nickname.trim(),
-        syncCode,
-      });
-      if (!r.ok) { setAuthTip(r.error || '注册失败'); return; }
-      signedUp = true;
-      setAccount(acct.loadAccount());
-      setAccountHasSync(Boolean(syncCode));
-      setAuthOpen(false);
-      const current = acct.loadAccount();
-      let classWarning = '';
-      if (current?.token) {
-        const failures = await reconcileAccountClasses(current.token, r.classMembers, r.user?.id);
-        if (failures.length) classWarning = '部分班级未能绑到账号：' + failures.join('、');
-        if (!syncCode) {
-          const code = await createNewSyncCode();
-          saveSyncCode(code); setSyncCode(code);
-          const bound = await acct.bindSyncCode(current.token, code, authForm.password);
-          setAccountHasSync(bound.ok);
-          if (!bound.ok) { flash('账号已注册，但学习数据绑定失败：' + (bound.error || '请稍后重试'), 6000); return; }
-          await runSync(true, code);
-        }
-      }
-      flash(classWarning || '注册成功，学习数据已连接账号', classWarning ? 6000 : 3600);
-    } catch (e) {
-      if (signedUp) flash('账号已注册，但自动同步尚未完成：' + (e.message || '网络错误'), 6500);
-      else setAuthTip(e.message || '网络错误');
-    } finally { setAuthBusy(false); }
-  };
-
+  const doSignIn = () => authenticate(false);
+  const doSignUp = () => authenticate(true);
   const doForgot = async () => {
-    if (authBusy) return;
+    if (authBusy || !recoveryOn) return;
     setAuthBusy(true); setAuthTip('');
     try {
       const r = await acct.requestResetCode(authForm.email.trim());
-      if (!r.ok) { setAuthTip(r.error || '发送失败'); return; }
-      setAuthMode('reset');
-      setAuthTip('验证码已发到邮箱（15 分钟内有效）。没收到就看看垃圾邮件。');
-    } catch (e) {
-      setAuthTip(e.message || '网络错误');
-    } finally { setAuthBusy(false); }
+      if (!r.ok) { setAuthTip(r.error); return; }
+      setAuthMode('reset'); setAuthTip('验证码已发到邮箱，15 分钟内有效。');
+    } catch (error) { setAuthTip(error.message); }
+    finally { setAuthBusy(false); }
   };
-
   const doReset = async () => {
     if (authBusy) return;
     setAuthBusy(true); setAuthTip('');
     try {
-      const r = await acct.resetPassword({
-        email: authForm.email.trim(),
-        code: authForm.code.trim(),
-        newPassword: authForm.password,
-        syncCode: (authForm.syncCode || '').trim() || syncCode || '',
-      });
-      if (!r.ok) { setAuthTip(r.error || '重置失败'); return; }
-      setAccount(null);
-      setAccountHasSync(false);
-      setAuthMode('login');
-      // 必须把「同步码会失效」这件事说清楚 ——
-      // 用户最容易把"同步码解不开"误解成"我的课文库和收藏被删了"，其实数据一直在本机。
-      setAuthTip('密码已重置。\n\n⚠️ 旧密码加密的同步码无法自动解锁 —— 如果这台设备上有同步码，'
-        + '登录后点「存入账号」重新绑一次即可，本机的课文库和收藏一直都在。');
-      flash('密码已重置，请用新密码登录', 4000);
-    } catch (e) {
-      setAuthTip(e.message || '网络错误');
-    } finally { setAuthBusy(false); }
+      const r = await acct.resetPassword({ email: authForm.email.trim(), code: authForm.code.trim(), newPassword: authForm.password });
+      if (!r.ok) { setAuthTip(r.error); return; }
+      setAccount(null); setAuthMode('login');
+      setAuthTip('密码已重置，请使用新密码登录。已归入账号的学习数据不受影响。');
+    } catch (error) { setAuthTip(error.message); }
+    finally { setAuthBusy(false); }
   };
-
-  const doSignOut = async () => {
-    if (!account) return;
-    if (!window.confirm('退出登录？\n\n本机的课文库、收藏和同步码都不受影响，只是换设备时要重新登录。')) return;
-    await acct.signOut(account.token);
-    setAccount(null);
-    setAccountHasSync(false);
-    flash('已退出登录（本机数据保留）', 3000);
-  };
-
-  /**
-   * 退出所有设备。
-   * 会话令牌是存在浏览器里的（防得住 XSS 之外的东西有限），所以给一个"一键止血"：
-   * 服务端把会话世代号 +1，所有已签发的令牌立刻作废，连当前这台也一起下线。
-   */
-  const doSignOutEverywhere = async () => {
-    if (!account) return;
-    if (!window.confirm('退出所有设备？\n\n其它设备上已登录的账号会立刻下线，需要重新输入密码。\n本机的课文库、收藏和同步码不受影响。')) return;
-    const r = await acct.signOutEverywhere(account.token);
-    setAccount(null);
-    setAccountHasSync(false);
-    flash(r.ok ? '已退出所有设备，请重新登录' : ('操作失败：' + (r.error || '未知原因')), 4000);
-  };
-
-  /** 把本机当前同步码加密存进账号。密码不落盘，所以每次都要现输。 */
-  const doBindSync = async () => {
-    if (!account || !syncCode || !bindPw) return;
+  const logout = async (all) => {
+    if (!account || authBusy || !window.confirm(all ? '退出所有设备？其它设备需要重新登录。' : '退出登录？学习数据保存在账号及本机的独立缓存中。')) return;
     setAuthBusy(true);
     try {
-      const r = await acct.bindSyncCode(account.token, syncCode, bindPw);
-      setBindPw('');
-      flash(r.ok ? '同步码已存进账号，别的设备登录即可取回' : (r.error || '存入失败'), 4000);
-    } finally { setAuthBusy(false); }
+      await beforeSignOut?.();
+      const r = await (all ? acct.signOutEverywhere : acct.signOut)(account.token);
+      if (!r.ok) { flash(r.error || '操作失败', 5000); return; }
+      setAccount(null);
+    } catch (error) { flash(error.message, 5000); }
+    finally { setAuthBusy(false); }
   };
-
-
-  return {
-    account, setAccount, accountsOn, accountHasSync, setAccountHasSync,
-    authOpen, setAuthOpen, authMode, setAuthMode, authBusy, authTip, setAuthTip, authForm, bindPw, setBindPw,
-    authField, openAuth, doSignIn, doSignUp, doForgot, doReset, doSignOut, doSignOutEverywhere, doBindSync,
+  const doChangePassword = async () => {
+    if (!account || authBusy) return;
+    setAuthBusy(true);
+    try {
+      const r = await acct.changePassword({ token: account.token, oldPassword: manageForm.oldPassword, newPassword: manageForm.newPassword });
+      if (!r.ok) { flash(r.error, 5000); return; }
+      setAccount(acct.loadAccount()); setManageForm({ oldPassword: '', newPassword: '', password: '' });
+      flash('密码已修改，其它设备需要重新登录。学习数据保持完整。', 5000);
+    } catch (error) { flash(error.message, 5000); }
+    finally { setAuthBusy(false); }
   };
+  const doDeleteAccount = async () => {
+    if (!account || authBusy || !window.confirm('注销账号并删除账号中的课文库、收藏、历史和进度？此操作无法撤销。已提交给教师的班级成绩仍保留。')) return;
+    setAuthBusy(true);
+    try {
+      const r = await acct.deleteAccount({ token: account.token, password: manageForm.password });
+      if (!r.ok) { flash(r.error, 5000); return; }
+      setAccount(null);
+    } catch (error) { flash(error.message, 5000); }
+    finally { setAuthBusy(false); }
+  };
+  return { account, setAccount, accountsOn, recoveryOn, authOpen, setAuthOpen, authMode, authBusy, authTip, setAuthTip,
+    authForm, authField, openAuth, doSignIn, doSignUp, doForgot, doReset,
+    doSignOut: () => logout(false), doSignOutEverywhere: () => logout(true),
+    manageForm, manageField, doChangePassword, doDeleteAccount };
 }

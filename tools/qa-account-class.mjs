@@ -52,6 +52,7 @@ try {
   await page.getByRole('dialog', { name: '账号' }).getByLabel('密码').fill('testpass123');
   await page.getByRole('button', { name: '注册', exact: true }).click();
   await page.getByRole('button', { name: '我的账号' }).waitFor();
+  await page.waitForFunction(() => Boolean(localStorage.getItem('bts-class-member-owner')));
   const studentToken = await page.evaluate(() => localStorage.getItem('bt-acct-token'));
   assert.ok(studentToken, '注册后保留会话');
   const memberReply = await fetch(base + '/api/auth/me', { headers: { Authorization: 'Bearer ' + studentToken } }).then((response) => response.json());

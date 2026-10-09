@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { BookOpen, Camera, CheckCircle2, ChevronDown, ChevronRight, Cloud, Copy, Download, FileText, Flame, ImagePlus, Library, LoaderCircle, PanelLeftClose, PanelLeftOpen, Save, Settings, Sparkles, Timer, Upload, UserRound, WandSparkles, X } from 'lucide-react'
+import { BookOpen, Camera, CheckCircle2, ChevronDown, ChevronRight, Cloud, Download, FileText, Flame, ImagePlus, Library, LoaderCircle, PanelLeftClose, PanelLeftOpen, Save, Settings, Sparkles, Timer, Upload, UserRound, WandSparkles, X } from 'lucide-react'
 // mammoth（894 KB 源码）只在"上传 DOCX"这一个功能里用到，
 // 改为 handleDocx 内动态 import，避免它被打进首屏主包。
 import { addSection as addLibSection, corpusToLibrary, deleteSection as deleteLibSection, ensureLessonIds, mergeLibraries, newLibraryId, renameSection as renameLibSection, renumberLibrary, saveLibraries, sectionsOf } from './lessonLibrary.js'
@@ -21,6 +21,7 @@ import { useTimer } from './hooks/useTimer.js'
 import { useCloudSync } from './hooks/useCloudSync.js'
 import { useAccount } from './hooks/useAccount.js'
 import { loadAccount } from './account.js'
+import { switchDataOwner } from './accountCache.js'
 import { useJobRunner } from './hooks/useJobRunner.js'
 import { useModals } from './hooks/useModals.js'
 import { useLibraries } from './hooks/useLibraries.js'
@@ -82,7 +83,7 @@ function fingerprintOf(t, c, d, o) {
 const SITE_NAME = '回译本';
 const SITE_TAGLINE = '你的私人英语工坊';
 
-function App() {
+function Studio() {
   const [settings, setSettings] = useState(loadSettings());
   const [classJoinOpen, setClassJoinOpen] = useState(false);
   const [classJoinPrefill, setClassJoinPrefill] = useState('');
@@ -96,7 +97,8 @@ function App() {
   // 未登录的访客先弹登录/注册（学习数据跨设备同步），完成或跳过后再弹入班；
   // 其他 #join= 变体（位数不对/带字母）不是有效深链，顺手清掉避免刷新时反复解析
   useEffect(() => {
-    const match = window.location.hash.match(/^#join=(\d{6})$/);
+    const pendingJoin = sessionStorage.getItem('bt-pending-join') || '';
+    const match = window.location.hash.match(/^#join=(\d{6})$/) || (pendingJoin.match(/^(\d{6})$/));
     if (!match) {
       if (window.location.hash.startsWith('#join=')) {
         window.history.replaceState(null, '', window.location.pathname + window.location.search);
@@ -104,7 +106,9 @@ function App() {
       return;
     }
     setClassJoinPrefill(match[1]);
+    sessionStorage.setItem('bt-pending-join', match[1]);
     if (loadAccount()) {
+      sessionStorage.removeItem('bt-pending-join');
       setClassJoinOpen(true);
     } else {
       joinAuthPendingRef.current = true;
@@ -268,14 +272,13 @@ function App() {
   const pendingNewRef = useRef(true);
   // 备份（课文库 + 收藏夹 + 历史）
   const backupFileRef = useRef(null);
-  // 云同步（同步码）
+  // 账号云同步
   const [backendWaking, setBackendWaking] = useState(false); // 免费托管休眠后正在唤醒（首屏要等约 1 分钟）
   // 新用户三步引导：首屏实测有 15+ 个同级控件，第一次来的人不知道该先点哪个。
   // 只在"一次都没生成过"且没手动关掉时出现，关掉后永久不再打扰。
   const [guideDone, setGuideDone] = useState(() => safeGet('bt-guide-done', '') === '1');
   const dismissGuide = () => { safeSet('bt-guide-done', '1'); setGuideDone(true); };
-  // 账号（可选：服务端配了持久存储才有）。账号只是"帮你记住同步码"的一层，
-  // 同步码仍然是数据主键 —— 没有账号时一切照旧，有了账号换设备就不用抄码。
+  // 账号是学习数据的归属；访客数据在首次登录时迁入账号。
   // 最近一次「载入 / 保存」时的内容指纹：用来判断当前作业有没有改动过，
   // 避免在"打开库里的课文后直接点新建"时让用户重复保存一份完全相同的内容。
   const savedSnapshotRef = useRef('');
@@ -707,7 +710,7 @@ function App() {
    * 导入语料 JSON（README「语料」格式）为「我的课文库」。
    *
    * 场景：内置语料（新概念 / 真题）可能因版权下架 —— 用户把手里保存的语料 JSON
-   * 导入成自建课文库，之后走自建库与云同步的全套机制（其他设备同同步码可见）。
+   * 导入成自建课文库，之后走自建库与账号同步的全套机制。
    * 同名库合并追加，按「标题+中文」指纹去重；序号冲突用 renumberLibrary 重排。
    */
   const handleImportCorpus = async (file) => {
@@ -747,7 +750,7 @@ function App() {
       }
       setMyLibs(withIds);
       setMyLibId(targetId);
-      flashTip(setToast, `已导入「${name}」：新增 ${fresh.length} 课${lessons.length - fresh.length ? `，跳过重复 ${lessons.length - fresh.length} 课` : ''}。其他设备用同步码登录即可看到`, 6000);
+      flashTip(setToast, `已导入「${name}」：新增 ${fresh.length} 课${lessons.length - fresh.length ? `，跳过重复 ${lessons.length - fresh.length} 课` : ''}。其它设备登录同一账号即可看到`, 6000);
     } catch (e) {
       // JSON.parse 的英文异常（如 "Unexpected token..."）对学生没有信息量，
       // 按最常见成因翻译；只有确属其他错误才保留原文。
@@ -1249,32 +1252,25 @@ function App() {
     return changed;
   };
 
-  /* ---------- 云同步（同步码）----------
-   * 状态机在 hooks/useCloudSync.js；这里只提供"本机数据 + 合并写回 + 提示"三件事，
-   * 变量名沿用原来的，所以下面所有调用点都不用改。 */
+  /* 账号身份先初始化，同步只访问该账号的 userId。退出前把最近修改送到云端。 */
+  const syncActionRef = useRef(null);
   const {
-    syncCode, setSyncCode, syncMeta, syncBusy, syncTip,
-    codeInput, setCodeInput, syncLost, setSyncLost,
-    runSync, startNewSync, useExistingCode, copySyncCode, stopSync,
-  } = useCloudSync({
-    local: {
-      libraries: myLibs, favorites, history: historyList, deletedHistory,
-      deletedLibraries, deletedLessons, deletedFavorites,
-      progress: lessonProgress, days: studyDays,
-    },
+    account, accountsOn, recoveryOn, authOpen, setAuthOpen, authMode, authBusy, authTip, setAuthTip, authForm,
+    authField, openAuth, doSignIn, doSignUp, doForgot, doReset, doSignOut, doSignOutEverywhere,
+    manageForm, manageField, doChangePassword, doDeleteAccount,
+  } = useAccount({
+    beforeSignOut: () => syncActionRef.current?.(),
+    flash: (msg, ms) => flashTip(setToast, msg, ms),
+  });
+  const { syncMeta, syncBusy, syncTip, legacyPending, codeInput, setCodeInput, runSync, importLegacy, flushSync } = useCloudSync({
+    account,
+    local: { libraries: myLibs, favorites, history: historyList, deletedHistory,
+      deletedLibraries, deletedLessons, deletedFavorites, progress: lessonProgress, days: studyDays },
     applyMerged: applyMergedSnapshot,
     flash: (msg, ms) => flashTip(setToast, msg, ms),
   });
+  syncActionRef.current = flushSync;
 
-  /* ---------- 账号 ----------
-   * 状态与动作都在 hooks/useAccount.js；变量名沿用原来的，调用点不用改。 */
-  const {
-    account, accountsOn, authOpen, setAuthOpen, authMode, authBusy, authTip, setAuthTip, authForm, bindPw, setBindPw,
-    authField, openAuth, doSignIn, doSignUp, doForgot, doReset, doSignOut, doSignOutEverywhere, doBindSync,
-  } = useAccount({
-    syncCode, setSyncCode, setSyncLost, runSync,
-    flash: (msg, ms) => flashTip(setToast, msg, ms),
-  });
   authOpenRef.current = authOpen; // 供 useModals 的 Esc/焦点陷阱识别账号弹窗
   closeAuthRef.current = () => setAuthOpen(false);
   // 深链入班：账号完成后继续入班；访客明确关闭登录框后也允许加入。
@@ -1294,6 +1290,7 @@ function App() {
     if (authOpen) { joinAuthWasOpenRef.current = true; return; }
     if (!joinAuthWasOpenRef.current || !joinAuthPendingRef.current) return;
     joinAuthPendingRef.current = false;
+    sessionStorage.removeItem('bt-pending-join');
     setClassJoinOpen(true);
   }, [authOpen]);
 
@@ -1984,26 +1981,14 @@ function App() {
 
               {authMode === 'register' ? (
                 <p className="muted small">
-                  账号保存邮箱、加密后的同步凭据，以及你加入的班级身份；密码以哈希形式保存。
-                  登录后可在别的设备恢复学习数据和班级，不用手抄同步码。
+                  账号保存邮箱、学习数据和加入的班级身份；密码以哈希形式保存。
+                  登录后可在别的设备恢复课文库、收藏、历史、进度和班级。
                   <br />
                   你可以在设置中注销账号；已交给教师的班级成绩仍保留在教师班级中。<b>本服务面向 14 周岁以上用户。</b>
                 </p>
               ) : null}
 
-              {authMode === 'reset' ? (
-                <p className="muted small">
-                  ⚠️ 重置密码后，之前用旧密码加密的同步码<b>无法自动解锁</b>。
-                  如果你手上有同步码，填在下方可以一并存进账号。
-                </p>
-              ) : null}
-
-              {authMode === 'reset' ? (
-                <label className="auth-label">
-                  同步码（可选）
-                  <input value={authForm.syncCode} onChange={authField('syncCode')} placeholder="有就填，没有留空" disabled={authBusy} />
-                </label>
-              ) : null}
+              {authMode === 'reset' ? <p className="muted small">重置密码后，用新密码登录即可恢复已归入账号的学习数据。</p> : null}
             </div>
 
             {authTip ? <div className="backup-tip" role="status" aria-live="polite">{authTip}</div> : null}
@@ -2027,7 +2012,7 @@ function App() {
                 </>
               ) : authMode === 'forgot' ? (
                 <>
-                  <button className="primary-btn" onClick={doForgot} disabled={authBusy || !authForm.email}>
+                  <button className="primary-btn" onClick={doForgot} disabled={authBusy || !authForm.email || !recoveryOn}>
                     {authBusy ? '发送中…' : '发送验证码'}
                   </button>
                   <button className="ghost-btn" onClick={() => openAuth('login')} disabled={authBusy}>返回登录</button>
@@ -2137,7 +2122,7 @@ function App() {
         <div className="modal-mask" onClick={() => setLibModalOpen(false)}>
           <div className="modal" ref={(el) => { modalRefs.current.lib = el; }} role="dialog" aria-modal="true" aria-label="保存到课文库" onClick={(e) => e.stopPropagation()}>
             <div className="modal-head"><h2>保存到课文库</h2><button className="icon-btn" onClick={() => setLibModalOpen(false)} aria-label="关闭"><X size={16} /></button></div>
-            <p className="muted small">把当前作业的「标题 + 中文提示 + 英文原文」存成一节课，之后就能从左侧「我的课文库」里像课文一样选出来反复练习（只存在本机浏览器）。</p>
+            <p className="muted small">把当前作业的「标题 + 中文提示 + 英文原文」存成一节课，之后就能从左侧「我的课文库」里选出来反复练习。登录后会自动保存到账号。</p>
             <div className="lib-preview">
               <div><span className="muted">标题</span><strong>{title.trim() || (chinese.trim() ? chinese.trim().slice(0, 12) + '…' : '未命名作业')}</strong></div>
               <div><span className="muted">中文提示</span><strong className={chinese.trim() ? '' : 'warn'}>{chinese.trim() ? chinese.trim().length + ' 字' : '还没有，至少要有中文提示'}</strong></div>
@@ -2199,7 +2184,7 @@ function App() {
         <div className="modal-mask" onClick={() => setBackupOpen(false)}>
           <div className="modal" ref={(el) => { modalRefs.current.backup = el; }} role="dialog" aria-modal="true" aria-label="备份与恢复" onClick={(e) => e.stopPropagation()}>
             <div className="modal-head"><h2>备份与恢复</h2><button className="icon-btn" onClick={() => setBackupOpen(false)} aria-label="关闭"><X size={16} /></button></div>
-            <p className="muted small">课文库、收藏夹、历史都只存在<b>本机浏览器</b>里：换设备、换浏览器、清缓存都会丢。导出一个备份文件，换环境后导入即可恢复。</p>
+            <p className="muted small">登录后，课文库、收藏、历史和进度会自动保存到账号；未登录时仅保存在当前浏览器。也可以导出备份文件，独立留存或在其它设备导入。</p>
             <div className="lib-preview">
               <div><span className="muted">当前数据</span><strong>{backupSummary}</strong></div>
             </div>
@@ -2211,108 +2196,42 @@ function App() {
             </div>
             {backupTip ? <div className="backup-tip" role="status" aria-live="polite">{backupTip}</div> : null}
 
-            {/* 账号：换设备不用抄同步码（服务端配了持久存储才显示） */}
-            {accountsOn ? (
-              <div className="sync-block">
-                <div className="sync-title"><UserRound size={15} />账号（换设备免抄码）</div>
-                {account ? (
-                  <>
-                    <p className="muted small">
-                      已登录：<b>{account.user.email}</b>{account.user.nickname ? `（${account.user.nickname}）` : ''}
-                    </p>
-                    <p className="muted small">
-                      在别的设备上用这个邮箱登录，同步码会自动取回，不用手抄。
-                      同步码是用你的密码加密后存在服务端的，<b>服务端也解不开</b>。
-                    </p>
-                    {syncCode ? (
-                      <div className="sync-row">
-                        <input
-                          type="password"
-                          value={bindPw}
-                          onChange={(e) => setBindPw(e.target.value)}
-                          placeholder="输入账号密码，把本机同步码存进账号"
-                          aria-label="账号密码（用于加密同步码）"
-                        />
-                        <button className="ghost-btn" onClick={doBindSync} disabled={authBusy || !bindPw}>存入账号</button>
-                      </div>
-                    ) : null}
-                    <div className="modal-actions">
-                      <button className="ghost-btn" onClick={doSignOut} disabled={authBusy}>退出登录</button>
-                      <button className="ghost-btn" onClick={doSignOutEverywhere} disabled={authBusy} title="让其它设备上已登录的账号立刻下线（怀疑账号被盗用时用）">退出所有设备</button>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <p className="muted small">
-                      建个账号，换电脑 / 换手机时用邮箱登录就能把同步码取回来，<b>不用手抄那串 32 位码</b>。
-                    </p>
-                    <div className="modal-actions">
-                      <button className="primary-btn" onClick={() => openAuth('register')}>注册</button>
-                      <button className="ghost-btn" onClick={() => openAuth('login')}>登录</button>
-                    </div>
-                  </>
-                )}
-              </div>
-            ) : null}
+            {accountsOn && <div className="sync-block">
+              <div className="sync-title"><UserRound size={15} />我的账号</div>
+              {account ? <>
+                <p className="muted small">已登录：<b>{account.user.email}</b>{account.user.nickname ? `（${account.user.nickname}）` : ''}</p>
+                <p className="muted small">课文库、收藏、历史和进度自动保存到账号。其它设备登录同一账号即可恢复。</p>
+                <div className="modal-actions">
+                  <button className="ghost-btn" onClick={doSignOut} disabled={authBusy || syncBusy}>退出登录</button>
+                  <button className="ghost-btn" onClick={doSignOutEverywhere} disabled={authBusy || syncBusy}>退出所有设备</button>
+                </div>
+                <details className="account-management"><summary>修改密码</summary>
+                  <label className="auth-label">当前密码<input type="password" autoComplete="current-password" value={manageForm.oldPassword} onChange={manageField('oldPassword')} /></label>
+                  <label className="auth-label">新密码<input type="password" autoComplete="new-password" minLength={8} value={manageForm.newPassword} onChange={manageField('newPassword')} /></label>
+                  <button className="ghost-btn" disabled={authBusy || !manageForm.oldPassword || manageForm.newPassword.length < 8} onClick={doChangePassword}>保存新密码</button>
+                </details>
+                <details className="account-management"><summary>注销账号</summary>
+                  <p className="muted small">注销会删除账号及账号中的学习数据。已提交给教师的班级成绩仍保留。建议先导出备份。</p>
+                  <label className="auth-label">确认账号密码<input type="password" autoComplete="current-password" value={manageForm.password} onChange={manageField('password')} /></label>
+                  <button className="ghost-btn" disabled={authBusy || !manageForm.password} onClick={doDeleteAccount}>注销账号并删除学习数据</button>
+                </details>
+              </> : <>
+                <p className="muted small">登录后自动保存和恢复学习数据。未登录时，你的练习数据保存在当前浏览器。</p>
+                <div className="modal-actions"><button className="primary-btn" onClick={() => openAuth('register')}>注册</button><button className="ghost-btn" onClick={() => openAuth('login')}>登录</button></div>
+              </>}
+            </div>}
+            {account && <div className="sync-block">
+              <div className="sync-title"><Cloud size={15} />账号云同步</div>
+              <p className="muted small">{syncMeta.lastSyncAt ? `上次同步：${new Date(syncMeta.lastSyncAt).toLocaleString('zh-CN', { hour12: false })}` : '正在连接账号数据…'}</p>
+              <button className="primary-btn" onClick={() => runSync(true)} disabled={syncBusy}>{syncBusy ? '同步中…' : '立即同步'}</button>
+              {legacyPending && <p className="backup-tip" role="status">账号还有待迁移的旧版数据。重新登录可自动迁移；如果曾重置密码，请从旧设备或下方旧版数据导入。</p>}
+              <details className="account-management" open={legacyPending || undefined}><summary>导入旧版数据</summary>
+                <p className="muted small">仅供旧版用户迁移。导入一次后，数据归入当前账号，旧凭据停止使用。已有备份文件也可通过上方按钮导入。</p>
+                <div className="sync-row"><input value={codeInput} onChange={(e) => setCodeInput(e.target.value.trim())} placeholder="旧版同步码" aria-label="旧版数据迁移凭据" autoComplete="off" /><button className="ghost-btn" disabled={syncBusy || !codeInput} onClick={importLegacy}>导入旧数据到账号</button></div>
+              </details>
+              {syncTip && <div className="backup-tip" role="status" aria-live="polite">{syncTip}</div>}
+            </div>}
 
-            {/* 云同步：多设备之间合并同步（课文库 + 收藏夹 + 历史） */}
-            <div className="sync-block">
-              <div className="sync-title"><Cloud size={15} />云同步（多设备）</div>
-              {!syncCode ? (
-                <>
-                  <p className="muted small">
-                    生成一串同步码，在另一台设备上填同一串码，练习记录 / 收藏夹 / 课文库就会<b>双向合并</b>同步。
-                    <b>同步码等于密码</b>——拿到的人可以读写你的数据，请勿外传。
-                  </p>
-                  {status?.sync && !status.sync.durable ? (
-                    <p className="sync-lost" role="alert">
-                      ⚠️ <b>当前服务端没有持久存储，云同步在这个环境下不可靠</b>：托管平台（Render 等）的文件系统是临时的，
-                      <b>每次重新部署、重启、甚至休眠（约 15 分钟无访问）都会清空同步数据</b>。
-                      请先在部署平台配置 <code>UPSTASH_REDIS_REST_URL</code> 与 <code>UPSTASH_REDIS_REST_TOKEN</code>（见 .env.example）；
-                      在那之前请以「导出备份文件」为主要保障。
-                    </p>
-                  ) : null}
-                  <div className="sync-row">
-                    <input value={codeInput} onChange={(e) => setCodeInput(e.target.value.trim())} placeholder="已有同步码？粘贴到这里" aria-label="输入已有同步码" />
-                    <button className="ghost-btn" onClick={useExistingCode} disabled={syncBusy || !codeInput}>使用该码</button>
-                  </div>
-                  <div className="modal-actions">
-                    <button className="primary-btn" onClick={startNewSync} disabled={syncBusy}>{syncBusy ? '处理中…' : '生成新同步码'}</button>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className="sync-row">
-                    <code className="sync-code">{syncCode}</code>
-                    <button className="ghost-btn sm" onClick={copySyncCode}><Copy size={13} />复制</button>
-                    <button className="ghost-btn sm" onClick={startNewSync} disabled={syncBusy} title="换一串新码并把本机数据传上去">换码</button>
-                    <button className="ghost-btn sm" onClick={stopSync}>停用</button>
-                  </div>
-                  {syncLost ? (
-                    <p className="sync-lost" role="alert">
-                      ⚠️ 云端已经找不到这串同步码的数据了 —— 最常见的原因是<b>服务端重新部署过</b>（免费托管的磁盘是临时的）。
-                      <b>本机数据完全没丢</b>；点「换码」重新生成一串，本机数据会自动传上去，然后在其它设备上填这串新码即可。
-                    </p>
-                  ) : null}
-                  {status?.sync && !status.sync.durable ? (
-                    <p className="sync-lost" role="alert">
-                      ⚠️ 服务端没有持久存储：<b>平台休眠（约 15 分钟无访问）或重新部署都会清空同步数据</b>。
-                      建议尽快配置 <code>UPSTASH_*</code> 环境变量，并定期「导出备份文件」。
-                    </p>
-                  ) : null}
-                  <p className="muted small">
-                    {syncMeta.lastSyncAt
-                      ? `上次同步：${new Date(syncMeta.lastSyncAt).toLocaleString('zh-CN', { hour12: false })}`
-                      : '还没有同步过'}
-                  </p>
-                  <p className="muted small">在另一台设备上：打开「备份」→ 把这串码粘进输入框 → 使用该码，之后会自动同步。</p>
-                  <div className="modal-actions">
-                    <button className="primary-btn" onClick={() => runSync(true)} disabled={syncBusy}>{syncBusy ? '同步中…' : '立即同步'}</button>
-                  </div>
-                </>
-              )}
-              {syncTip ? <div className="backup-tip" role="status" aria-live="polite">{syncTip}</div> : null}
-            </div>
           </div>
         </div>
       )}
@@ -2321,4 +2240,23 @@ function App() {
 }
 
 
+/** 切换身份后重建工作区，编辑草稿、结果缓存和个人 Key 一并切换。 */
+function App() {
+  const [sessionKey, setSessionKey] = useState(() => {
+    const saved = loadAccount();
+    switchDataOwner(saved?.user?.id || '');
+    return saved?.token || 'guest';
+  });
+  useEffect(() => {
+    const refresh = () => {
+      const saved = loadAccount();
+      switchDataOwner(saved?.user?.id || '');
+      setSessionKey(saved?.token || 'guest');
+    };
+    const onStorage = (event) => { if (['bt-acct-token', 'bt-acct-user', 'bt-data-owner'].includes(event.key)) refresh(); };
+    window.addEventListener('bts:account-changed', refresh); window.addEventListener('storage', onStorage);
+    return () => { window.removeEventListener('bts:account-changed', refresh); window.removeEventListener('storage', onStorage); };
+  }, []);
+  return <Studio key={sessionKey} />;
+}
 export default App;

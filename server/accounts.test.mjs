@@ -150,7 +150,7 @@ let resetCode = '';
   check('㉖ 发送重置验证码', r.ok, `status=${r.status}`);
   const m = sent[sent.length - 1];
   check('㉗ 邮件已发出且含 8 位验证码', sent.length === before + 1 && /\d{8}/.test(m.text), m && m.subject);
-  check('㉘ 邮件里写明「重置后同步码会失效」的风险提示', /同步码/.test(m.text) && /重置/.test(m.text));
+  check('㉘ 邮件说明账号数据保留，并提示待迁移旧数据的恢复方式', /不会删除已归入账号/.test(m.text) && /待迁移/.test(m.text));
   resetCode = (m.text.match(/\d{8}/) || [])[0];
   // 安全断言：库里不能出现明文验证码
   const raw = fs.readdirSync(dir).map((f) => fs.readFileSync(path.join(dir, f), 'utf8')).join('\n');

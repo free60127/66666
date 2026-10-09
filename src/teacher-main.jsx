@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { api, authBecomeTeacher, authLogin, authMe, authTeacherRegister } from './api.js';
-import { clearAccount, loadAccount, saveAccount } from './account.js';
+import { clearAccount, loadAccount, saveAccount, signOut } from './account.js';
 import { TeacherCorpusPanel, TeacherHomeworkPanel, TeacherStatsPanel, TeacherTeamPanel } from './components/TeacherExtensions.jsx';
 import './teacher.css';
 
@@ -165,7 +165,7 @@ function TeacherApp() {
 
   if (!ready) return <main className="teacher-center">正在检查登录状态…</main>;
   return <div className="teacher-app">
-    <header className="teacher-top"><div><strong>回译本 · 教师后台</strong><span>班级练习与成绩</span></div><nav><a href={import.meta.env.BASE_URL}>学生端</a>{account && <button onClick={() => { clearAccount(); setAccount(null); setClasses([]); setSelectedId(''); }}>退出登录</button>}</nav></header>
+    <header className="teacher-top"><div><strong>回译本 · 教师后台</strong><span>班级练习与成绩</span></div><nav><a href={import.meta.env.BASE_URL}>学生端</a>{account && <button disabled={busy} onClick={() => act(async () => { await signOut(account.token); setAccount(null); setClasses([]); setSelectedId(''); })}>退出登录</button>}</nav></header>
     {message && <div className="teacher-notice" role="status">{message}<button aria-label="关闭提示" onClick={() => setMessage('')}>×</button></div>}
     {!account ? <main className="teacher-auth card"><h1>{authMode === 'register' ? '注册教师账号' : '教师登录'}</h1><p>教师注册开放。学生无需注册，在学生端输入邀请码即可加入。</p>
       <form onSubmit={signIn}>

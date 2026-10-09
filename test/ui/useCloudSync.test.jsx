@@ -17,7 +17,7 @@ vi.mock('../../src/sync.js', async (importOriginal) => {
   return {
     ...actual,
     syncOnce: vi.fn(),
-    loadSyncCode: () => 'a'.repeat(32),
+    loadSyncCode: () => '',
     loadSyncMeta: () => ({}),
     saveSyncCode: vi.fn(),
     saveSyncMeta: vi.fn(),
@@ -40,7 +40,7 @@ function Harness() {
     setFavorites(merged.favorites || []);
     return true;
   };
-  const sync = useCloudSync({ local, applyMerged, flash: () => {} });
+  const sync = useCloudSync({ account: { token: 'test-token', user: { id: 'test-user' } }, local, applyMerged, flash: () => {} });
   api = { sync, addFavorite: (f) => setFavorites((prev) => [...prev, f]) };
   return <div data-testid="favs">{favorites.map((f) => f.id).join(',')}</div>;
 }
@@ -50,7 +50,11 @@ const remoteSnapshot = {
   libraries: [], favorites: [{ id: 'a', title: 'A' }], history: [], deletedHistory: [], progress: {}, days: [],
 };
 
-beforeEach(() => { cleanup(); api = null; vi.clearAllMocks(); });
+beforeEach(() => {
+  cleanup(); api = null; vi.clearAllMocks();
+  localStorage.setItem('bt-acct-token', 'test-token');
+  localStorage.setItem('bt-acct-user', JSON.stringify({ id: 'test-user' }));
+});
 
 describe('useCloudSync：同步期间的本地写入', () => {
   it('await 期间新收藏的一条，在写回后仍然存在（不被合并快照覆盖）', async () => {
@@ -84,5 +88,14 @@ describe('useCloudSync：同步期间的本地写入', () => {
     await act(async () => { await api.sync.runSync(true); });
     // 顺序由 mergeFavorites 决定（远端新增在前），这里只关心两条都在
     expect(screen.getByTestId('favs').textContent.split(',').sort()).toEqual(['a', 'c']);
+  });
+
+  it('请求未结束时切换了账号，旧账号响应不能写入新账号的本机数据', async () => {
+    let release;
+    syncOnce.mockImplementation(() => new Promise((resolve) => { release = resolve; }));
+    render(<Harness />);
+    localStorage.setItem('bt-acct-token', 'other-token');
+    await act(async () => { release({ ok: true, version: 2, merged: { ...remoteSnapshot, favorites: [{ id: 'secret', title: '旧账号私有' }] } }); });
+    expect(screen.getByTestId('favs').textContent).toBe('a');
   });
 });

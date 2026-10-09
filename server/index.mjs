@@ -10,7 +10,8 @@ import { sanitizeGrades, sanitizeQuestions } from './questionShape.mjs';
 import { createGradeReader, finalizeGrades } from './gradeStream.mjs';
 import { createResultReader, finalizeResult, SEGMENT_LABEL, usableOverall } from './analyzeStream.mjs';
 import { recognizeImage } from './ocr.mjs';
-import { MAX_SNAPSHOT_BYTES, createSyncStore, emptySnapshot, isValidSyncCode, newSyncCode, sanitizeSnapshot } from './sync.mjs';
+import { MAX_SNAPSHOT_BYTES, createSyncStore } from './sync.mjs';
+import { createAccountData, openLegacySync } from './account-data.mjs';
 import { createUpstashKv, createFileKv } from './kv.mjs';
 import { resolveClientIp, trustProxyHops, trustCloudflareHeader } from './client-ip.mjs';
 import { createAccounts } from './accounts.mjs';
@@ -65,7 +66,16 @@ const kv = (() => {
 })();
 const kvDurable = kv.durable || !HOSTED;
 const accountsOn = kvDurable;
-const accounts = accountsOn ? createAccounts({ kv, mail: sendMail }) : null;
+const accountData = createAccountData({ kv, legacyStore: syncStore,
+  store: createSyncStore(DATA_DIR, { prefix: 'bts:user-data:', directory: 'user-data' }) });
+const accounts = accountsOn ? createAccounts({ kv, mail: sendMail, onDelete: async (user, password) => {
+  const code = await openLegacySync(user.syncEnc, password);
+  if (code) {
+    const migrated = await accountData.migrate(user.id, code);
+    if (!migrated.ok && ![404, 409].includes(migrated.status)) throw new Error('旧数据清理暂未完成，请重试注销');
+  }
+  await accountData.remove(user.id);
+} }) : null;
 
 /* 语料 / 内置库 / 课文匹配拆到 server/corpus.mjs（原先这一节占 118 行，
    与 HTTP、任务、限流无关）。导出名保持不变，下面的调用点一行都不用改。 */
@@ -1427,6 +1437,7 @@ const server = http.createServer(async (req, res) => {
 
   const url = new URL(req.url, 'http://localhost');
   const p = url.pathname;
+  if (p.startsWith('/api/auth/') || p.startsWith('/api/account-data')) res.setHeader('Cache-Control', 'no-store');
 
   try {
     /* ---------- 前端错误上报（自建，不引第三方 SDK）----------
@@ -1463,76 +1474,34 @@ const server = http.createServer(async (req, res) => {
       return json(res, 429, { error: '请求过于频繁，请稍后再试（每分钟上限 ' + RATE_MAX + ' 次）' });
     }
 
-    /* ---------- 云同步：同步码 → 一份快照 JSON ----------
-     * 同步码本身就是凭证（128 位随机），拿到码的人可以读写这份数据。
-     * 推送用乐观锁（baseVersion），版本对不上就返回 409 + 云端最新数据，由前端合并后重试。 */
-    if (p === '/api/sync/info') {
-      return json(res, 200, { ok: true, store: syncStore.kind, durable: syncDurable, hosted: HOSTED });
+    /* 学习数据只接受登录会话，userId 由服务端决定，客户端不能指定别人。 */
+    if (p === '/api/account-data' || p === '/api/account-data/migrate') {
+      if (!accounts) return json(res, 503, { error: '账号功能暂不可用' });
+      const token = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+      const identity = await accounts.me(token);
+      if (!identity.ok) return json(res, 401, { error: '登录已过期，请重新登录' });
+      let result;
+      if (p.endsWith('/migrate') && req.method === 'POST') {
+        if (rateLimited(req, 'data-migrate', 15)) return json(res, 429, { error: '导入过于频繁，请稍后重试' });
+        const body = await readBody(req, 4096);
+        result = await accountData.migrate(identity.user.id, String(body.code || '').trim().toLowerCase());
+        // 没有密码时无法核对旧保险箱是否指向本次导入的码；保留它到下一次登录自动核对。
+        if (result.ok && !identity.sync) await accounts.completeMigration(token);
+      } else if (p === '/api/account-data' && req.method === 'GET') {
+        result = { ...await accountData.read(identity.user.id), legacyPending: Boolean(identity.sync) };
+      } else if (p === '/api/account-data' && req.method === 'POST') {
+        if (rateLimited(req, 'account-data', 60)) return json(res, 429, { error: '同步过于频繁，请稍后重试' });
+        result = await accountData.write(identity.user.id, await readBody(req, MAX_SNAPSHOT_BYTES + 256 * 1024));
+      } else return json(res, 405, { error: 'method not allowed' });
+      return json(res, result.status || 200, result);
     }
-    if (p === '/api/sync/new' && req.method === 'POST') {
-      if (rateLimited(req)) return json(res, 429, { error: '请求过于频繁，请稍后再试' });
-      const code = newSyncCode();
-      await syncStore.write(code, { version: 1, updatedAt: Date.now(), device: '', data: emptySnapshot() });
-      return json(res, 200, { ok: true, code, version: 1 });
+    // 旧快照保留供登录后认领，停止生成和使用同步码作为日常访问凭据。
+    if (p.startsWith('/api/sync/')) {
+      return json(res, 410, { error: '云同步已升级为账号存储，请登录账号迁移旧数据' });
     }
-    const syncMatch = p.match(/^\/api\/sync\/(.+)$/);
-    if (syncMatch) {
-      const code = String(syncMatch[1] || '').toLowerCase();
-      if (!isValidSyncCode(code)) return json(res, 400, { error: '同步码格式不正确（应为 32 位十六进制）' });
-      if (req.method === 'GET') {
-        const doc = await syncStore.read(code);
-        if (!doc) return json(res, 404, { error: '同步码不存在，请检查是否输错' });
-        return json(res, 200, { ok: true, version: doc.version, updatedAt: doc.updatedAt, data: doc.data });
-      }
-      if (req.method === 'POST') {
-        if (rateLimited(req)) return json(res, 429, { error: '同步过于频繁，请稍后再试' });
-        // 快照本身限 2MB，给 JSON 包装留点余量即可，不必解析 20MB 的 body
-        const body = await readBody(req, MAX_SNAPSHOT_BYTES + 256 * 1024);
-        const check = sanitizeSnapshot(body.data);
-        if (!check.ok) return json(res, 413, { error: check.error });
-        const data = check.data;
-        // 云端没有这串码时**直接建**，而不是 404 让客户端放弃。
-        //
-        // 实测踩到的场景：换过存储后端（或免费托管的临时磁盘被清）之后，老用户的码在云端就
-        // "不存在"了 —— 但他们本机数据完好，而且**每台设备用的都是同一串码**。
-        // 这时候回 404 等于把用户卡死：每台设备都推不上去也拉不下来，一直显示"云端找不到"。
-        // 让第一台推送的设备把槽位建起来，多设备就自动恢复了，码也不用换。
-        //
-        // 这样会不会把"打错码"也静默接受？不会 —— 手填新码时前端会先探一次（见 useExistingCode），
-        // 打错的码在输入那一刻就被拦下了。
-        if (check.dropped && (check.dropped.favorites || check.dropped.history)) {
-          console.warn('同步快照丢弃了超限条目:', JSON.stringify(check.dropped));
-        }
-        // 用**原子的**比较并写入，而不是「先读版本 → 判断 → 再写」。
-        //
-        // 后者两次调用之间隔着一次网络往返（几十毫秒），两台设备同时提交时都可能读到
-        // 同一个版本、都通过检查，然后后写的把先写的覆盖掉 —— **先写的那次更新永久丢失**，
-        // 而且两边都不会收到 409，前端的重试也就救不回来。
-        //
-        // 云端没有这串码时直接建（版本从 0 起）：换过存储后端（或免费托管的临时磁盘被清）
-        // 之后老用户的码在云端就"不存在"了，但他们本机数据完好、每台设备用的都是同一串码。
-        // 这时候回 404 等于把用户卡死。让第一台推送的设备把槽位建起来，多设备自动恢复。
-        // 打错的码不会因此被静默接受 —— 手填新码时前端会先探一次（见 useExistingCode）。
-        const baseVersion = Number(body.baseVersion);
-        const next = {
-          version: (Number.isFinite(baseVersion) ? baseVersion : 0) + 1,
-          updatedAt: Date.now(),
-          device: String(body.device || '').slice(0, 40),
-          data,
-        };
-        const cas = await syncStore.compareAndSwap(code, Number.isFinite(baseVersion) ? baseVersion : 0, next);
-        if (!cas.ok) {
-          const cur = cas.current || { version: 0, updatedAt: 0, data: emptySnapshot() };
-          return json(res, 409, { error: '云端已被其它设备更新', version: cur.version, updatedAt: cur.updatedAt, data: cur.data });
-        }
-        return json(res, 200, { ok: true, version: next.version, updatedAt: next.updatedAt });
-      }
-    }
-    /* ---------- 账号（可选：只有存储持久时才启用） ----------
-     * 账号只是"帮你记住同步码"的一层，不替代同步码 ——
-     * 同步码仍然是数据主键，出问题把账号层关掉就回到没有账号的状态。 */
     if (p === '/api/auth/config') {
-      return json(res, 200, { ok: true, enabled: accountsOn, store: kv.kind, durable: kvDurable });
+      return json(res, 200, { ok: true, enabled: accountsOn, store: kv.kind, durable: kvDurable,
+        recoveryEnabled: Boolean((process.env.SMTP_USER && process.env.SMTP_PASS) || process.env.SMTP_TEST_MODE === '1') });
     }
     if (p.startsWith('/api/auth/')) {
       if (!accounts) {
@@ -1543,7 +1512,7 @@ const server = http.createServer(async (req, res) => {
         });
       }
       const action = p.slice('/api/auth/'.length);
-      if (req.method !== 'POST' && req.method !== 'GET') return json(res, 405, { error: 'method not allowed' });
+      if (req.method !== (action === 'me' ? 'GET' : 'POST')) return json(res, 405, { error: 'method not allowed' });
       const token = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '');
       const ip = clientIp(req);
       const body = req.method === 'POST' ? await readBody(req, 64 * 1024) : {};
@@ -1561,7 +1530,7 @@ const server = http.createServer(async (req, res) => {
         logout: () => accounts.logout(token),
         'logout-all': () => accounts.logoutAll(token),
         me: () => accounts.me(token),
-        sync: () => accounts.setSync(token, body.sync),
+        sync: () => ({ ok: false, status: 410, error: '请使用账号数据迁移入口' }),
         'change-password': () => accounts.changePassword(token, body),
         'delete-account': () => accounts.deleteAccount(token, body),
         forgot: () => accounts.forgot({ email: body.email, ip }),
@@ -1569,9 +1538,36 @@ const server = http.createServer(async (req, res) => {
       }[action];
       if (!handlers) return json(res, 404, { error: 'unknown auth api' });
 
+      // 改密码前迁移旧保险箱，避免密码改变后旧凭据无法还原。
+      if (action === 'change-password') {
+        const before = await accounts.me(token);
+        if (before.ok && before.sync) {
+          const code = await openLegacySync(before.sync, String(body.oldPassword || ''));
+          if (!code) return json(res, 400, { error: '当前密码不正确或旧数据待恢复，请先完成旧数据迁移' });
+          const migrated = await accountData.migrate(before.user.id, code);
+          if (!migrated.ok && migrated.status !== 404) return json(res, migrated.status, migrated);
+          await accounts.completeMigration(token);
+        }
+      }
       const r = await handlers();
       if (!r.ok) return json(res, r.status || 400, { error: r.error });
-      const { status, ...rest } = r; // ok 由下面统一回 true，不需要透传
+      let legacyPending = Boolean(r.sync);
+      let migrationError = '';
+      if (r.sync && ['login', 'register', 'teacher-register'].includes(action)) {
+        const code = await openLegacySync(r.sync, String(body.password || ''));
+        if (code) {
+          try {
+            const migrated = await accountData.migrate(r.user.id, code);
+            if (migrated.ok || migrated.status === 404) {
+              await accounts.completeMigration(r.token); legacyPending = false;
+            } else migrationError = migrated.error;
+          } catch { migrationError = '旧数据迁移暂未完成，登录后可重试'; }
+        } else migrationError = '旧数据凭据暂不能解锁，请从旧设备或备份导入';
+      }
+      const { status, sync: legacyBox, ...rest } = r;
+      void legacyBox; // 旧保险箱仅由服务端迁移使用，不再发给客户端。
+      rest.legacyPending = legacyPending;
+      if (migrationError) rest.migrationError = migrationError;
       return json(res, status || 200, { ok: true, ...rest });
     }
     /* ---------- 教师班级与学生练习 ---------- */

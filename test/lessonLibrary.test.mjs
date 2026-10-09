@@ -61,6 +61,8 @@ const titles = (list, id = 'lib-1') => (list.find((x) => x.id === id)?.lessons |
   const merged = mergeLibraries(list, remote);
   check('同步合并：同一 lid 改名后不产生重复课文', merged.list[0].lessons.length === 2, `len=${merged.list[0].lessons.length}`);
   check('同步合并：改名生效', merged.list[0].lessons.find((l) => l.lid === 'lsn-x').title_cn === 'A-改名');
+  const settled = mergeLibraries(merged.list, remote).list;
+  check('重复同步不会不断刷新课文时间戳和触发自动同步回环', eq(mergeLibraries(settled, remote).list, settled));
 
   // 向后兼容：对方（老版本备份/老数据）没有 lid 时，仍按"标题+中文"判重
   const noLid = [{ id: 'lib-1', name: '测试库', createdAt: 1, lessons: [{ book: 'my', lesson: 1, title_cn: 'A-改名', title_en: '', chinese: '中文1', english: 'en1', source: '自建', createdAt: 1 }] }];

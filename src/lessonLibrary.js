@@ -2,7 +2,7 @@
  * 自建课文库。
  *
  * 用户可以把自己的作业（标题 + 中文提示 + 英文原文）存成"课文"，之后像内置语料一样
- * 从侧栏选出来反复练习。只存本机 localStorage，不需要后端。
+ * 从侧栏选出来反复练习。本模块读写本机缓存，登录后由账号同步层保存到服务端。
  *
  * 课文条目结构与 /api/lessons 返回的一致（book/lesson/title_en/title_cn/chinese/english），
  * 这样 selectLesson 的展示逻辑（lessonLabel 等）可以直接复用。
@@ -287,7 +287,7 @@ export function ensureSections(list) {
  * 「同课二次练习对比」、打星、计时归属就都断了。
  * @returns {{list: Array, lesson: object, replaced: boolean}}
  */
-export function upsertLesson(list, libId, entry) {
+export function upsertLesson(list, libId, entry, { preserveTimestamp = false } = {}) {
   const titleCn = String(entry.title_cn || '').trim() || '未命名作业';
   const chinese = String(entry.chinese || '').trim();
   const english = String(entry.english || '').trim();
@@ -306,8 +306,9 @@ export function upsertLesson(list, libId, entry) {
         lessons: lib.lessons.map((l) =>
           // lid 保持不变：同一条课文换个标题重存，练习历史仍然认得它
           l === dup ? { ...l, title_cn: titleCn, chinese, english: english || l.english,
+            ...(Object.prototype.hasOwnProperty.call(entry, 'title_en') ? { title_en: String(entry.title_en || '') } : {}),
             ...(Object.prototype.hasOwnProperty.call(entry, 'section') ? { section: String(entry.section || '').trim() } : {}),
-            createdAt: Date.now() } : l,
+            createdAt: preserveTimestamp ? Math.max(Number(l.createdAt) || 0, Number(entry.createdAt) || 0) : Date.now() } : l,
         ),
       };
     }
@@ -322,7 +323,7 @@ export function upsertLesson(list, libId, entry) {
       english,
       section: String(entry.section || '').trim(),
       source: '自建',
-      createdAt: Date.now(),
+      createdAt: preserveTimestamp ? Number(entry.createdAt) || Date.now() : Date.now(),
     };
     hitLid = lesson.lid;
     return { ...lib, lessons: [...lib.lessons, lesson].sort((a, b) => a.lesson - b.lesson) };
@@ -371,7 +372,8 @@ export function mergeLibraries(current, incoming) {
         const incoming = !remoteOwnsGroups
           ? { ...lesson, section: old ? old.section : (sectionsOf(exists).includes(lesson.section) ? lesson.section : '') }
           : lesson;
-        const r = upsertLesson(list, clean.id, incoming);
+        // 同步不是用户编辑：不能生成新的时间戳，否则每次合并都触发下一次自动同步。
+        const r = upsertLesson(list, clean.id, incoming, { preserveTimestamp: true });
         list = r.list;
         if (!r.replaced) lessonsAdded += 1;
       }

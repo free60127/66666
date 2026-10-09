@@ -1,15 +1,14 @@
 /**
- * 云同步存储层。
+ * 学习数据快照存储层。
  *
- * 免费额度下没有数据库，这里用最省事的模型：
- *   「同步码（32 位 hex） → 一份 JSON 快照」
+ * 现行模型：userId → JSON 快照，由 account-data.mjs 校验登录身份。
+ * 旧同步码命名空间仅供一次性迁移和回滚备份。
  *
  * 两种驱动：
  *   1) Upstash Redis（REST API，零依赖，直接用 fetch）—— 生产用，数据持久
  *   2) 本地文件 data/sync/<code>.json —— 开发 / 自托管用
  *
- * 安全说明：同步码本身就是凭证，拿到码的人可以读写这份数据，
- * 所以码用 128 位随机数，不可猜；界面上也按"密码"对待（可随时换码）。
+ * 旧码是 128 位随机凭据；匿名读写接口已经停用。存储驱动本身不承担鉴权。
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -87,6 +86,7 @@ export function sanitizeSnapshot(raw) {
     const id = boundedString(lib.id, L.libraryIdChars + 1);
     if (!id || id.length > L.libraryIdChars) continue; // 没有可用 id 的库直接丢弃（无法合并）
     const lessonsRaw = Array.isArray(lib.lessons) ? lib.lessons : [];
+    if (Array.isArray(lib.sections) && lib.sections.length > 100) return { ok: false, error: '课文分组过多（上限 100）' };
     if (lessonsRaw.length > L.lessonsPerLibrary) {
       return { ok: false, error: `课文库「${boundedString(lib.name, 20)}」课文过多（上限 ${L.lessonsPerLibrary}）` };
     }
@@ -109,6 +109,7 @@ export function sanitizeSnapshot(raw) {
         lesson: Number(lesson.lesson) || 0,
         title_cn: boundedString(lesson.title_cn, L.lessonTitleChars),
         title_en: boundedString(lesson.title_en, L.lessonTitleChars),
+        section: boundedString(lesson.section, 80),
         chinese,
         english,
         source: boundedString(lesson.source || '自建', 20),
@@ -119,6 +120,8 @@ export function sanitizeSnapshot(raw) {
       id,
       name: boundedString(lib.name || '未命名库', L.libraryNameChars),
       createdAt: Number(lib.createdAt) || Date.now(),
+      sections: Array.isArray(lib.sections) ? [...new Set(lib.sections.map((s) => boundedString(s, 80)).filter(Boolean))].slice(0, 100) : null,
+      sectionsUpdatedAt: Number(lib.sectionsUpdatedAt) || 0,
       lessons,
     });
   }
@@ -244,6 +247,7 @@ export function createUpstashStore({ url, token, prefix = 'bts:sync:' }) {
     async write(code, doc) {
       await call(['SET', prefix + code, JSON.stringify(doc)]);
     },
+    async remove(code) { await call(['DEL', prefix + code]); },
     /**
      * 原子「版本对得上才写」。
      * @returns {{ok:true} | {ok:false, current: object|null}}
@@ -322,6 +326,7 @@ export function createFileStore(dir) {
     async write(code, doc) {
       writeAtomic(fileOf(code), JSON.stringify(doc));
     },
+    async remove(code) { try { fs.unlinkSync(fileOf(code)); } catch (e) { if (e.code !== 'ENOENT') throw e; } },
     /**
      * 原子「版本对得上才写」。
      * 方法体内**没有任何 await** —— Node 是单线程，同步读改写之间不会让出事件循环，
@@ -346,9 +351,9 @@ export function createFileStore(dir) {
  * 配了 UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN 就用 Upstash，否则退回本地文件。
  * @param {string} dataDir 本地文件驱动的数据根目录（调用方传 `data/`，可用 DATA_DIR 环境变量整体搬走）
  */
-export function createSyncStore(dataDir) {
+export function createSyncStore(dataDir, { prefix = 'bts:sync:', directory = 'sync' } = {}) {
   const url = String(process.env.UPSTASH_REDIS_REST_URL || '').trim();
   const token = String(process.env.UPSTASH_REDIS_REST_TOKEN || '').trim();
-  if (url && token) return createUpstashStore({ url, token });
-  return createFileStore(path.join(dataDir, 'sync'));
+  if (url && token) return createUpstashStore({ url, token, prefix });
+  return createFileStore(path.join(dataDir, directory));
 }
