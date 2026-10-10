@@ -632,7 +632,7 @@ function Studio() {
     direction: dir, view,
     title, chinese, draft, manualOriginal, generatedOriginal,
     mode, book, lessonId, myLibId, matchedLesson, lessonKey,
-    settings, polishLevel, streamResults, runJob, busy, cancelProgress, elapsedMsNow,
+    settings, polishLevel, streamResults, runJob, busy, cancelProgress, elapsedMsNow, initialLessonCancelledRef,
     genTokenRef, aliveRef,
     setView, setError, setHistoryOpen, setChinese,
     flashTip, setToast, runGenerateRef,

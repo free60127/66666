@@ -59,7 +59,7 @@ export function useGeneration({
   title, chinese, draft, manualOriginal, generatedOriginal,
   mode, book, lessonId, myLibId, matchedLesson, lessonKey,
   settings, polishLevel, streamResults = false, runJob, busy, cancelProgress, elapsedMsNow,
-  genTokenRef, aliveRef, direction, view,
+  genTokenRef, aliveRef, initialLessonCancelledRef, direction, view,
   setView, setError, setHistoryOpen, setChinese,
   flashTip, setToast, runGenerateRef,
 }) {
@@ -195,6 +195,7 @@ export function useGeneration({
   // 连点两条历史时，先发的慢请求后返回会把后点的那条覆盖掉 —— 用请求令牌丢弃过期结果
   const historyReqRef = useRef(0);
   const loadHistoryJob = async (jobId) => {
+    if (initialLessonCancelledRef) initialLessonCancelledRef.current = true;
     const reqId = (historyReqRef.current += 1);
     const myToken = (genTokenRef.current += 1);
     setStreaming(false); setStreamNote('');
@@ -281,9 +282,17 @@ export function useGeneration({
 
   // Refresh/reopen resumes the SAME job; no new model call or quota charge.
   useEffect(() => {
-    const m = window.location.hash.match(/^#job=([A-Za-z0-9-]{8,64})/);
-    const pending = !window.location.hash ? loadHistory().find((h) => h.status === 'pending') : null;
-    if (m || pending) void loadHistoryJob(m ? m[1] : pending.jobId);
+    const openLinkedJob = () => {
+      const m = window.location.hash.match(/^#job=([A-Za-z0-9-]{8,64})/);
+      if (m) void loadHistoryJob(m[1]);
+    };
+    if (window.location.hash) openLinkedJob();
+    else {
+      const pending = loadHistory().find((h) => h.status === 'pending');
+      if (pending) void loadHistoryJob(pending.jobId);
+    }
+    window.addEventListener('hashchange', openLinkedJob);
+    return () => window.removeEventListener('hashchange', openLinkedJob);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 只在首屏跑一次（与迁移前一致）
   }, []);
 

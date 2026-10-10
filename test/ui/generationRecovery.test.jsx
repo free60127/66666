@@ -76,4 +76,15 @@ describe('generation recovery', () => {
     expect(loadHistory()[0].status).toBe('error');
     expect(analyze).not.toHaveBeenCalled();
   });
+  it('opens a shared job when only the fragment changes in an already open page', async () => {
+    getAnalyzeJob.mockResolvedValue({ job: { status: 'done', data: complete } });
+    const { result } = renderHook(() => useHarness());
+    act(() => {
+      window.history.replaceState(null, '', '#job=another-shared-job');
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
+    });
+    await waitFor(() => expect(result.current.currentJobId).toBe('another-shared-job'));
+    expect(result.current.view).toBe('result');
+    expect(analyze).not.toHaveBeenCalled();
+  });
 });
