@@ -1,0 +1,44 @@
+[
+  {
+    "id": "easy", "level": "高考英语", "title": "回家路上的小事",
+    "source": "Leo used to walk to school, but now he takes the bus. On Monday, he lent his umbrella to Nina. She promised to return it the following Friday. On the way home, Leo bought a little bread for his grandmother. She thanked him and said he need not buy more that week.",
+    "draft": "利奥现在习惯步行上学，但现在坐公交车。周一，他向妮娜借了一把伞。她答应在接下来的周五还伞。回家路上，利奥给奶奶买了一个小面包。奶奶向他道谢，并说他那周禁止再买面包。",
+    "corrected": "利奥过去步行上学，如今改坐公交车。周一，他把伞借给了妮娜。她答应在接下来的周五归还。回家途中，利奥给奶奶买了点面包。奶奶向他道谢，说这周不用再买了。",
+    "errors": [
+      { "id": "habit", "wrong": "现在习惯步行上学", "meaning": "used to 表过去习惯，不是现在习惯" },
+      { "id": "lend", "wrong": "向妮娜借了一把伞", "meaning": "lent to 表借出给妮娜，不是借入" },
+      { "id": "quantity", "wrong": "一个小面包", "meaning": "a little bread 是少量面包，不指尺寸或一个" },
+      { "id": "permission", "wrong": "禁止再买面包", "meaning": "need not 是不需要，不是禁止" }
+    ]
+  },
+  {
+    "id": "medium", "level": "四六级", "title": "申请须知与会议通知",
+    "source": "Applications must arrive no later than Friday. Applicants need not enclose a photograph, but must not omit contact details. The committee can approve a proposal without funding it. The plan is anything but cheap. The secretary said she would email the decision after the meeting.",
+    "draft": "申请必须从周五开始送达。申请人不得附上照片，但可以不写联系方式。委员会只要批准方案就会自动提供资金。这个计划非常便宜。秘书说，会议后会发邮件通知决定。",
+    "corrected": "申请最迟须在周五送达。申请人不用附照片，但不得漏填联系方式。委员会可以批准方案而不提供资金。这个计划绝不便宜。秘书说，会议后会发邮件通知决定。",
+    "errors": [
+      { "id": "deadline", "wrong": "从周五开始", "meaning": "no later than Friday 是最迟周五，允许更早" },
+      { "id": "no-obligation", "wrong": "不得附上照片", "meaning": "need not 是没有义务，不禁止附照片" },
+      { "id": "prohibition", "wrong": "可以不写联系方式", "meaning": "must not omit 是不得漏填" },
+      { "id": "funding", "wrong": "只要批准方案就会自动提供资金", "meaning": "批准不必然提供资金" },
+      { "id": "idiom", "wrong": "非常便宜", "meaning": "anything but cheap 是绝不便宜" }
+    ],
+    "acceptable": ["过去转述 would 可译会，不要求未来某时肯定已发生", "after 在此保留先后，不应增添因果"]
+  },
+  {
+    "id": "hard", "level": "专八", "title": "教育项目评估的推断边界",
+    "source": "Only schools whose applications were complete were considered for funding; being considered did not guarantee an award. The analysis adjusted for prior attainment, but this does not rule out selection bias. The authors found no convincing evidence that the programme harmed attendance, which is not equivalent to showing that it improved attendance. A reduction in uncertainty, rather than an increase in the estimated benefit, explains why the result reached the stated statistical threshold. Had the comparison group been selected differently, the conclusion might have changed; the report does not establish whether it would have changed.",
+    "draft": "申请材料齐全的学校都一定会进入资助评审；进入评审就能获得资助。分析提高了学生以前的成绩，而且已经排除了选择偏差。作者证实项目完全不会降低出勤率，因此证明项目提高了出勤率。结果达到所述统计阈值，是因为估算的收益增大了，而不是不确定性降低了。如果比较组当时换一种选法，结论一定改变；报告已经证实这种改变必然发生。",
+    "corrected": "只有申请材料齐全的学校才被纳入资助评审，但进入评审并不保证获得资助。分析对学生此前的成绩作了统计调整，不过这并不能排除选择偏差。作者没有发现令人信服的证据表明项目降低了出勤率，但这不等于证明项目提高了出勤率。结果达到所述统计阈值，是因为不确定性降低了，而非估算的收益增大了。如果比较组当时换一种选法，结论可能会改变；报告并未确定结论是否真的会改变。",
+    "errors": [
+      { "id": "necessary", "wrong": "材料齐全的学校都一定会进入", "meaning": "材料齐全是进入评审的必要条件，不保证都进入" },
+      { "id": "award", "wrong": "进入评审就能获得资助", "meaning": "评审不保证获得资助" },
+      { "id": "adjustment", "wrong": "提高了学生以前的成绩", "meaning": "adjusted for 是统计上控制，不是改写历史成绩" },
+      { "id": "bias", "wrong": "已经排除了选择偏差", "meaning": "does not rule out 表不能排除" },
+      { "id": "absence", "wrong": "证实项目完全不会降低出勤率", "meaning": "没找到令人信服的危害证据不等于证明完全无害" },
+      { "id": "benefit", "wrong": "因此证明项目提高了出勤率", "meaning": "不能据没有危害证据证明有益" },
+      { "id": "threshold", "wrong": "因为估算的收益增大了", "meaning": "统计阈值由不确定性降低而非估算收益增大解释" },
+      { "id": "counterfactual", "wrong": "结论一定改变", "meaning": "might have changed 是可能，不是必然；报告未确定是否会变" }
+    ]
+  }
+]

@@ -56,6 +56,26 @@ assert.equal(overlapping.sentences[0].findings.length, 1, 'review cannot add the
 assert.equal(overlapping.translationReview.added, 0);
 const safeShape = applyEn2cnReview(data, { ...review, edits: [{ findingIndex: 1, finding: { ...numeric, synonyms: 'wrong shape', examples: { invalid: true } } }] });
 assert.equal(safeShape.sentences[0].findings[0].synonyms, undefined, 'review cannot inject malformed learning-card fields');
+// Real-model regression: whole-sentence completeness charges repeated two
+// understanding errors, causing otherwise valid scoring to be discarded.
+const pair = { direction: 'en2cn', chinese: 'Only members qualify; approval does not guarantee funding.',
+  draft: '会员都一定合格；批准就保证得到资助。', sentences: [{ findings: [
+    { category: '误译', level: 'error', from: '会员都一定合格', sourceQuote: 'Only members qualify', primaryDimension: '理解准确' },
+    { category: '误译', level: 'error', from: '批准就保证得到资助', sourceQuote: 'approval does not guarantee funding', primaryDimension: '理解准确' },
+  ] }] };
+pair.overall = { score: 12, scoreBreakdown: EN2CN_DIMENSIONS.map((label) => ({ label, max: EN2CN_MAX[label], score: 0,
+  deductions: label === '理解准确' ? pair.sentences[0].findings.map((f) => ({ sourceQuote: f.sourceQuote, from: f.from, points: 5 }))
+    : label === '完整性' ? [{ sourceQuote: pair.chinese, from: pair.draft, points: 8 }] : [] })) };
+const bounded = reconcileEn2cnOverall(pair);
+assert.equal(bounded.score, 90, 'remove evidenced whole-sentence double charges and recompute arithmetic');
+assert.deepEqual(en2cnScoreProblems({ ...pair, overall: bounded }), []);
+assert.deepEqual(bounded.scoreBreakdown[4].deductions, []);
+const unknownCharge = structuredClone(pair);
+unknownCharge.overall.scoreBreakdown[4].deductions[0].sourceQuote = 'Invented source';
+assert.deepEqual(reconcileEn2cnOverall(unknownCharge), unknownCharge.overall, 'unknown citations still need model repair');
+const missingCharge = structuredClone(pair);
+missingCharge.overall.scoreBreakdown[0].deductions.pop();
+assert.deepEqual(reconcileEn2cnOverall(missingCharge), missingCharge.overall, 'removing duplicates cannot conceal an unscored real error');
 for (const source of [
   'The decision, which the committee announced, worried researchers who work abroad.',
   'The proposal was rejected after questions about feasibility were raised.',
@@ -63,6 +83,8 @@ for (const source of [
   'The town changed its rules. This prompted protests.',
   'The rapid growth of distance courses has made education accessible.',
   'The policy was designed to reduce emissions.',
+  'Leo bought a little bread.',
+  'A few people attended.',
 ]) {
   const task = { direction: 'en2cn', chinese: source, draft: '成立的中文译法。', sentences: [{ draft: '成立的中文译法。', findings: [] }] };
   assert.ok(needsEn2cnReview(task), 'structure/stance risks must not depend on first-pass detection: ' + source);

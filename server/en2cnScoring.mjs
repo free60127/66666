@@ -11,6 +11,17 @@ function deductionFinding(findings, deduction) {
   return byDraft.length === 1 ? byDraft[0] : null;
 }
 
+/** A whole-sentence charge may repeat clause errors in another dimension. */
+function redundantCrossDimensionSpan(data, findings, deduction, label) {
+  const source = deduction.sourceQuote;
+  const draft = deduction.from;
+  if (typeof source !== 'string' || !source || typeof draft !== 'string' || !draft ||
+      !String(data.chinese || '').includes(source) || !String(data.draft || '').includes(draft)) return false;
+  const covered = findings.filter((f) => f.level === 'error' && f.sourceQuote && f.from &&
+    source.includes(f.sourceQuote) && draft.includes(f.from));
+  return covered.length > 0 && covered.every((f) => f.primaryDimension && f.primaryDimension !== label);
+}
+
 /** A narrow source span cannot justify spending most of the completeness budget. */
 function localCompletenessPenalty(data, finding, deduction) {
   const words = (text) => (String(text || '').match(/[A-Za-z]+(?:['’-][A-Za-z]+)*/g) || []).length;
@@ -85,7 +96,12 @@ export function reconcileEn2cnOverall(data) {
     for (const d of row.deductions) {
       if (!d || typeof d !== 'object') return overall;
       const f = deductionFinding(findings, d);
-      if (!f) return overall;
+      if (!f) {
+        // Drop only evidenced repetitions. Unknown citations still require repair,
+        // and the final validator still requires every real error to be charged.
+        if (redundantCrossDimensionSpan(data, findings, d, label)) continue;
+        return overall;
+      }
       if (f.level === 'improve' || f.level === 'study' || (f.primaryDimension && f.primaryDimension !== label)) continue;
       const i = findings.indexOf(f);
       if (retained.has(i)) continue;
@@ -111,6 +127,8 @@ export const EN2CN_SCORE_EVIDENCE_RULES = `
 先完成 sentences，再输出 overall，避免先评分后凑错误。overall.scoreBreakdown 每一项新增 deductions 数组，每条为 {"sourceQuote":"对应finding的英文原文引用","from":"对应finding的初稿片段","points":2}，sourceQuote/from 必须逐字照抄所对应的 error finding 字段，不用易错的数组编号作为唯一依据。
 英译汉的满分权重为理解准确40、表达地道15、语体得当10、流畅度10、完整性25，总计100。信息准确和完整共占65分，避免严重误译只扣20分而其余通顺就获得高分。没有真实错误的分项 deductions=[]、得该项满分，只有可选建议时不得凭感觉扣分。
 扣分严重程度结合影响范围判断，不按错误数量机械计分；同一条 finding、同一处原文信息只能归一个分项且扣一次，合并重复错误。每项 score=max-本项扣分合计，总分为五项之和。
+每项扣分合计不得超过该项满分，必须在该项预算内评估全部错误；不能负分，也不能为了压低总分把理解错误改作表达、语体、流畅度或完整性再扣一次。逐句只有理解准确error时，其余四项不得另造整句扣分；完整性必须引用独立的漏译/增译finding，不能拿误译整句充当遗漏。返回前重新求和，不照抄旧分数。
+英译汉以本扣分账本及独立维度规则为准，不为符合通用总分分档而编造额外扣分。理解准确严重失分时，总评必须明确指出核心信息失真；总分仍是五项相加的学习参考，不用总分达到60来宣称及格或已准确完成翻译任务。
 完整性依据全文缺失的信息占比及重要性判断；漏掉一个普通分句不能视为大部分全文缺失，不得为把总分压进某档而把大部分完整性分扣在一个局部漏译上。对照全文中已准确保留的事实，按实际影响范围分配扣分。
 局部漏译或无依据增译（对应原文不足全文三分之一）单条完整性扣分不得超过8分，通常1–3分为局部细节、4–6分为重要信息、7–8分为严重局部影响；这是复核上限，不是每条默认扣8分。大范围缺失可更高，但 sourceQuote 必须完整覆盖缺失的原文范围，不能拿一个词当成整段缺失的证据。已表达但译反的事实只能算理解错误，不得在完整性点评中再次宣称这些内容“漏掉了”。
 中文可用被字句、合理指代、省略可推知主语、拆分或合并句子；句号改分号、不是改并非、同义词替换等正常异译属于可选建议。除非有独立语义/语体错误，不得扣分。`;

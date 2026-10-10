@@ -2,7 +2,7 @@ import { EN2CN_DIMENSIONS, EN2CN_SCORE_EVIDENCE_RULES, normalizeEn2cnOverall } f
 import { EN2CN_TRANSFER_RULES } from './en2cnPrinciples.mjs';
 
 export function needsEn2cnReview(data) {
-  const risk = /\b(?:not|no|none|neither|unless|only|less|fewer|percent|percentage|might|may|could|would|had|without|rather|except)\b|\d/i;
+  const risk = /\b(?:not|no|none|neither|unless|only|less|fewer|little|few|percent|percentage|might|may|could|would|had|without|rather|except)\b|\d/i;
   const source = String(data?.chinese || '');
   // Route structural/stance risks even when the first pass reports no errors.
   const structure = /\b(?:who|whom|whose|which|after|before|until|despite|though|although|suggest\w*|indicat\w*|demonstrat\w*|prov\w*|designed|intended|requires?)\b|\b(?:has|have)\s+(?:\w+\s+)?made\b|\b(?:was|were|is|are|been)\s+(?:\w+\s+)?\w+(?:ed|en)\b|(?:[.!?]\s+)(?:This|These|That|It|They)\b/i;
@@ -17,6 +17,7 @@ export const EN2CN_REVIEW_PROMPT = `你是英译汉批改的独立语义复核�
 重点逐项核对数字/单位/百分比与百分点、否定范围、必要充分条件、比较方向、施事与指代、时间、情态和证据强度。源文和译文双向检查：原文的每个实质信息是否已表达，以及译稿的每个事实是否有原文依据，尤其不要漏掉译稿末尾新增的承诺。
 百分比与百分点、相对降幅与降至某值是不同数量，不是可选润色；改变数值口径应为error。not all表示并非全部，至少一个不是，不保证另有一些是；也不能把它强化成一个都不是。仅与原文不矛盾不等于忠实传达，擅自增加肯定或否定、增强确定性也需指出。未证明A不等于证明非A，未显著不等于零效应，不支持取消不等于赞成继续。
 必须纠正第一轮解释中的不当推导；但不要把合法中文省略、问句正反表达、同义词、拆合句视为错误。不仅要判断level，解释本身也不得额外承诺原文没有的事实。修正后的to必须忠实自然，代入上下文后仍成立。
+真实错误不能连带否定同一片段中的合理译法。例如 adjusted for prior attainment 译成“提高了学生以前的成绩”，错误是把统计调整译成提高；不能因为这个错误就附带宣称“学生的成绩”必然是无依据增译。原文未明确归属，学生既往学业水平是合理语境解释，单独出现时不判error，混在真实error中时也不能在explanation中另列为错误。优先将from/to缩到真正需要修改的动作或关系，保持解释一致；中性的AI对照不意味着学生必须使用同样省略归属的措辞。
 只输出JSON，先检查对照译文，再处理学生finding：
 {"ai":"经核对的完整中文对照译文；输入ai正确则原样保留，有误则修正","sentenceTranslations":[{"sentenceIndex":1,"ai":"经核对的该源句中文对照译文"}],"edits":[{"findingIndex":1,"finding":{"category":"误译","level":"error","from":"现有初稿片段","to":"正确中文","explanation":"基于原文的准确说明","sourceQuote":"英文原文逐字引用","primaryDimension":"理解准确"}}],"additions":[{"sentenceIndex":1,"finding":同上}],"overall":完整评分对象或null}
 ai和sentenceTranslations独立于edits，输入有ai时总是返回完整ai和各源句的sentenceTranslations；即使edits为空也不能跳过此项。输入无ai时可以省略。只纠正实际误读，不做同义改写。
