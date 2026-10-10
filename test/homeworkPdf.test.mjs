@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { unzipSync, strFromU8 } from 'fflate';
-import { PDFDocument } from 'pdf-lib';
+import { PDFDocument, PDFName, decodePDFRawStream } from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
-import { buildHomeworkArchive } from '../src/homeworkPdf.js';
+import { buildHomeworkArchive, createHomeworkPdf } from '../src/homeworkPdf.js';
+import { reportPdfModel } from '../src/reportPdfLayout.js';
 const fontBytes = fs.readFileSync(new URL('../public/fonts/ReportSans-Regular.ttf', import.meta.url));
 const font = fontkit.create(fontBytes);
 for (const ch of '回译ɜʊːɪˌʌəɑɔʃʒθðŋ') assert.ok(font.hasGlyphForCodePoint(ch.codePointAt(0)), `PDF 字体必须覆盖 ${ch}`);
@@ -30,4 +31,33 @@ await assert.rejects(buildHomeworkArchive({ ...data, reports: [] }, { fontBytes 
 await assert.rejects(buildHomeworkArchive({ ...data, reports: [data.reports[2]] }, { fontBytes }), /没有可导出/);
 let cancelled = false;
 await assert.rejects(buildHomeworkArchive(data, { fontBytes, cancelled: () => cancelled, onProgress: () => { cancelled = true; } }), /已取消导出/);
+
+// A short report uses short TrueType loca offsets. Its searchable text can
+// look correct even when the embedded glyph outlines are corrupt/invisible.
+const shortReport = { result: { direction: 'en2cn', chinese: 'A little bread.', draft: '一个小面包。', ai: '一点面包。',
+  sentences: [{ cn: 'A little bread.', draft: '一个小面包。', ai: '一点面包。', findings: [
+    { category: '数量', level: 'error', from: '一个小面包', to: '一点面包', explanation: '数量不是尺寸。',
+      synonyms: [{ word: 'bread', meaning: '面包', phonetic: '/bred/' }, { word: 'loaf', meaning: '一条面包' }] },
+    { category: '语域', level: 'improve', from: '面包', to: '粮食', explanation: '可选表达' },
+    { category: '漏译', level: 'error', operation: 'insert', from: '面包', to: '新鲜的', explanation: '补充信息' },
+  ] }] } };
+const model = reportPdfModel(shortReport, '', '短作业');
+const sentenceCard = model.find((n) => n.kind === 'box' && n.continuation === '句群 01');
+const draftRuns = sentenceCard.children.find((n) => n.kind === 'row').runs;
+assert.equal(draftRuns.filter((r) => r.highlight).length, 1, '只标真实错误，不标可选提升或插入锚点');
+assert.equal(draftRuns.find((r) => r.highlight).text, '一个小面包');
+const synonymCards = sentenceCard.children.find((n) => n.kind === 'box').children.filter((n) => n.kind === 'box');
+assert.equal(synonymCards.length, 2, '每个近义词应有自己的卡片');
+assert.ok(synonymCards[0].children[0].runs.some((r) => r.text.includes('/bred/')));
+const shortPdf = await PDFDocument.load(await createHomeworkPdf(shortReport, '', '短作业', fontBytes));
+for (const page of shortPdf.getPages()) {
+  const resources = page.node.Resources().lookup(PDFName.of('Font'));
+  const embedded = resources.lookup(resources.keys()[0]).lookup(PDFName.of('DescendantFonts')).lookup(0)
+    .lookup(PDFName.of('FontDescriptor')).lookup(PDFName.of('FontFile2'));
+  const subset = fontkit.create(decodePDFRawStream(embedded).decode());
+  let visible = 0;
+  for (let i = 1; i < subset.numGlyphs; i++) if (subset.getGlyph(i).path.commands.length) visible++;
+  assert.ok(visible > subset.numGlyphs * 0.9, '短 PDF 的字形必须可渲染，不能只有可提取的文字层');
+}
 console.log('✅ PDF 批量打包：中文命名、零分、重复文件、多页、失败名单、全失败和取消测试通过');
+console.log('✅ PDF 卡片层次、错误标记、音标和短文档字形渲染回归测试通过');

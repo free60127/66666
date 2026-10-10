@@ -15,3 +15,8 @@ NotoSans-OFL.txt). This is a modified font, not an official Noto release.
 
 Loaded from this site's own origin only when a user exports PDFs. Each PDF
 embeds a subset of the font, retaining searchable Chinese and English text.
+
+After merging, run `python tools/normalize-report-font.py` (fontTools 4.66.1).
+This pads glyph records to two-byte boundaries. Without it, fontkit's short
+loca subsets can truncate odd offsets, causing short reports to have invisible
+glyphs in PDF readers even though their searchable text remains present.
