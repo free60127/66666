@@ -6,10 +6,9 @@
  *
  * 判分规则在 src/quizGrade.js，作答与批改状态在 hooks/useQuizGrade.js —— 这里只负责画。
  */import React from 'react';
-import { ArrowLeft, CheckCheck, ClipboardCopy, LoaderCircle, RotateCcw, Star } from 'lucide-react';
+import { ArrowLeft, CheckCheck, ClipboardCopy, Download, LoaderCircle, RotateCcw, Star } from 'lucide-react';
 import { VERDICT_LABEL, answerLetter, gradingMode, optionLabel, optionText } from '../../quizGrade.js';
 import { useQuizGrade } from '../../hooks/useQuizGrade.js';
-import PdfExportButton from '../PdfExportButton.jsx';
 import { answerLanguage } from '../../learningLanguage.js';
 
 const BY_LABEL = { local: '本地判定', ai: 'AI 批改', self: '自评' };
@@ -55,7 +54,7 @@ function QuizSheetImpl({ quiz, settings, showAnswers, onToggleAnswers, onBack, o
         <button className="ghost-btn" onClick={onBackToFav}><Star size={15} />收藏夹</button>
         <button className="ghost-btn" onClick={onToggleAnswers}>{showAnswers ? '隐藏答案' : '显示答案'}</button>
         <button className="ghost-btn" onClick={onCopy}><ClipboardCopy size={15} />复制题目</button>
-        <PdfExportButton quiz={quiz} />
+        <button className="ghost-btn" onClick={() => window.print()}><Download size={15} />导出 PDF</button>
         {tip ? <span className="share-tip">{tip}</span> : null}
       </div>
       <article className="sheet">

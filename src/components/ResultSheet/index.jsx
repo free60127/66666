@@ -7,8 +7,7 @@
  */import React from 'react';
 import { formatDuration } from '../../format.js'
 import { directionText } from '../../direction.js';
-import { AlertTriangle, ArrowLeft, CheckCircle2, ChevronDown, ClipboardCopy, Link2, LoaderCircle } from 'lucide-react';
-import PdfExportButton from '../PdfExportButton.jsx';
+import { AlertTriangle, ArrowLeft, CheckCircle2, ChevronDown, ClipboardCopy, Download, Link2, LoaderCircle } from 'lucide-react';
 import { DraftText } from './bits.jsx';
 import { ErrorProfile, Section, SentenceCard, VocabularyNotes, IdiomHighlights, SummaryBlock } from './cards.jsx';
 import { PracticeCompare } from './Compare.jsx';
@@ -95,7 +94,7 @@ function ResultSheetImpl({ result, onBack, onCopy, onShare, shareTip, fav, histo
         <button className="ghost-btn" onClick={onBack}><ArrowLeft size={15} />返回编辑</button>
         <button className="ghost-btn" onClick={onCopy}><ClipboardCopy size={15} />复制全部</button>
         <button className="ghost-btn" onClick={onShare}><Link2 size={15} />复制分享链接</button>
-        <PdfExportButton result={result} disabled={Boolean(streaming?.active || result.generating)} />
+        <button className="ghost-btn" onClick={() => window.print()}><Download size={15} />导出 PDF</button>
         {shareTip ? <span className="share-tip" role="status" aria-live="polite">{shareTip}</span> : null}
       </div>
       <p className="muted small score-reference-note">评分用于学习参考，不等同于考试成绩。真正的错漏与可选润色分别标注，优先修正影响含义的错误。</p>
