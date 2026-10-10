@@ -27,8 +27,15 @@ const mock = http.createServer(async (req, res) => {
   requests.push(body);
   const system = body.messages[0].content;
   let content;
-  if (system.includes('重做有证据的整体评价')) {
+  if (system.includes('独立语义复核员')) {
+    assert.match(body.messages[1].content, /Many residents welcomed the plan/);
+    content = { edits: [], additions: [], overall: null };
+    if (mode === 'semantic') content = { edits: [], additions: [{ sentenceIndex: 1, finding: {
+      ...findings[1], explanation: '原文的居民欢迎信息尚未译出。',
+    } }], overall: overall() };
+  } else if (system.includes('重做有证据的整体评价')) {
     content = mode === 'failed-review' ? { score: 58 } : overall();
+    if (mode === 'repair-no-citation') content.scoreBreakdown.forEach((row) => { row.deductions = row.deductions.map((d) => ({ sourceQuote: findings[d.findingIndex - 1].sourceQuote, from: findings[d.findingIndex - 1].from, points: d.points })); });
   } else if (system.includes('自测题作答')) {
     assert.match(body.messages[1].content, /中文（zh）/);
     content = { grades: [{ index: 0, verdict: 'right', comment: '中文译文意思准确。', better: '' }] };
@@ -39,6 +46,8 @@ const mock = http.createServer(async (req, res) => {
     assert.match(system, /扣分账本/);
     assert.doesNotMatch(body.messages[1].content, /5500|with 复合/);
     content = { title: '测试', chinese: 'wrong model echo', draft: 'wrong model echo', overall: mode === 'valid' ? overall() : { score: 58 }, sentences: [{ cn: source, draft, findings }] };
+    if (mode === 'semantic') content.sentences[0].findings = findings.slice(0, 1);
+    if (mode === 'repair-no-citation') content.sentences[0].findings = findings.map(({ sourceQuote: _quote, primaryDimension: _dimension, ...f }) => f);
   }
   res.writeHead(200, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify({ choices: [{ message: { content: JSON.stringify(content) } }] }));
@@ -68,15 +77,27 @@ try {
   const repaired = await submit('analyze', input);
   assert.equal(repaired.overall.score, 91);
   assert.equal(repaired.chinese, source); assert.equal(repaired.draft, draft);
-  assert.equal(requests.length, 2, 'invalid scoring receives exactly one review');
+  assert.equal(requests.length, 3, 'one semantic review and one scoring repair at most');
   assert.match(requests[1].messages[1].content, /Many residents welcomed the plan/);
   mode = 'valid';
   const valid = await submit('analyze', input);
-  assert.equal(valid.overall.score, 91); assert.equal(requests.length, 3, 'valid scoring avoids an extra model call');
+  assert.equal(valid.overall.score, 91); assert.equal(requests.length, 5, 'valid scoring skips scoring repair');
+  assert.equal(valid.translationReview.status, 'done');
   mode = 'failed-review';
   const failed = await submit('analyze', input);
   assert.equal(failed.overall.score, null); assert.equal(failed.sentences[0].findings.length, 2);
-  assert.equal(requests.length, 5, 'review is bounded even if invalid');
+  assert.equal(requests.length, 8, 'review is bounded even if invalid');
+  mode = 'repair-no-citation';
+  const recovered = await submit('analyze', { ...input, original: '' });
+  assert.equal(recovered.overall.score, 91, 'repair cites a unique unchanged draft fragment even without first-pass metadata');
+  assert.equal(recovered.original, '', 'free English tasks do not attach unrelated built-in references');
+  assert.equal(requests.length, 11, 'missing citation metadata gets one repair');
+  mode = 'semantic';
+  const semantic = await submit('analyze', input);
+  assert.equal(semantic.sentences[0].findings.length, 2, 'semantic review adds the missed source fact');
+  assert.equal(semantic.translationReview.added, 1);
+  assert.equal(semantic.overall.score, 91);
+  assert.equal(requests.length, 13, 'reviewed valid ledger does not need a third model call');
   const quiz = await submit('quiz', { points: ['[作答语言：中文]不到五分之一'], count: 1 });
   assert.equal(quiz.questions[0].answerLanguage, 'zh');
   const grade = await submit('quiz', { mode: 'grade', items: [{ ...quiz.questions[0], userAnswer: '使用的人不到五分之一。' }] });

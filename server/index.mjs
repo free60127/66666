@@ -1,5 +1,7 @@
 import { localOverall } from './gradingFallback.mjs';
 import { en2cnScoreProblems, EN2CN_SCORE_EVIDENCE_RULES, normalizeEn2cnOverall, reconcileEn2cnOverall } from './en2cnScoring.mjs';
+import { needsEn2cnReview, EN2CN_REVIEW_PROMPT, buildEn2cnReviewMessage, applyEn2cnReview } from './en2cnReview.mjs';
+import { normalizeEn2cnFeedback } from './en2cnFeedback.mjs';
 import { answerLanguage } from '../src/learningLanguage.js';
 import http from 'node:http';
 import fs from 'node:fs';
@@ -1140,6 +1142,19 @@ async function runAnalyzeJob(jobId, { title, chinese, draft, original, lesson, l
     }
     job.data = buildAnalyzeData({ parsed, dir, title, chinese, draft, original, level, lesson, lessonNo });
     if (dir === 'en2cn') job.data.overall = reconcileEn2cnOverall(job.data);
+    if (needsEn2cnReview(job.data)) {
+      try {
+        const reviewed = await callLLM({ baseUrl, model, apiKey, timeoutMs: 45000, messages: [
+          { role: 'system', content: EN2CN_REVIEW_PROMPT },
+          { role: 'user', content: buildEn2cnReviewMessage(job.data, en2cnScoreProblems(job.data)) },
+        ] });
+        job.data = applyEn2cnReview(job.data, parseJsonLoose(reviewed));
+        job.data.overall = reconcileEn2cnOverall(job.data);
+      } catch (e) {
+        job.data.translationReview = { status: 'unavailable' };
+        console.warn('[analyze/en2cn] 语义复核未完成，保留第一轮分析：' + (e && e.message));
+      }
+    }
     // 整体评价缺失（模型整块没写 / 只写了占位符）→ 先补一次小请求；仍失败时保留批改但不捏造数值分数。
     // 这两步都只影响"有没有分数和建议"，不改变任何逐句批改内容。
     // 只有在**有逐句批改可依据**时才补这一次请求：没有 findings 时既没有依据，
@@ -1157,6 +1172,7 @@ async function runAnalyzeJob(jobId, { title, chinese, draft, original, lesson, l
         console.warn('[analyze] 整体评价补救失败，保留分析但暂不评分：' + (e && e.message));
       }
     }
+    job.data = normalizeEn2cnFeedback(job.data);
     if (job.streamIncomplete) job.data.incomplete = true;
     job.status = 'done';
     job.meta = { book: lesson?.book || null, lessonId: lesson?.lesson || lessonNo, baseUrl, model };
@@ -1729,6 +1745,7 @@ const server = http.createServer(async (req, res) => {
         title: String(body.title || ''),
         chinese: String(body.chinese || ''),
         book: body.book,
+        direction: normalizeDirection(body.direction),
       });
       return json(res, 200, {
         match: m.match,
@@ -1978,7 +1995,7 @@ const server = http.createServer(async (req, res) => {
       const direction = normalizeDirection(body.direction);
       const userOriginal = String(body.original || '').trim();
       const lessonNo = body.lessonId != null ? Number(body.lessonId) : null;
-      const lesson = userOriginal ? null : resolveLesson({ book: body.book, lessonId: lessonNo, title: body.title, chinese });
+      const lesson = userOriginal ? null : resolveLesson({ book: body.book, lessonId: lessonNo, title: body.title, chinese, direction });
       const title = body.title || (lesson ? 'Lesson ' + lesson.lesson + ' · ' + (lesson.title_en || lesson.title_cn) : '自由回译训练');
       // 润色等级：小初 / 高考英语 / 四六级 / 考研·专四 / 专八
       const level = normalizeLevel(body.level);

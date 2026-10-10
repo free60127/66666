@@ -100,7 +100,7 @@ function titleBook(text) {
   if (!m) return null;
   return Number(m[1] || m[2] || m[3] || m[4]);
 }
-export function matchLesson({ title, chinese, book }) {
+export function matchLesson({ title, chinese, book, direction = 'cn2en' }) {
   const requestedBook = isValidBook(book) ? Number(book) : titleBook(title);
   const candidates = allLessons(requestedBook || null);
   const titleKey = compact(title);
@@ -109,13 +109,13 @@ export function matchLesson({ title, chinese, book }) {
   const scored = candidates.map((l) => {
     const titleEn = compact(l.title_en);
     const titleCn = compact(l.title_cn);
-    const sourceCn = compact(l.chinese);
+    const sourceCn = compact(direction === 'en2cn' ? l.english : l.chinese);
     let score = 0;
     let reason = '';
     if (requestedBook && l.book === requestedBook) score += 30;
     if (number != null && l.lesson === number) { score += 220; reason += '课号匹配;'; }
     if (titleKey && (titleKey === titleEn || titleKey === titleCn)) { score += 180; reason += '标题精确匹配;'; }
-    if (titleKey && (titleKey.includes(titleEn) || titleEn.includes(titleKey))) { score += 100; reason += '标题包含;'; }
+    if (titleKey && titleEn && (titleKey.includes(titleEn) || titleEn.includes(titleKey))) { score += 100; reason += '标题包含;'; }
     if (cnKey && sourceCn === cnKey) { score += 400; reason += '中文全文精确匹配;'; }
     if (cnKey && sourceCn) {
       let prefix = 0;
@@ -134,8 +134,10 @@ export function matchLesson({ title, chinese, book }) {
   if (second && second.score > 0 && best.score - second.score < Math.max(40, best.score * 0.15)) confidence = 'low';
   return { match: best.lesson, score: best.score, confidence, reason: best.reason };
 }
-export function resolveLesson({ book, lessonId, title, chinese }) {
+export function resolveLesson({ book, lessonId, title, chinese, direction }) {
   const n = Number(lessonId);
   if (Number.isFinite(n) && n > 0) return findLesson(isValidBook(book) ? Number(book) : 2, n);
-  return matchLesson({ title, chinese, book }).match;
+  const candidate = matchLesson({ title, chinese, book, direction });
+  // Suggestions from title/number alone must not silently attach a reference to a free task.
+  return candidate.confidence === 'high' && candidate.reason.includes('全文精确匹配') ? candidate.match : null;
 }

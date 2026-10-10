@@ -1,0 +1,78 @@
+[
+  {
+    "id": "r1", "level": "小初", "title": "A Saturday at the Library",
+    "source": "Last Saturday, Mia went to the town library with her younger brother. The library opened at nine, but they arrived ten minutes early. Mia borrowed two books about animals. Her brother did not borrow a book because he already had three at home. They helped a volunteer put chairs by the window. Before leaving, Mia asked whether children could join the reading club for free. The volunteer said yes and gave her a blue card.",
+    "draft": "上周日，米娅和弟弟去了镇上的图书馆。图书馆九点开门，他们提前十分钟到了。米娅借了三本关于动物的书。弟弟借了一本书，因为家里已经有三本。他们帮一位志愿者把椅子摆到窗边。临走前，米娅问孩子参加阅读俱乐部是否需要付费。志愿者说可以，并给了弟弟一张蓝色卡片。",
+    "corrected": "上周六，米娅和弟弟去了镇上的图书馆。图书馆九点开门，他们提前十分钟到了。米娅借了两本关于动物的书。弟弟没借书，因为家里已经有三本。他们帮一位志愿者把椅子摆到窗边。临走前，米娅问孩子能否免费参加阅读俱乐部。志愿者说可以，并给了她一张蓝色卡片。",
+    "errors": [
+      {"id":"r1-time","quote":"Last Saturday","wrong":"上周日","meaning":"上周六","type":"时间误译"},
+      {"id":"r1-number","quote":"two books","wrong":"三本关于动物的书","meaning":"两本书","type":"数字误译"},
+      {"id":"r1-negation","quote":"did not borrow a book","wrong":"弟弟借了一本书","meaning":"没有借书","type":"否定丢失"},
+      {"id":"r1-reference","quote":"gave her a blue card","wrong":"给了弟弟","meaning":"给米娅","type":"代词指代"}
+    ],
+    "acceptable": ["弟弟", "他们提前十分钟到了", "把椅子摆到窗边", "是否需要付费"]
+  },
+  {
+    "id": "r2", "level": "高考英语", "title": "The School Repair Workshop",
+    "source": "Our school will hold a repair workshop next month. Students may attend only if a parent signs the form. Unless it rains, the workshop will take place outdoors; if it rains, it will move to the hall rather than be cancelled. Not all the tools are new, but each has been checked. Last year, the number of broken chairs fell by 20 percent, from 50 to 40, after a similar event. The head teacher said that repairing things could save money as well as teach patience. Students are asked to bring gloves, not to buy any special equipment. Those who cannot stay for the whole afternoon may leave after the first activity.",
+    "draft": "下个月，学校将举办维修体验活动。学生参加后，家长才需在表格上签字。如果下雨，活动将在户外举行；雨天会改到礼堂，不会取消。工具都不是新的，但每件都检查过。去年举办类似活动后，损坏的椅子数量从50把降至40把，下降了20个百分点。校长说，修东西能省钱，但不能培养耐心。学校要求学生带手套，并购买专用设备。无法待满一下午的学生，参加完第一个活动就可以离开。",
+    "corrected": "下个月，学校将举办维修体验活动。学生须先获得家长签字才能参加。如果不下雨，活动将在户外举行；雨天会改到礼堂，不会取消。工具并非全是新的，但每件都检查过。去年举办类似活动后，损坏的椅子数量从50把降至40把，减少了20%。校长说，修东西既能省钱，也能培养耐心。学校要求学生带手套，无需购买专用设备。无法待满一下午的学生，参加完第一个活动就可以离开。",
+    "errors": [
+      {"id":"r2-condition","quote":"only if a parent signs the form","wrong":"学生参加后，家长才需","meaning":"家长签字是参加的必要条件","type":"条件关系"},
+      {"id":"r2-unless","quote":"Unless it rains","wrong":"如果下雨，活动将在户外举行","meaning":"不下雨才在户外","type":"条件反转"},
+      {"id":"r2-scope","quote":"Not all the tools are new","wrong":"工具都不是新的","meaning":"并非全部工具都是新的","type":"否定范围"},
+      {"id":"r2-percent","quote":"fell by 20 percent","wrong":"20个百分点","meaning":"相对降幅20%，不是百分点","type":"百分比与百分点"},
+      {"id":"r2-addition","quote":"as well as teach patience","wrong":"但不能培养耐心","meaning":"也能培养耐心","type":"并列逻辑"},
+      {"id":"r2-not","quote":"not to buy any special equipment","wrong":"并购买专用设备","meaning":"不必购买专用设备","type":"否定丢失"}
+    ],
+    "acceptable": ["维修体验活动", "雨天会改到礼堂，不会取消", "参加完第一个活动就可以离开"]
+  },
+  {
+    "id": "r3", "level": "四六级", "title": "A Bus Route Pilot",
+    "source": "A six-month pilot replaced the usual timetable on two bus routes with services arranged around shift changes at a local factory. Passenger numbers rose by 15 percent, while complaints fell from 40 a month to 30. The council said that the pilot had been funded by a one-off grant, not by higher fares. Although drivers welcomed the shorter waits between journeys, they warned that the new schedule left less time for breaks. The report did not claim that the pilot caused the increase in passengers: a nearby car park had closed during the same period. Residents who work at night were less likely to benefit than those on day shifts. No decision about a permanent change will be made until the cost review is complete. Printed timetables will remain available for people without smartphones.",
+    "draft": "一项为期六个月的试点调整了两条公交线路的通常时刻表，改为围绕当地一家工厂的换班时间安排班次。客流量增长了15%，投诉每月从40件降到30件。市议会说，试点经费由提高票价筹得。司机对行程之间更短的等候时间表示欢迎，并指出休息时间更多了。报告认定试点使客流增长，同期附近一处停车场已经关闭。夜班居民比白班居民更可能受益。费用审查完成前，将作出永久调整的决定。没有智能手机的乘客仍可领取纸质时刻表。新方案将为所有乘客提供免费乘车服务。",
+    "corrected": "一项为期六个月的试点调整了两条公交线路的通常时刻表，改为围绕当地一家工厂的换班时间安排班次。客流量增长了15%，投诉每月从40件降到30件。市议会说，试点经费来自一次性补助，并非提高票价。司机对行程之间更短的等候时间表示欢迎，但提醒大家，新时刻表给休息留下的时间更少了。报告并未认定试点造成了客流增长，因为同期附近一处停车场已经关闭。夜班居民不如白班居民容易受益。费用审查完成前，不会决定是否永久调整。没有智能手机的乘客仍可领取纸质时刻表。",
+    "errors": [
+      {"id":"r3-grant","quote":"funded by a one-off grant, not by higher fares","wrong":"由提高票价筹得","meaning":"一次性补助，不是涨票价","type":"资金来源反转"},
+      {"id":"r3-break","quote":"left less time for breaks","wrong":"休息时间更多了","meaning":"休息时间更少","type":"比较方向"},
+      {"id":"r3-cause","quote":"did not claim that the pilot caused the increase in passengers","wrong":"报告认定试点使客流增长","meaning":"未声称因果关系","type":"因果与证据强度"},
+      {"id":"r3-night","quote":"less likely to benefit than those on day shifts","wrong":"更可能受益","meaning":"夜班不如白班易受益","type":"比较关系"},
+      {"id":"r3-until","quote":"No decision about a permanent change will be made until","wrong":"费用审查完成前，将作出","meaning":"完成审查才会决定","type":"not until"},
+      {"id":"r3-added","quote":"Printed timetables will remain available","wrong":"新方案将为所有乘客提供免费乘车服务。","meaning":"全文没有免费乘车的承诺","type":"无依据增译"}
+    ],
+    "acceptable": ["围绕当地一家工厂的换班时间安排班次", "行程之间更短的等候时间", "领取纸质时刻表"]
+  },
+  {
+    "id": "r4", "level": "考研/专四", "title": "Reading a Health Study Carefully",
+    "source": "In a study of 800 adults, researchers found that people who reported walking to work slept longer on average than those who drove. This association remained after age and income were taken into account, but it does not establish that walking improves sleep. Participants chose their own means of travel, and people already sleeping well may have been more willing to walk. The authors acknowledged that sleep duration was self-reported rather than measured by a device. They also stressed that the results should not be extended to people working irregular night shifts, who were excluded from the sample. An earlier trial had found no statistically significant effect; that finding was not evidence that the effect was exactly zero. Had the researchers randomly assigned transport modes, a causal interpretation might have been more defensible. They recommended further trials, not an immediate change to clinical advice.",
+    "draft": "一项针对800名成年人的研究发现，自述步行上班者的平均睡眠时间长于开车上班者。把年龄和收入考虑进去后，这种联系仍然存在，因此可以确定步行改善睡眠。参与者的出行方式由研究者分配，睡得好的人也许本来就更愿意步行。作者承认睡眠时长由设备测得，而非自述。他们强调，该结果同样适用于作息不规律的夜班人群，这些人没有进入样本。早先试验未发现统计学上显著的影响，说明影响恰好为零。研究者已经随机分配了交通方式，所以因果解释是可靠的。他们建议立即修改临床建议，而非继续试验。",
+    "corrected": "一项针对800名成年人的研究发现，自述步行上班者的平均睡眠时间长于开车上班者。把年龄和收入考虑进去后，这种联系仍然存在，但这不足以证明步行改善睡眠。参与者自行选择出行方式，睡得好的人也许本来就更愿意步行。作者承认睡眠时长来自自述，并非设备测量。他们强调，不应把结果推广到作息不规律的夜班人群，因为这类人没有进入样本。早先试验未发现统计学上显著的影响，但这并不证明影响恰好为零。如果研究者当时随机分配出行方式，因果解释也许会更有说服力。他们建议继续试验，不应马上改变临床建议。",
+    "errors": [
+      {"id":"r4-association","quote":"does not establish that walking improves sleep","wrong":"因此可以确定步行改善睡眠","meaning":"关联不证明因果","type":"证据强度"},
+      {"id":"r4-selection","quote":"Participants chose their own means of travel","wrong":"由研究者分配","meaning":"参与者自行选择","type":"施事与选择偏差"},
+      {"id":"r4-measurement","quote":"self-reported rather than measured by a device","wrong":"由设备测得，而非自述","meaning":"自述而非设备测量","type":"rather than反转"},
+      {"id":"r4-generalize","quote":"should not be extended to people working irregular night shifts","wrong":"同样适用于","meaning":"不应推广到夜班人群","type":"适用范围"},
+      {"id":"r4-significance","quote":"not evidence that the effect was exactly zero","wrong":"说明影响恰好为零","meaning":"无统计显著性不等于证明零效应","type":"统计概念与否定"},
+      {"id":"r4-counterfactual","quote":"Had the researchers randomly assigned transport modes","wrong":"研究者已经随机分配了交通方式，所以因果解释是可靠的","meaning":"反事实假设和might均不能译成已发生且确定","type":"虚拟与情态"},
+      {"id":"r4-recommendation","quote":"further trials, not an immediate change to clinical advice","wrong":"立即修改临床建议，而非继续试验","meaning":"继续试验而非立即改变建议","type":"建议反转"}
+    ],
+    "acceptable": ["把年龄和收入考虑进去", "这种联系", "没有进入样本"]
+  },
+  {
+    "id": "r5", "level": "专八", "title": "A Flood Fund and Its Limits",
+    "source": "The committee's report, which was written before the last flood but published only after it, does not deny that the emergency fund prevented some losses. What it questions is whether those gains would have been smaller had the same money been spent on maintenance instead. The fund was intended to supplement, not replace, local provision; yet councils came to treat its renewal as a foregone conclusion. Only applicants whose losses could not reasonably have been insured were eligible, and approval did not exempt them from contributing to repairs. Officials described the scheme as temporary, a word residents heard as a promise that normal services would soon return rather than as a warning that support might end. The report's phrase 'a bridge, not a destination' refers to the fund, not to the rebuilt road. Its estimates exclude indirect costs, including the income lost while businesses were closed. The chair concluded that the evidence was insufficient to justify abolishing the fund, while declining to endorse its continuation in its present form. None of this settles who should bear the residual risk when an event is unlikely but its consequences are severe.",
+    "draft": "委员会的报告写于上次洪灾之后，洪灾之后才公布。报告并不否认应急基金避免了部分损失。它质疑的是：如果同样的钱改用于维护，这些收益是否就会更小。基金原本旨在取代地方投入；地方议会后来却把续拨视为理所当然。只有损失可以合理投保的申请者才有资格，获批后也无需分担修复费用。官员称该方案为临时措施，居民听成正常服务很快恢复的承诺，而非援助可能结束的警告。报告说的“一座桥，而非目的地”，指重建后的道路。主席认为证据不足以支持取消基金，因此赞成按现有方式继续运行。由此，罕见但后果严重的事件发生时，由谁承担剩余风险的问题已经解决。",
+    "corrected": "委员会的报告写于上次洪灾之前，却在洪灾之后才公布。报告并不否认应急基金避免了部分损失。它质疑的是：如果同样的钱改用于维护，这些收益是否就会更小。基金原本旨在补充地方投入，而非取代它；地方议会后来却把续拨视为理所当然。只有损失无法合理投保的申请者才有资格，获批后也不能免除其分担修复费用的责任。官员称该方案为临时措施，居民听成正常服务很快恢复的承诺，而非援助可能结束的警告。报告说的“一座桥，而非目的地”，指的是基金，并非重建的道路。估算没有计入间接成本，其中包括商家停业期间的收入损失。主席认为证据不足以支持取消基金，但也不赞成按现有方式继续运行。事件虽不太可能发生，后果却很严重，在这种情况下应由谁承担剩余风险，上述讨论并未给出答案。",
+    "errors": [
+      {"id":"r5-time","quote":"written before the last flood","wrong":"写于上次洪灾之后","meaning":"洪灾前撰写，灾后公布","type":"关系从句时间"},
+      {"id":"r5-supplement","quote":"supplement, not replace, local provision","wrong":"取代地方投入","meaning":"补充而非取代","type":"政策功能反转"},
+      {"id":"r5-eligible","quote":"losses could not reasonably have been insured","wrong":"损失可以合理投保","meaning":"不能合理投保才有资格","type":"资格限制与否定"},
+      {"id":"r5-exempt","quote":"approval did not exempt them from contributing to repairs","wrong":"获批后也无需分担修复费用","meaning":"获批仍须分担修复费用","type":"双层否定"},
+      {"id":"r5-metaphor","quote":"refers to the fund, not to the rebuilt road","wrong":"指重建后的道路","meaning":"比喻指基金而非真实道路","type":"比喻与回指"},
+      {"id":"r5-omission","quote":"Its estimates exclude indirect costs, including the income lost while businesses were closed.","wrong":"主席认为证据不足以支持取消基金","meaning":"整句漏译估算排除间接成本和停业收入损失","type":"整句漏译"},
+      {"id":"r5-endorsement","quote":"while declining to endorse its continuation in its present form","wrong":"因此赞成按现有方式继续运行","meaning":"不支持取消不等于支持原样继续","type":"非二分立场"},
+      {"id":"r5-residual","quote":"None of this settles who should bear the residual risk","wrong":"问题已经解决","meaning":"剩余风险归属仍未解决","type":"否定与结论范围"}
+    ],
+    "acceptable": ["报告并不否认应急基金避免了部分损失", "如果同样的钱改用于维护，这些收益是否就会更小", "把续拨视为理所当然", "听成正常服务很快恢复的承诺"]
+  }
+]

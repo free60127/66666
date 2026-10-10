@@ -73,7 +73,10 @@ export function reportBlocks(report, className, homeworkTitle) {
     if (sentence.original) add(`${dt.sectionReference}：${sentence.original}`);
     for (const finding of list(sentence.findings)) {
       const label = finding.level === 'error' ? '必改' : finding.level === 'improve' ? '可提升' : '分析';
-      add(`[${label} · ${finding.category || '表达'}] ${finding.from || ''} → ${finding.to || ''}`, finding.level === 'error' ? 'warning' : 'body');
+      const change = finding.operation === 'insert'
+        ? `补充遗漏信息（附近译稿：“${finding.from || ''}”）：${finding.to || ''}`
+        : `${finding.from || ''} → ${finding.to || ''}`;
+      add(`[${label} · ${finding.category || '表达'}] ${change}`, finding.level === 'error' ? 'warning' : 'body');
       add(finding.explanation);
       if (list(finding.dimensions).length) add('辨析维度：' + text(finding.dimensions));
       if (finding.idiom) add('习语：' + text(finding.idiom));

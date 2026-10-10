@@ -20,6 +20,32 @@ const data = () => ({ direction: 'en2cn', title: '测试', chinese: 'Fewer than 
   sentences: [{ findings: [{ category: '误译', level: 'error', from: '五分之一以上', to: '不到五分之一', sourceQuote: 'Fewer than one in five', primaryDimension: '理解准确' }] }] });
 
 describe('英译汉评分归因', () => {
+  it('局部漏增译不能花掉大部分完整性预算，广泛缺失仍可据实扣分', () => {
+    const d = data();
+    d.chinese += ' Additional details remain fully translated.'.repeat(20);
+    const f = d.sentences[0].findings[0]; f.category = '漏译'; f.primaryDimension = '完整性';
+    d.overall.score = 79; d.overall.scoreBreakdown[4].score = 4;
+    d.overall.scoreBreakdown[4].deductions = [{ sourceQuote: f.sourceQuote, from: f.from, points: 21 }];
+    expect(en2cnScoreProblems(d).join(';')).toContain('局部漏增译');
+    expect(reconcileEn2cnOverall(d).scoringVersion).toBeUndefined();
+    d.overall.scoreBreakdown[4].score = 20; d.overall.scoreBreakdown[4].deductions[0].points = 5; d.overall.score = 95;
+    expect(en2cnScoreProblems(d)).toEqual([]);
+    f.sourceQuote = d.chinese; d.overall.scoreBreakdown[4].deductions[0].sourceQuote = d.chinese;
+    d.overall.scoreBreakdown[4].score = 4; d.overall.scoreBreakdown[4].deductions[0].points = 21; d.overall.score = 79;
+    expect(en2cnScoreProblems(d)).toEqual([]);
+  });
+  it('复核可补唯一初稿片段的引用，但不能接受歧义、伪造引用或跨项点评', () => {
+    const d = data(); const f = d.sentences[0].findings[0]; delete f.sourceQuote; delete f.primaryDimension;
+    d.overall.scoreBreakdown[0].deductions = [{ sourceQuote: 'Fewer than one in five', from: f.from, points: 4 }];
+    d.overall.scoreBreakdown[4].comment = '数字译反导致全部信息丢失';
+    const checked = reconcileEn2cnOverall(d);
+    expect(checked.score).toBe(96); expect(checked.scoringVersion).toBe('en2cn-evidence-v3');
+    expect(checked.scoreBreakdown[4].comment).not.toContain('数字译反');
+    d.overall.scoreBreakdown[0].deductions[0].sourceQuote = 'invented';
+    expect(en2cnScoreProblems(d)).toContain('扣分片段不能在原文和初稿中核验');
+    d.sentences[0].findings.push({ ...f });
+    expect(reconcileEn2cnOverall(d).scoringVersion).toBeUndefined();
+  });
   it('由真实错误的扣分账本加总，丢弃润色扣分和跨维度重复扣分，不能掩盖无依据引用', () => {
     const d = data();
     d.sentences[0].findings.push({ from: '居民', to: '民众', level: 'improve', sourceQuote: 'residents', primaryDimension: '表达地道' });
@@ -124,6 +150,20 @@ describe('中文收藏与作答', () => {
 });
 
 describe('结果显示和朗读', () => {
+  it('语义复核失败时显示实际状态，不把首次批改伪装成已复核', () => {
+    render(<ResultSheet result={{ ...data(), translationReview: { status: 'unavailable' } }} history={[]} />);
+    expect(screen.getByText(/本次语义复核未完成/)).toBeTruthy();
+  });
+  it('漏译补充显示插入说明，不提示删除邻近译文；教师导出保留同样语义', async () => {
+    const anchor = '前一句已经译出。';
+    const finding = { category: '漏译', level: 'error', operation: 'insert', from: anchor, to: '补充缺失的事实。', explanation: '原文此句未译出。' };
+    const result = { ...data(), sentences: [{ cn: 'Missing fact.', draft: anchor, findings: [finding] }] };
+    const view = render(<ResultSheet result={result} history={[]} />);
+    expect(screen.getByText(/补充遗漏信息（附近译稿/)).toBeTruthy();
+    expect(view.container.querySelector('.finding-diff .from')).toBeNull();
+    const { reportBlocks } = await import('../../src/homeworkExport.js');
+    expect(reportBlocks({ result }).some((block) => block.text?.includes('补充遗漏信息'))).toBe(true);
+  });
   it('中文词条不请求或显示英文音标，切换英文词条仍可查询', async () => {
     const lookup = vi.spyOn(api, 'getPhonetic').mockResolvedValue({ phonetic: '/ˈlaɪbrəri/' });
     const view = render(<Phonetic word="图书馆" phonetic="错误音标" />);

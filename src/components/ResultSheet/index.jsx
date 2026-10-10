@@ -99,6 +99,9 @@ function ResultSheetImpl({ result, onBack, onCopy, onShare, shareTip, fav, histo
         {shareTip ? <span className="share-tip" role="status" aria-live="polite">{shareTip}</span> : null}
       </div>
       <p className="muted small score-reference-note">评分用于学习参考，不等同于考试成绩。真正的错漏与可选润色分别标注，优先修正影响含义的错误。</p>
+      {result.translationReview?.status === 'unavailable' && (
+        <p className="muted small" role="status">本次语义复核未完成，已保留首次批改；请重点核对数字、条件和结论。</p>
+      )}
       {/* 模型被 max_tokens 截断：内容较长时会发生，结果里可能有整块缺失（评分/词汇/习语）。
           不能让它无声无息 —— 用户只会以为"这些内容本来就不生成"。 */}
       {result.incomplete && !(streaming && streaming.active) ? (

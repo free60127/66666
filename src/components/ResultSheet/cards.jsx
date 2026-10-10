@@ -125,7 +125,11 @@ function SentenceCardImpl({ index, sentence, result, fav }) {
                 <span className="level">{LEVEL_LABEL[finding.level] || finding.level}</span>
                 {fav ? <FavStar active={fav.has(favItem.id)} onToggle={() => fav.toggle(favItem)} /> : null}
               </div>
-              <div className="finding-diff"><span className="from">{finding.from}</span><span className="arrow">→</span><strong className="to">{finding.to}</strong></div>
+              {finding.operation === 'insert' ? (
+                <div className="finding-diff"><span>补充遗漏信息（附近译稿：“{finding.from}”）：</span><strong className="to">{finding.to}</strong></div>
+              ) : (
+                <div className="finding-diff"><span className="from">{finding.from}</span><span className="arrow">→</span><strong className="to">{finding.to}</strong></div>
+              )}
               <p className="finding-exp">{finding.explanation}</p>
               <FindingExtras finding={finding} />
             </div>
