@@ -18,6 +18,7 @@ export function useJobRunner() {
   const [message, setMessage] = useState('');
   const timerRef = useRef(null);
   const aliveRef = useRef(true);
+  const runIdRef = useRef(0);
 
   const stopTimer = useCallback(() => {
     clearInterval(timerRef.current);
@@ -59,6 +60,8 @@ export function useJobRunner() {
     submit, fetchJob, intervalMs, timeoutMs, maxFailures, netError, timeoutError,
     texts = {}, onData, onProgress, onJobId, stream,
   }) => {
+    const runId = ++runIdRef.current;
+    const current = () => aliveRef.current && runId === runIdRef.current;
     setBusy(true);
     if (texts.submit) { setStep(1); setMessage(texts.submit); }
     startTimer();
@@ -75,18 +78,26 @@ export function useJobRunner() {
         isAlive: () => aliveRef.current,
         onJobId,
         stream,
-        onProgress: onProgress || (texts.running ? () => { setStep(2); setMessage(texts.running); } : undefined),
+        onProgress: (job) => {
+          if (!current()) return;
+          if (onProgress) onProgress(job);
+          else if (texts.running) { setStep(2); setMessage(texts.running); }
+        },
       });
       if (outcome.aborted) return { aborted: true };
-      if (texts.running) { setStep(2); setMessage(texts.running); }
-      if (texts.done) { setStep(3); setMessage(texts.done); }
+      if (current()) {
+        if (texts.running) { setStep(2); setMessage(texts.running); }
+        if (texts.done) { setStep(3); setMessage(texts.done); }
+      }
       finished = true;
       const value = onData ? await onData(outcome.data) : undefined;
       return { data: outcome.data, value };
     } finally {
-      stopTimer();
-      setBusy(false);
-      if (!finished) { setStep(0); setMessage(''); } // 失败/中止 → 进度条复位（成功时保留"完成"态）
+      if (current()) {
+        stopTimer();
+        setBusy(false);
+        if (!finished) { setStep(0); setMessage(''); }
+      }
     }
   }, [startTimer, stopTimer]);
 

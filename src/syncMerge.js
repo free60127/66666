@@ -29,15 +29,18 @@ export const DELETED_FAVORITES_LIMIT = DELETED_FAVORITES_MAX;
  */
 export function mergeHistory(localHistory, remoteHistory, limit = HISTORY_LIMIT, deletedIds = []) {
   const dead = deletedIds instanceof Set ? deletedIds : new Set(Array.isArray(deletedIds) ? deletedIds : []);
-  const seen = new Set();
-  const merged = [];
+  const byId = new Map();
+  // Completed/error states must not regress to a stale pending copy from another device.
+  // Legacy entries (without status) were only recorded after completion.
+  const rank = (item) => item.status === 'pending' ? 0 : item.status === 'error' ? 1 : 2;
   const all = [...(Array.isArray(localHistory) ? localHistory : []), ...(Array.isArray(remoteHistory) ? remoteHistory : [])];
   for (const item of all) {
-    if (!item || !item.jobId || seen.has(item.jobId) || dead.has(item.jobId)) continue;
-    seen.add(item.jobId);
-    merged.push(item);
+    if (!item || !item.jobId || dead.has(item.jobId)) continue;
+    const prior = byId.get(item.jobId);
+    if (!prior) byId.set(item.jobId, item);
+    else if (rank(item) > rank(prior)) byId.set(item.jobId, { ...prior, ...item });
   }
-  return merged.sort((a, b) => (Number(b.time) || 0) - (Number(a.time) || 0)).slice(0, limit);
+  return [...byId.values()].sort((a, b) => (Number(b.time) || 0) - (Number(a.time) || 0)).slice(0, limit);
 }
 
 /**

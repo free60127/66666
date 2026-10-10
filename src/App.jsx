@@ -85,6 +85,7 @@ const SITE_TAGLINE = '你的私人英语工坊';
 
 function Studio() {
   const [settings, setSettings] = useState(loadSettings());
+  const [streamResults, setStreamResults] = useState(() => safeGet('bt-stream-analysis', '') === '1');
   const [classJoinOpen, setClassJoinOpen] = useState(false);
   const [classJoinPrefill, setClassJoinPrefill] = useState('');
   const [reminderTasks, setReminderTasks] = useState([]);
@@ -283,7 +284,7 @@ function Studio() {
   // 避免在"打开库里的课文后直接点新建"时让用户重复保存一份完全相同的内容。
   const savedSnapshotRef = useRef('');
   // 首屏自动选课会异步返回；用户先开始输入或主动切模式时，不得让迟到的课文覆盖编辑区。
-  const initialLessonCancelledRef = useRef(false);
+  const initialLessonCancelledRef = useRef(window.location.hash.startsWith('#job=') || loadHistory().some((entry) => entry.status === 'pending'));
   const handleUserOcrFiles = useCallback((...args) => {
     initialLessonCancelledRef.current = true;
     return handleOcrFiles(...args);
@@ -631,7 +632,7 @@ function Studio() {
     direction: dir, view,
     title, chinese, draft, manualOriginal, generatedOriginal,
     mode, book, lessonId, myLibId, matchedLesson, lessonKey,
-    settings, polishLevel, runJob, busy, cancelProgress, elapsedMsNow,
+    settings, polishLevel, streamResults, runJob, busy, cancelProgress, elapsedMsNow,
     genTokenRef, aliveRef,
     setView, setError, setHistoryOpen, setChinese,
     flashTip, setToast, runGenerateRef,
@@ -1825,6 +1826,11 @@ function Studio() {
                 : `免费 AI 任务：${account ? '每账号' : '每访客 IP'}每日 ${account ? status.usage.freePerAccount : status.usage.freePerIp} 次。`}
               批改、拍照识别、素材和自测共用次数，北京时间零点重置。
             </p>}
+            <label className="generation-preference">
+              <input type="checkbox" checked={streamResults} disabled={busy} onChange={(event) => { setStreamResults(event.target.checked); safeSet('bt-stream-analysis', event.target.checked ? '1' : '0'); }} />
+              边生成边显示（可选）
+              <span className="muted small">默认等待完整批改后一次性显示结果。</span>
+            </label>
             {busy && (
               <div className="progress-box">
                 <div className="progress-steps">
@@ -1842,8 +1848,7 @@ function Studio() {
                 </div>
                 {elapsed >= 30 && (
                   <p className="muted small progress-note">
-                    别关页面 —— 关掉就看不到结果了。等不及可以点「取消等待」继续编辑，
-                    生成完会自动存进「历史结果」，不会白花这次调用。
+                    任务已保存到「历史作业」。可以离开页面，返回后会继续读取同一次批改，无需重新提交。
                   </p>
                 )}
               </div>

@@ -13,6 +13,20 @@ const texts = { submit: '正在提交…', running: '生成中…', done: '完�
 const fast = { intervalMs: 1, timeoutMs: 500, maxFailures: 2, netError: '网络不稳定', timeoutError: '超时了', texts };
 
 describe('useJobRunner', () => {
+  it('an older cancelled wait cannot unlock a newer running job', async () => {
+    const { result } = renderHook(() => useJobRunner());
+    let firstDone, secondDone;
+    const first = new Promise((resolve) => { firstDone = resolve; });
+    const second = new Promise((resolve) => { secondDone = resolve; });
+    let a, b;
+    act(() => { a = result.current.run({ ...fast, submit: async () => ({ jobId: 'first' }), fetchJob: async () => { await first; return { job: { status: 'done', data: 'first' } }; } }); });
+    act(() => result.current.cancelWait());
+    act(() => { b = result.current.run({ ...fast, submit: async () => ({ jobId: 'second' }), fetchJob: async () => { await second; return { job: { status: 'done', data: 'second' } }; } }); });
+    await act(async () => { firstDone(); await a; });
+    expect(result.current.busy).toBe(true);
+    await act(async () => { secondDone(); await b; });
+    expect(result.current.busy).toBe(false);
+  });
   it('成功链路：busy → 完成态，并回调 onData', async () => {
     const onData = vi.fn(async () => 'processed');
     const { result } = renderHook(() => useJobRunner());

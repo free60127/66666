@@ -7,7 +7,8 @@
  */import React from 'react';
 import { formatDuration } from '../../format.js'
 import { directionText } from '../../direction.js';
-import { AlertTriangle, ArrowLeft, CheckCircle2, ChevronDown, ClipboardCopy, Download, Link2, LoaderCircle } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, CheckCircle2, ChevronDown, ClipboardCopy, Link2, LoaderCircle } from 'lucide-react';
+import PdfExportButton from '../PdfExportButton.jsx';
 import { DraftText } from './bits.jsx';
 import { ErrorProfile, Section, SentenceCard, VocabularyNotes, IdiomHighlights, SummaryBlock } from './cards.jsx';
 import { PracticeCompare } from './Compare.jsx';
@@ -23,7 +24,7 @@ const jumpTo = (sel) => {
 function SheetGlance({ overall, sentences, hasVocab, hasIdiom, hasSummary }) {
   return (
     <div className="sheet-glance">
-      <div className="glance-score"><strong>{overall.score ?? '-'}</strong><span>{overall.local ? '本地估算' : '综合评分'}</span></div>
+      <div className="glance-score"><strong>{overall.score ?? '-'}</strong><span>{overall.local ? overall.score == null ? '评分暂不可用' : '本地估算' : '综合评分'}</span></div>
       <div className="glance-meta">
         <span>{sentences.length} 个句群</span>
         <span className="glance-dot">·</span>
@@ -89,9 +90,10 @@ function ResultSheetImpl({ result, onBack, onCopy, onShare, shareTip, fav, histo
         <button className="ghost-btn" onClick={onBack}><ArrowLeft size={15} />返回编辑</button>
         <button className="ghost-btn" onClick={onCopy}><ClipboardCopy size={15} />复制全部</button>
         <button className="ghost-btn" onClick={onShare}><Link2 size={15} />复制分享链接</button>
-        <button className="ghost-btn" onClick={() => window.print()}><Download size={15} />导出 PDF</button>
+        <PdfExportButton result={result} disabled={Boolean(streaming?.active || result.generating)} />
         {shareTip ? <span className="share-tip" role="status" aria-live="polite">{shareTip}</span> : null}
       </div>
+      <p className="muted small score-reference-note">评分用于学习参考，不等同于考试成绩。真正的错漏与可选润色分别标注，优先修正影响含义的错误。</p>
       {/* 模型被 max_tokens 截断：内容较长时会发生，结果里可能有整块缺失（评分/词汇/习语）。
           不能让它无声无息 —— 用户只会以为"这些内容本来就不生成"。 */}
       {result.incomplete && !(streaming && streaming.active) ? (
@@ -134,7 +136,7 @@ function ResultSheetImpl({ result, onBack, onCopy, onShare, shareTip, fav, histo
         <section className="sheet-section analysis">
           <div className="section-heading"><span className="label-dot" /><h2>{dt.sentencesTitle}</h2><span className="muted small">{sentences.length} 个句群 · {overall.issues ?? 0} 项分析</span></div>
           <div className="overall-card">
-            <div className="score-ring"><strong>{overall.score ?? '-'}</strong><span>{overall.local ? '本地估算' : '综合评分'}</span></div>
+            <div className="score-ring"><strong>{overall.score ?? '-'}</strong><span>{overall.local ? overall.score == null ? '评分暂不可用' : '本地估算' : '综合评分'}</span></div>
             <div className="overall-body">
               <p>{overall.summary || ''}</p>
               <div className="chips">{(overall.highlights || []).map((h, i) => <span key={'hl' + i} className="chip"><CheckCircle2 size={13} />{h}</span>)}</div>

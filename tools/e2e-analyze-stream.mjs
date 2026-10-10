@@ -12,6 +12,9 @@
  * 跑法：node tools/e2e-analyze-stream.mjs   （先 npm run build；用 tools/shotter 下的 Playwright）
  */
 import http from 'node:http';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { chromium } from 'file:///D:/AI/66666-main/tools/shotter/node_modules/playwright/index.mjs';
 
@@ -76,7 +79,7 @@ const mock = http.createServer((req, res) => {
 await new Promise((r) => mock.listen(MOCK, '127.0.0.1', r));
 
 const server = spawn(process.execPath, ['server/index.mjs'], {
-  env: { ...process.env, PORT: String(PORT), AI_BASE_URL: `http://127.0.0.1:${MOCK}/v1`, AI_API_KEY: 'mock-e2e', ALLOW_PRIVATE_BASE_URL: '1' },
+  env: { ...process.env, PORT: String(PORT), DATA_DIR: fs.mkdtempSync(path.join(os.tmpdir(), 'bts-stream-qa-')), UPSTASH_REDIS_REST_URL: '', UPSTASH_REDIS_REST_TOKEN: '', AI_BASE_URL: `http://127.0.0.1:${MOCK}/v1`, AI_API_KEY: 'mock-e2e', ALLOW_PRIVATE_BASE_URL: '1' },
   stdio: 'ignore',
 });
 let up = false;
@@ -101,11 +104,14 @@ const cards = () => page.locator('.sentence-card').count();
 try {
   await page.goto(BASE, { waitUntil: 'domcontentloaded' });
   await page.waitForSelector('.topbar', { timeout: 30000 });
+  await page.locator('.goal-skip').click({ timeout: 2000 }).catch(() => {});
+  await page.getByRole('button', { name: '自由模式', exact: true }).click();
   await page.locator('.big-textarea').nth(0).fill('我在村口的酒馆吃完午饭，就开始找我的包。\n包不见了。');
   await page.locator('.big-textarea').nth(1).fill('After I had lunch at a village pub, I looked for my bag. My bag was lost.');
 
   /* ---------- 1. 点生成 ---------- */
-  await page.locator('.actions-bar button.primary-btn').click();
+  await page.locator('.generation-preference input').check();
+  await page.locator('.action-dock button.primary-btn').click();
 
   /* ---------- 2. 闸门还关着：结果页必须已经出来了 ---------- */
   await page.waitForSelector('.result-sheet', { timeout: 30000 });
@@ -155,14 +161,18 @@ try {
 
   /* ---------- 6. 手机端（390×844）也要能用 ---------- */
   const m = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  gate.open = false;
   const mp = await m.newPage();
   const mErrors = [];
   mp.on('pageerror', (e) => mErrors.push(String(e.message)));
   await mp.goto(BASE, { waitUntil: 'domcontentloaded' });
   await mp.waitForSelector('.topbar', { timeout: 30000 });
+  await mp.locator('.goal-skip').click({ timeout: 2000 }).catch(() => {});
+  await mp.getByRole('button', { name: '自由模式', exact: true }).click();
   await mp.locator('.big-textarea').nth(0).fill('我在村口的酒馆吃完午饭，就开始找我的包。');
   await mp.locator('.big-textarea').nth(1).fill('After I had lunch at a village pub, I looked for my bag.');
-  await mp.locator('.actions-bar button.primary-btn').click();
+  await mp.locator('.generation-preference input').check();
+  await mp.locator('.action-dock button.primary-btn').click();
   await mp.waitForSelector('.result-sheet', { timeout: 30000 });
   const fit = await mp.evaluate(() => ({ sw: document.documentElement.scrollWidth, w: window.innerWidth }));
   ok('手机端不横向溢出', fit.sw <= fit.w + 1, JSON.stringify(fit));

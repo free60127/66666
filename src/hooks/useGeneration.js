@@ -58,7 +58,7 @@ import { loadDays, recordDay, saveDays } from '../studyStreak.js'
 export function useGeneration({
   title, chinese, draft, manualOriginal, generatedOriginal,
   mode, book, lessonId, myLibId, matchedLesson, lessonKey,
-  settings, polishLevel, runJob, busy, cancelProgress, elapsedMsNow,
+  settings, polishLevel, streamResults = false, runJob, busy, cancelProgress, elapsedMsNow,
   genTokenRef, aliveRef, direction, view,
   setView, setError, setHistoryOpen, setChinese,
   flashTip, setToast, runGenerateRef,
@@ -76,7 +76,9 @@ export function useGeneration({
       if (document.hidden) return;
       getAnalyzeJob(currentJobId).then((response) => {
         if (!active || !response.job?.data) return;
-        setResult((current) => current ? { ...current, teacherComments: response.job.data.teacherComments || [] } : current);
+        const comments = response.job.data.teacherComments || [];
+        setResult((current) => current && JSON.stringify(current.teacherComments || []) !== JSON.stringify(comments)
+          ? { ...current, teacherComments: comments } : current);
       }).catch(() => {});
     };
     refreshComments();
@@ -117,7 +119,7 @@ export function useGeneration({
    * 从历史里翻看旧结果不算重新练习，所以不在 loadHistoryJob 里调用。
    */
   const bumpProgress = (key, result, ms) => {
-    const next = recordAttempt(lessonProgress, key, { score: scoreOf(result), durationMs: ms, at: Date.now() });
+    const next = recordAttempt(loadProgress(), key, { score: scoreOf(result), durationMs: ms, at: Date.now() });
     if (next === lessonProgress) return; // 自由模式 / 空 key：无归属，不记录
     saveProgress(next);
     setLessonProgress(next);
@@ -125,7 +127,7 @@ export function useGeneration({
 
   /** 记"今天练过"（连续天数用）。任何成功生成都算 —— 自由模式也是在学。 */
   const bumpStudyDay = () => {
-    const next = recordDay(studyDays);
+    const next = recordDay(loadDays());
     if (next === studyDays) return;
     saveDays(next);
     setStudyDays(next);
@@ -137,12 +139,13 @@ export function useGeneration({
     // lessonKey 一起进历史：结果页要靠它认出"上一次练的是同一课"（老记录没有，靠标题兜底）
     // deleteToken：删除这条记录时回传给服务端的凭据（老记录没有，服务端会放行）
     const entry = {
-      jobId, title: jobTitle || '回译作业', time: Date.now(),
+      jobId, title: jobTitle || '回译作业', time: data.attemptTime || Date.now(), status: 'done',
       durationMs: Number(durationMs) || 0,
       lessonKey: String((data && data.lessonKey) || ''),
       ...(deleteToken ? { deleteToken } : {}),
     };
-    const next = [entry, ...historyList.filter((x) => x.jobId !== jobId)].slice(0, 20);
+    if (loadDeletedHistory().includes(jobId)) return;
+    const next = [entry, ...loadHistory().filter((x) => x.jobId !== jobId)].sort((a, b) => b.time - a.time).slice(0, 20);
     saveHistory(next);
     pruneResultCache(next.map((x) => x.jobId)); // 结果缓存跟随历史条数淘汰，否则无限增长写满 5MB 配额
     setHistoryList(next);
@@ -193,7 +196,27 @@ export function useGeneration({
   const historyReqRef = useRef(0);
   const loadHistoryJob = async (jobId) => {
     const reqId = (historyReqRef.current += 1);
-    genTokenRef.current += 1; // 打开历史结果时作废掉正在跑的生成任务，避免它稍后抢回视图
+    const myToken = (genTokenRef.current += 1);
+    setStreaming(false); setStreamNote('');
+    cancelGenRef.current = false;
+    const entry = loadHistory().find((h) => h.jobId === jobId);
+    const showCompleted = (data) => {
+      const enriched = { ...data, ...(entry ? { workTitle: entry.title, durationMs: entry.durationMs,
+        lessonKey: entry.lessonKey, attemptTime: entry.time } : {}) };
+      if (entry?.status === 'pending' && loadHistory().find((h) => h.jobId === jobId)?.status === 'pending') {
+        addToHistory(jobId, entry.title, enriched, entry.durationMs, entry.deleteToken);
+        void reportCompletedJob(jobId, entry.deleteToken, entry.classHomework);
+        bumpProgress(entry.lessonKey, enriched, entry.durationMs);
+        bumpStudyDay();
+      }
+      if (!aliveRef.current || reqId !== historyReqRef.current || myToken !== genTokenRef.current) return;
+      setResult(normalizeResult(enriched));
+      setCurrentJobId(jobId);
+      setStreaming(false);
+      setError('');
+      if (!cancelGenRef.current) setView('result');
+      else flashTip(setToast, '批改已完成，可在「历史作业」查看结果', 6000);
+    };
     // 优先用本机缓存，秒开且不受服务器任务清理影响
     const cached = loadResultCache(jobId);
     if (cached) {
@@ -207,20 +230,25 @@ export function useGeneration({
       return;
     }
     try {
-      const r = await getAnalyzeJob(jobId);
-      if (reqId !== historyReqRef.current) return;
-      const job = r.job;
       setHistoryOpen(false);
+      window.history.replaceState(null, '', '#job=' + jobId);
+      const r = await getAnalyzeJob(jobId);
+      if (!aliveRef.current || reqId !== historyReqRef.current || myToken !== genTokenRef.current) return;
+      const job = r.job;
       if (job?.status === 'done' && job.data) {
-        setResult(normalizeResult(job.data));
-        setCurrentJobId(jobId);
-        setView('result');
-        setError('');
-        window.history.replaceState(null, '', '#job=' + jobId);
+        showCompleted(job.data);
       } else if (job?.status === 'error') {
+        const next = loadHistory().map((h) => h.jobId === jobId ? { ...h, status: 'error', error: job.error } : h);
+        saveHistory(next); setHistoryList(next);
         setError(job.error || '该任务生成失败');
       } else {
-        setError('该结果仍在生成中或已超时，请稍后再试');
+        setView('editor'); setError('');
+        await runJob({ submit: async () => ({ jobId }), fetchJob: getAnalyzeJob,
+          intervalMs: POLL_ANALYZE_MS, timeoutMs: TIMEOUT_ANALYZE_MS, maxFailures: 10,
+          netError: '网络暂时不可用。任务仍保留在「历史作业」，恢复网络后可继续查看，无需重新提交。',
+          timeoutError: '等待时间较长。任务已保存在「历史作业」，稍后可继续查看，无需重新提交。',
+          texts: { submit: '恢复上次批改…', running: '正在读取后台批改（通常 60–120 秒，长文可能更久）…', done: '批改完成' },
+          onData: showCompleted });
       }
     } catch (e) {
       if (reqId !== historyReqRef.current) return;
@@ -251,39 +279,11 @@ export function useGeneration({
     }
   };
 
-  // 通过分享链接 #job=xxx 打开时，直接恢复该次生成结果（即使后端重启过，任务已持久化）
+  // Refresh/reopen resumes the SAME job; no new model call or quota charge.
   useEffect(() => {
     const m = window.location.hash.match(/^#job=([A-Za-z0-9-]{8,64})/);
-    if (!m) return;
-    const jobId = m[1];
-    getAnalyzeJob(jobId).then((r) => {
-      if (!aliveRef.current) return;
-      if (r.job?.status === 'done' && r.job.data) {
-        setResult(normalizeResult(r.job.data)); // 归一化：坏数据不再让页面白屏，F5 也不会循环崩
-        setCurrentJobId(jobId);
-        setView('result');
-        setError('');
-      } else if (r.job?.status === 'error') {
-        setError(r.job.error || '该任务生成失败');
-      } else {
-        setError('该结果仍在生成中，请稍后刷新查看');
-      }
-    }).catch(() => {
-      if (!aliveRef.current) return;
-      // 服务端已经查不到这条任务时，用本机缓存恢复（分享者本人 / 同一台设备还留着结果）
-      const cached = loadResultCache(jobId);
-      if (cached) {
-        setResult(normalizeResult(cached));
-        setCurrentJobId(jobId);
-        setView('result');
-        setError('');
-      } else {
-        // 服务端只认它自己留着的记录（默认保留期见 /api/status 的 jobs.ttlDays）。
-        // 链接打不开时要给出可操作的下一步，而不是一句"不存在"。
-        setError('这条分享链接打不开了：服务端已经没有这次批改的记录（链接被改动过，或结果已超出保留期）。'
-          + '请让分享者重新「复制分享链接」发一次；想长期留存，用结果页的「导出 PDF」另存一份最稳妥。');
-      }
-    });
+    const pending = !window.location.hash ? loadHistory().find((h) => h.status === 'pending') : null;
+    if (m || pending) void loadHistoryJob(m ? m[1] : pending.jobId);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 只在首屏跑一次（与迁移前一致）
   }, []);
 
@@ -324,7 +324,7 @@ export function useGeneration({
           level: polishLevel,
           // 流式：服务端一行一段地往外写，前端边收边画（见下面的 stream 配置）。
           // 服务端不认识这个字段时会忽略它 —— 老后端 + 新前端也不会出错。
-          stream: true,
+          stream: streamResults,
           baseUrl: settings.baseUrl, model: settings.model, apiKey: settings.apiKey,
           });
           deleteToken = (resp && resp.deleteToken) || '';
@@ -340,48 +340,55 @@ export function useGeneration({
         /* 流式：边收边画。首段到达就把视图切到结果页 —— 这是"不再干等一分钟"的全部意义。
            折叠规则见 src/resultFold.js（与服务端 server/analyzeStream.mjs 同构，
            test/analyzeStream.test.mjs 交叉断言两边一致）。 */
-        stream: {
+        stream: streamResults ? {
           path: (jid) => '/api/analyze/' + jid + '/stream',
-          onFirst: () => setStreaming(true),
+          onFirst: () => { if (myToken === genTokenRef.current && !cancelGenRef.current) setStreaming(true); },
           onEvent: (name, payload) => {
-            if (name !== 'segment' || !payload) return;
+            if (name !== 'segment' || !payload || myToken !== genTokenRef.current || cancelGenRef.current) return;
             if (Number.isInteger(payload.index)) streamSegsRef.current[payload.index] = { ...payload.seg, __i: payload.index };
             else streamSegsRef.current.push(payload.seg);
             const partial = foldSegments(streamSegsRef.current.filter(Boolean));
             const sentences = partial.sentences.length;
             setStreamNote((payload.label || SEGMENT_LABEL[payload.seg && payload.seg.t] || '解析')
               + (payload.seg && payload.seg.t === 'sentence' ? ' · 第 ' + sentences + ' 句' : ''));
-            setResult(normalizeResult({ ...partial, direction: dir, aiLevel: polishLevel, durationMs, lessonKey, attemptTime: Date.now() }));
+            setResult(normalizeResult({ ...partial, generating: true, direction: dir, aiLevel: polishLevel, durationMs, lessonKey, attemptTime: Date.now() }));
             // 用户在等待期间切过课 / 点过「取消等待」就不抢视图（与 onData 的规则一致）
             if (!streamViewRef.current && !cancelGenRef.current && myToken === genTokenRef.current) {
               streamViewRef.current = true;
               setView('result');
             }
           },
-        },
+        } : undefined,
         onJobId: (id2) => {
           jobId = id2;
-          // 拿到任务号就立刻写进地址栏：这是"任务还在后台、但界面这边已经放弃"时的唯一入口
+          const pending = { jobId, title: title.trim() || matchedLesson?.title || '翻译批改', time: Date.now(),
+            status: 'pending', durationMs, lessonKey, direction: dir, deleteToken,
+            classHomework: classHomework ? { classId: classHomework.classId, hwId: classHomework.hwId, title: classHomework.title, sharedLessonId: classHomework.sharedLessonId } : null };
+          const next = [pending, ...loadHistory().filter((h) => h.jobId !== jobId)].slice(0, 20);
+          saveHistory(next); setHistoryList(next);
+          // 拿到任务号就写进地址栏并保存历史，离开页面后能恢复同一次批改。
           // （等待超时 / 手机锁屏太久 / 用户自己刷新）。
           // 原来只有成功回调（onData）里才写，于是超时或中断后用户既没有历史记录、
           // 也没有 #job=，只能重新提交 —— 再花一次模型调用的钱。
           // 恢复路径见本文件底部的 #job= effect：已完成 → 直接出结果；
-          // 仍在跑 → 提示"仍在生成中，请稍后刷新查看"（不会静默丢单）。
+          // 仍在跑 → 自动继续读取任务直到完成，不要求用户手动刷新。
           window.history.replaceState(null, '', '#job=' + id2);
         },
         onData: (data) => {
           // 流式结束：用服务端**收敛过的完整结果**覆盖边生成边画的那份
           //（"看到的"和"存进历史的"由此收敛成同一个东西）
-          setStreaming(false);
-          setStreamNote('');
+          if (myToken === genTokenRef.current) { setStreaming(false); setStreamNote(''); }
           // attemptTime：这次练习的时间戳。结果页要靠它判断"哪次才算上一次"
           // （从历史里点开旧作业时，比它更晚的练习不能算"上次"）。
           // workTitle：用户在顶栏写的作业标题优先展示（AI 起的 title 作副行），
           // 历史列表也用它——否则用户改过标题的那篇在历史里根本找不到。
           const workTitle = (title || '').trim() || (data && data.title) || '';
-          const enriched = { ...(data || {}), workTitle, durationMs, lessonKey, attemptTime: Date.now() };
-          setResult(normalizeResult(enriched));
-          if (jobId) setCurrentJobId(jobId);
+          const stored = loadHistory().find((h) => h.jobId === jobId);
+          const enriched = { ...(data || {}), workTitle, durationMs, lessonKey, attemptTime: stored?.time || Date.now() };
+          if (myToken === genTokenRef.current) {
+            setResult(normalizeResult(enriched));
+            if (jobId) setCurrentJobId(jobId);
+          }
           // 三种情况都不抢视图：生成期间用户切过课 / 点过「新建」/ 点过「取消等待」。
           // 但结果照常入历史 —— 用户随时能从「历史结果」里打开。
           const cancelled = cancelGenRef.current;
@@ -392,14 +399,14 @@ export function useGeneration({
             addToHistory(jobId, workTitle, enriched, durationMs, deleteToken);
             void reportCompletedJob(jobId, deleteToken, classHomework);
             if (classHomework && activeHomework()?.classId === classHomework.classId && activeHomework()?.hwId === classHomework.hwId) clearActiveHomework();
-            bumpProgress(lessonKey, enriched, durationMs);
-            bumpStudyDay();
-            window.history.replaceState(null, '', '#job=' + jobId);
+            if (stored?.status !== 'done') { bumpProgress(lessonKey, enriched, durationMs); bumpStudyDay(); }
+            if (myToken === genTokenRef.current) window.history.replaceState(null, '', '#job=' + jobId);
           }
           if (cancelled) flashTip(setToast, '刚才那篇已经生成好，存进「历史结果」了', 6000);
         },
       });
     } catch (e) {
+      if (myToken !== genTokenRef.current) return;
       setStreaming(false);
       setStreamNote('');
       setError(e.message);

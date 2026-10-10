@@ -10,7 +10,7 @@ export function loadReportFont() {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 60000);
       try {
-        const response = await fetch(import.meta.env.BASE_URL + 'fonts/NotoSansSC-Regular.ttf', { signal: controller.signal });
+        const response = await fetch(import.meta.env.BASE_URL + 'fonts/ReportSans-Regular.ttf', { signal: controller.signal });
         if (!response.ok) throw new Error('字体下载失败，请重试');
         return new Uint8Array(await response.arrayBuffer());
       } catch {
@@ -21,7 +21,7 @@ export function loadReportFont() {
   return fontPromise;
 }
 
-export async function createHomeworkPdf(report, className, homeworkTitle, fontBytes) {
+export async function createHomeworkPdf(report, className, homeworkTitle, fontBytes, blocks) {
   const doc = await PDFDocument.create();
   doc.registerFontkit(fontkit);
   const font = await doc.embedFont(fontBytes, { subset: true });
@@ -61,7 +61,7 @@ export async function createHomeworkPdf(report, className, homeworkTitle, fontBy
     return lines;
   };
   newPage();
-  for (const block of reportBlocks(report, className, homeworkTitle)) {
+  for (const block of blocks || reportBlocks(report, className, homeworkTitle)) {
     const heading = ['title', 'section', 'subheading'].includes(block.kind);
     const size = block.kind === 'title' ? 18 : block.kind === 'section' ? 13 : block.kind === 'subheading' ? 11 : 10.5;
     const leading = size * 1.65;
@@ -77,7 +77,7 @@ export async function createHomeworkPdf(report, className, homeworkTitle, fontBy
   }
   const pages = doc.getPages();
   pages.forEach((p, index) => p.drawText(`${index + 1} / ${pages.length}`, { x: W - M - 50, y: 26, size: 9, font, color: muted }));
-  doc.setTitle(`${homeworkTitle} · ${report.name}`);
+  doc.setTitle(report.name ? `${homeworkTitle} · ${report.name}` : homeworkTitle);
   doc.setAuthor('回译本');
   return doc.save();
 }

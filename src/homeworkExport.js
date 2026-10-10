@@ -48,8 +48,8 @@ export function reportBlocks(report, className, homeworkTitle) {
   const add = (value, kind = 'body') => { if (value != null && text(value).trim()) blocks.push({ text: text(value), kind }); };
   const section = (title, value) => { add(title, 'section'); add(value || '（未提供）'); };
   add(homeworkTitle || result.workTitle || result.title || '回译作业', 'title');
-  add(`班级：${className}    姓名：${report.name}    学号：${report.studentNo}`);
-  add(`综合评分：${report.score ?? '未评分'}${overall.local ? '（本地估算）' : ''}    提交日期：${exportDate(report.at)}${report.late ? '（迟交）' : ''}`);
+  if (className || report.name || report.studentNo) add([className && `班级：${className}`, report.name && `姓名：${report.name}`, report.studentNo && `学号：${report.studentNo}`].filter(Boolean).join('    '));
+  add(`综合评分：${report.score ?? '未评分'}${overall.local && report.score != null ? '（本地估算）' : ''}    提交日期：${exportDate(report.at)}${report.late ? '（迟交）' : ''}`);
   if (result.aiLevel) add('润色等级：' + result.aiLevel);
   if (result.durationMs) add('练习用时：' + formatDuration(result.durationMs));
   if (result.incomplete) add('提示：模型输出不完整，部分评分或解析可能缺失。', 'warning');

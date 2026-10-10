@@ -1243,3 +1243,9 @@ mark.hl { background: #ffe3e3; color: inherit; padding: 0 2px; border-radius: 2p
 /* ICP 备案号（管局要求，侧栏底部小字） */
 .site-footer { flex: 0 0 auto; padding: 6px 12px max(6px, env(safe-area-inset-bottom)); text-align: center; font-size: 12px; background: var(--bg); }
 .site-footer a { color: var(--muted); }
+.generation-preference { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 12px 0; font-size: 14px; }
+.generation-preference input { width: 18px; height: 18px; accent-color: #2169ed; }
+.generation-preference .small { flex-basis: 100%; }
+.pdf-export-status { flex-basis: 100%; white-space: normal; overflow-wrap: anywhere; }
+.pdf-download-link { text-decoration: none; }
+.score-reference-note { padding: 0 16px; }

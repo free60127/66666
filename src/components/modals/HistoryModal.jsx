@@ -30,13 +30,13 @@ function HistoryModal({ open, onClose, modalRef, items, onOpen, onDelete }) {
           <div className="modal-mask" onClick={onClose}>
             <div className="modal history-modal" ref={modalRef} role="dialog" aria-modal="true" aria-label="历史作业" onClick={(e) => e.stopPropagation()}>
               <div className="modal-head"><h2>历史作业</h2><button className="icon-btn" onClick={onClose} aria-label="关闭"><X size={16} /></button></div>
-              {items.length === 0 ? <p className="muted">暂无历史记录。生成一次完整分析后，记录会自动保存在这里；此功能上线前生成的旧作业不会自动补录。</p> : (
+              {items.length === 0 ? <p className="muted">暂无历史记录。提交批改后，任务会自动保存在这里；生成期间也可从这里继续查看。</p> : (
                 <div className="history-list">
                   {items.map((h) => (
                     <div className="history-item" key={h.jobId}>
                       <button className="history-open" onClick={() => onOpen(h.jobId)}>
                         <span className="history-info"><strong>{h.title || '回译作业'}</strong><span className="muted small">{formatTime(h.time)}{h.durationMs ? ` · 用时 ${formatDuration(h.durationMs)}` : ''}</span></span>
-                        <span className="history-link">查看结果</span>
+                        <span className="history-link">{h.status === 'pending' ? '生成中 · 继续查看' : h.status === 'error' ? '生成失败 · 查看原因' : '查看结果'}</span>
                       </button>
                       {confirmId === h.jobId ? (
                         <span className="history-del-confirm">

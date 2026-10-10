@@ -15,6 +15,7 @@ import { getQuizJob, quiz as quizApi } from '../api.js';
 import { MAX_GRADE_ITEMS, POLL_QUIZ_MS, TIMEOUT_QUIZ_MS } from '../constants.js';
 import { gradingMode, judgeLocally, needsAIGrade, summarizeVerdicts } from '../quizGrade.js';
 import { useJobRunner } from './useJobRunner.js';
+import { safeGet } from '../storage.js';
 
 export function useQuizGrade({ quiz, settings }) {
   const [answers, setAnswers] = useState({});     // 题号 → 作答（选择题存选项字母）
@@ -105,16 +106,17 @@ export function useQuizGrade({ quiz, settings }) {
     }));
     setPendingAI(batch);
     setAiTotal(batch.length);
+    const streamResults = safeGet('bt-stream-analysis', '') === '1';
     try {
       await run({
         submit: () => quizApi({
           mode: 'grade', items, level: quiz.level,
           // 流式：模型一行一道题地往外写，收到一条就贴一条（见 server/gradeStream.mjs）
-          stream: true,
+          stream: streamResults,
           baseUrl: settings && settings.baseUrl, model: settings && settings.model, apiKey: settings && settings.apiKey,
         }),
         fetchJob: getQuizJob,
-        stream: {
+        stream: streamResults ? {
           path: (jid) => '/api/quiz/' + jid + '/stream',
           onEvent: (name, payload) => {
             if (name !== 'grade' || !payload || !payload.grade) return;
@@ -132,7 +134,7 @@ export function useQuizGrade({ quiz, settings }) {
             }));
             setPendingAI((prev) => prev.filter((x) => x !== qi));   // 这题已判，撤掉"批改中"
           },
-        },
+        } : undefined,
         intervalMs: POLL_QUIZ_MS,
         timeoutMs: TIMEOUT_QUIZ_MS,
         maxFailures: 8,

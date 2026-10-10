@@ -2,8 +2,11 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { unzipSync, strFromU8 } from 'fflate';
 import { PDFDocument } from 'pdf-lib';
+import fontkit from '@pdf-lib/fontkit';
 import { buildHomeworkArchive } from '../src/homeworkPdf.js';
-const fontBytes = fs.readFileSync(new URL('../public/fonts/NotoSansSC-Regular.ttf', import.meta.url));
+const fontBytes = fs.readFileSync(new URL('../public/fonts/ReportSans-Regular.ttf', import.meta.url));
+const font = fontkit.create(fontBytes);
+for (const ch of '回译ɜʊːɪˌʌəɑɔʃʒθðŋ') assert.ok(font.hasGlyphForCodePoint(ch.codePointAt(0)), `PDF 字体必须覆盖 ${ch}`);
 const report = { name: '同名学生', studentNo: '301', score: 0, at: Date.parse('2026-10-09T17:00:00Z'),
   result: { title: '中英文批改', direction: 'en2cn', chinese: 'English source.', draft: '中文初稿。', ai: '中文修正。', original: '中文参考。',
     teacherComments: [{ teacher: '教师', text: '完整教师评语' }], overall: { summary: '多页内容。'.repeat(1500) },
