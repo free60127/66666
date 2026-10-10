@@ -1820,6 +1820,11 @@ function Studio() {
                 </div>
               </div>
             )}
+            {hasAiKey && !settings.apiKey && status?.usage && <p className="muted small" role="note">
+              {classKeyAvailable ? `正在使用班级 Key：全班每日共 ${status.usage.classKeyPerClass} 次。`
+                : `免费 AI 任务：${account ? '每账号' : '每访客 IP'}每日 ${account ? status.usage.freePerAccount : status.usage.freePerIp} 次。`}
+              批改、拍照识别、素材和自测共用次数，北京时间零点重置。
+            </p>}
             {busy && (
               <div className="progress-box">
                 <div className="progress-steps">
@@ -1894,6 +1899,7 @@ function Studio() {
             )}
           </section>
         )}
+        <footer className="site-footer"><a href="https://beian.miit.gov.cn/" target="_blank" rel="noreferrer">辽ICP备2026023090号</a></footer>
       </main>
 
       {camOpen && (
@@ -1953,7 +1959,7 @@ function Studio() {
                 />
               </label>
 
-              {authMode === 'register' && accountsOn ? (
+              {authMode === 'register' && verifyOn ? (
                 <label className="auth-label">
                   邮箱验证码
                   <span className="verify-row">
@@ -2020,7 +2026,7 @@ function Studio() {
                 </>
               ) : authMode === 'register' ? (
                 <>
-                  <button className="primary-btn" onClick={doSignUp} disabled={authBusy || !authForm.email || !authForm.password}>
+                  <button className="primary-btn" onClick={doSignUp} disabled={authBusy || !authForm.email || !authForm.password || (verifyOn && !/^\d{6}$/.test(authForm.code))}>
                     {authBusy ? '注册中…' : '注册'}
                   </button>
                   <button className="ghost-btn" onClick={() => openAuth('login')} disabled={authBusy}>已有账号，去登录</button>

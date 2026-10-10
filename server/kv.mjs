@@ -21,6 +21,21 @@ import path from 'node:path';
 
 const isMissing = (e) => e && (e.code === 'ENOENT' || e.code === 'ENOTDIR');
 
+// Check every pool before incrementing any: rejected requests must never spend
+// another user's/global allowance. One Redis command also avoids concurrent overspend.
+const RESERVE_QUOTA = `
+for i, key in ipairs(KEYS) do
+  local count = tonumber(redis.call('GET', key) or '0')
+  if count >= tonumber(ARGV[i + 1]) then return {i, count} end
+end
+local counts = {0}
+for i, key in ipairs(KEYS) do
+  local count = redis.call('INCR', key)
+  if count == 1 then redis.call('EXPIRE', key, ARGV[1]) end
+  table.insert(counts, count)
+end
+return counts`;
+
 /* ---------- Upstash ---------- */
 export function createUpstashKv({ url, token }) {
   const endpoint = String(url).replace(/\/+$/, '');
@@ -29,6 +44,7 @@ export function createUpstashKv({ url, token }) {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(command),
+      signal: AbortSignal.timeout(10000),
     });
     const text = await r.text();
     let parsed;
@@ -40,6 +56,10 @@ export function createUpstashKv({ url, token }) {
   return {
     kind: 'upstash',
     durable: true,
+    async reserveQuota(pools, ttlSec) {
+      const result = await cmd(['EVAL', RESERVE_QUOTA, String(pools.length), ...pools.map((p) => p.key), String(ttlSec), ...pools.map((p) => String(p.limit))]);
+      return { blocked: Number(result[0]), counts: result.slice(1).map(Number) };
+    },
     async get(key) {
       const v = await cmd(['GET', key]);
       return v === null || v === undefined ? null : String(v);
@@ -87,6 +107,14 @@ export function createFileKv(dir) {
   return {
     kind: 'file',
     durable: false, // 是否真持久由调用方结合"是不是托管平台"判断
+    async reserveQuota(pools, ttlSec) {
+      // No await between checking and writing: atomic within this single Node process.
+      const counts = pools.map((p) => Number(readEnv(fileOf(p.key))) || 0);
+      const blocked = pools.findIndex((p, i) => counts[i] >= p.limit);
+      if (blocked >= 0) return { blocked: blocked + 1, counts: [counts[blocked]] };
+      pools.forEach((p, i) => writeEnv(fileOf(p.key), counts[i] + 1, ttlSec));
+      return { blocked: 0, counts: counts.map((n) => n + 1) };
+    },
     async get(key) { return readEnv(fileOf(key)); },
     async set(key, val, ttlSec) { writeEnv(fileOf(key), val, ttlSec); },
     async setNx(key, val, ttlSec) {

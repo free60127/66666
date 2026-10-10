@@ -21,10 +21,10 @@ const fixture = { ...emptySnapshot(), libraries: [{ id: 'qa-library', name: '迁
   history: [{ jobId: 'legacy-job', title: '迁移历史', time: 1 }], days: ['2026-10-09'] };
 const kv = createFileKv(path.join(dir, 'kv'));
 await createFileStore(path.join(dir, 'sync')).write(code, { version: 1, data: fixture });
-await createAccounts({ kv }).register({ email, password, sync: await sealText(code, password), ip: '127.0.0.1' });
+await createAccounts({ kv, env: { EMAIL_VERIFY: '0' } }).register({ email, password, sync: await sealText(code, password), ip: '127.0.0.1' });
 const port = 8968;
 const base = `http://127.0.0.1:${port}`;
-const server = spawn(process.execPath, ['server/index.mjs'], { env: { ...process.env, PORT: String(port), DATA_DIR: dir,
+const server = spawn(process.execPath, ['server/index.mjs'], { env: { ...process.env, PORT: String(port), DATA_DIR: dir, FREE_DAILY_IP: '100',
   EMAIL_VERIFY: '0', UPSTASH_REDIS_REST_URL: '', UPSTASH_REDIS_REST_TOKEN: '', AI_API_KEY: '' }, stdio: 'ignore' });
 let browser;
 const login = async (page, pass = password) => {

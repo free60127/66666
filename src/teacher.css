@@ -403,3 +403,5 @@ td a {
 .teacher-hw-missing { font-size: 12.5px; color: #8a5a00; background: rgba(240, 173, 78, .12); border-radius: 6px; padding: 6px 9px; }
 .teacher-hw-missing.ok { color: #127c3e; background: rgba(23, 160, 88, .1); }
 .teacher-hw-missing button { margin-left: 6px; }
+.teacher-site-footer { padding: 12px; text-align: center; font-size: 12px; }
+.teacher-site-footer a { color: #5f6b78; }

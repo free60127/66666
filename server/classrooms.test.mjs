@@ -10,7 +10,7 @@ const kv = {
   async del(k) { entries.delete(k); },
   async incrBy(k, n) { const value = Number(entries.get(k) || 0) + n; entries.set(k, String(value)); return value; },
 };
-const accounts = createAccounts({ kv, mail: async () => ({ ok: true }) });
+const accounts = createAccounts({ kv, env: { EMAIL_VERIFY: '0' }, mail: async () => ({ ok: true }) });
 const jobs = new Map();
 const rooms = createClassrooms({ kv, accounts, findJob: async (id) => jobs.get(id), lessonLookup: (book, no) => book === 10 && no === 1 ? { title_cn: '内置第一课', chinese: '内置中文', english: 'Builtin English' } : null });
 

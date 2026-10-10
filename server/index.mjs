@@ -9,10 +9,11 @@ import { MAX_DRILL_COUNT, MAX_DRILL_POINTS, MAX_GRADE_ITEMS } from './limits.mjs
 import { sanitizeGrades, sanitizeQuestions } from './questionShape.mjs';
 import { createGradeReader, finalizeGrades } from './gradeStream.mjs';
 import { createResultReader, finalizeResult, SEGMENT_LABEL, usableOverall } from './analyzeStream.mjs';
-import { recognizeImage } from './ocr.mjs';
+import { recognizeImage, validateImage } from './ocr.mjs';
 import { MAX_SNAPSHOT_BYTES, createSyncStore } from './sync.mjs';
 import { createAccountData, openLegacySync } from './account-data.mjs';
-import { createUpstashKv, createFileKv, rateLimit } from './kv.mjs';
+import { createUpstashKv, createFileKv } from './kv.mjs';
+import { usageDay, reserveDailyQuota } from './usage.mjs';
 import { resolveClientIp, trustProxyHops, trustCloudflareHeader } from './client-ip.mjs';
 import { createAccounts } from './accounts.mjs';
 import { createClassrooms } from './classrooms.mjs';
@@ -249,12 +250,11 @@ async function resolveEndpointFor(body) {
       if (k) return { baseUrl: 'https://api.deepseek.com/v1', apiKey: k, classKey: true, keySource: 'class', classId: cid };
     }
   }
-  const ep = resolveEndpoint({ bodyBase: body.baseUrl, bodyKey: body.apiKey, fallbackBase: stat.baseUrl(), fallbackKey: envKey() });
+  const ep = await resolveEndpoint({ bodyBase: body.baseUrl, bodyKey: body.apiKey, fallbackBase: stat.baseUrl(), fallbackKey: envKey() });
   // keySource 供公共额度闸门计数：server = 站点代跑（计额度），own = 学生自带（不限）
-  return { ...ep, keySource: ep.apiKey && ep.apiKey === envKey() ? 'server' : 'own' };
+  return { ...ep, keySource: normalizeApiKey(body.apiKey).key ? 'own' : 'server' };
 }
 
-const usageDay = () => new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
 const posInt = (raw, fallback) => {
   const n = Number(raw);
   return Number.isFinite(n) && n >= 0 && String(raw ?? '').trim() !== '' ? Math.floor(n) : fallback;
@@ -262,16 +262,15 @@ const posInt = (raw, fallback) => {
 /* ---------- 公共额度闸门 ----------
  * 只有「站点 Key 代跑」的请求才消耗公共额度：
  *   登录账号   FREE_DAILY_ACCOUNT 次/日
- *   未登录访客 FREE_DAILY_IP 次/日（按 IP；学校机房共用出口也够用）
+ *   未登录访客 FREE_DAILY_IP 次/日（按 IP；共用出口会共享额度）
  *   班级统一 Key 走教师自己的份额：CLASS_KEY_DAILY 次/班/日
  * 学生自带 Key 完全不计数。全局熔断 DAILY_SERVER_BUDGET 是站点 Key 的全网日上限——
- * 超了全网暂停（保护账单），次日自动恢复。窗口为滚动 24 小时。
+ * 超了全网暂停（保护账单），北京时间次日零点自动恢复。
  * 计数发生在任务创建前：模型调用已产生成本，失败也计入。 */
 const FREE_DAILY_ACCOUNT = posInt(process.env.FREE_DAILY_ACCOUNT, 3);
 const FREE_DAILY_IP = posInt(process.env.FREE_DAILY_IP, 2);
 const DAILY_SERVER_BUDGET = posInt(process.env.DAILY_SERVER_BUDGET, 300);
 const CLASS_KEY_DAILY = posInt(process.env.CLASS_KEY_DAILY, 300);
-const gmt8Day = () => new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
 
 
 /** 今日站点 Key 代跑次数（与闸门用同一个 KV 计数器；读失败按 0 算）。 */
@@ -279,33 +278,6 @@ async function usageToday() {
   try { return Number(await kv.get('bts:quota:global:' + usageDay())) || 0; }
   catch { return 0; }
 }
-
-async function gateServerKeyUsage({ req, ep }) {
-  const day = gmt8Day();
-  // 班级 Key：只受班级日额度约束，不占全网预算
-  if (ep.keySource === 'class') {
-    const r = await rateLimit(kv, `bts:quota:class:${ep.classId}:${day}`, 86400, CLASS_KEY_DAILY);
-    if (r.over) return { blocked: true, status: 429, message: '本班级今日的统一 Key 额度已用完，请联系教师或明天再来' };
-    return { blocked: false, used: r.count, limit: CLASS_KEY_DAILY, pool: 'class' };
-  }
-  if (ep.keySource !== 'server') return { blocked: false, used: 0, limit: 0, pool: 'own' };
-  // 全局熔断：最坏情况的账单上界
-  const g = await rateLimit(kv, `bts:quota:global:${day}`, 86400, DAILY_SERVER_BUDGET);
-  if (g.over) return { blocked: true, status: 429, message: '今日全网免费额度已用完，明日自动恢复；在 ⋮ → AI 设置填自己的 Key 不受此限', pool: 'global' };
-  // 登录账号按账号计；未登录按 IP 计（XFF 已按可信代理层数解析）
-  const token = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '');
-  const me = accounts && token ? await accounts.me(token) : null;
-  if (me?.ok) {
-    const r = await rateLimit(kv, `bts:quota:acct:${me.user.id}:${day}`, 86400, FREE_DAILY_ACCOUNT);
-    if (r.over) return { blocked: true, status: 429, message: `今日免费批改额度已用完（${FREE_DAILY_ACCOUNT} 次/日）：明天再来，或在 ⋮ → AI 设置填自己的 Key（不受限）`, used: r.count, limit: FREE_DAILY_ACCOUNT, pool: 'account' };
-    return { blocked: false, used: r.count, limit: FREE_DAILY_ACCOUNT, pool: 'account' };
-  }
-  const ip = clientIp(req);
-  const r2 = await rateLimit(kv, `bts:quota:ip:${ip}:${day}`, 86400, FREE_DAILY_IP);
-  if (r2.over) return { blocked: true, status: 429, message: `今日免费体验次数已用完（${FREE_DAILY_IP} 次/日）：登录账号可获更多额度，或在 ⋮ → AI 设置填自己的 Key（不受限）`, used: r2.count, limit: FREE_DAILY_IP, pool: 'ip' };
-  return { blocked: false, used: r2.count, limit: FREE_DAILY_IP, pool: 'ip' };
-}
-
 
 /* ---------- 限流（内存滑动窗口，按来源 IP） ----------
  * 只是"减速带"：挡脚本批量刷接口，不承担鉴权职责。
@@ -583,7 +555,47 @@ function markJobFailed(jobId, e) {
 const MAX_INFLIGHT_JOBS = Math.max(1, posInt(process.env.MAX_INFLIGHT_JOBS, 4));
 const MAX_QUEUED_JOBS = posInt(process.env.MAX_QUEUED_JOBS, 50);
 let inflightJobs = 0;
+let pendingAdmissions = 0;
 const jobQueue = [];
+
+async function gateServerKeyUsage({ req, ep }) {
+  if (!ep.apiKey) return { blocked: true, status: 400, message: '未配置 AI_API_KEY：请在 AI 设置填写 API Key' };
+  // Reserve capacity while awaiting Redis/auth; concurrent arrivals cannot spend
+  // quota and then discover that the queue was already full.
+  if (inflightJobs + jobQueue.length + pendingAdmissions >= MAX_INFLIGHT_JOBS + MAX_QUEUED_JOBS) {
+    return { blocked: true, status: 503, message: '服务器正忙，请稍后重试；本次未扣除额度' };
+  }
+  pendingAdmissions += 1;
+  let accepted = false;
+  try {
+    if (ep.keySource === 'own') { accepted = true; return { blocked: false }; }
+    const day = usageDay();
+    let pool = 'class';
+    let limit = CLASS_KEY_DAILY;
+    let key = `bts:quota:class:${ep.classId}:${day}`;
+    if (ep.keySource === 'server') {
+      const token = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+      const me = accounts && token ? await accounts.me(token) : null;
+      if (token && !me?.ok) return { blocked: true, status: 401, message: '登录已过期，请重新登录后再试；本次未扣除额度' };
+      pool = me?.ok ? 'account' : 'ip';
+      limit = me?.ok ? FREE_DAILY_ACCOUNT : FREE_DAILY_IP;
+      key = me?.ok ? `bts:quota:acct:${me.user.id}:${day}` : `bts:quota:ip:${clientIp(req)}:${day}`;
+    }
+    const pools = [{ key, limit }];
+    if (ep.keySource === 'server') pools.push({ key: 'bts:quota:global:' + day, limit: DAILY_SERVER_BUDGET });
+    const result = await reserveDailyQuota(kv, pools);
+    if (result.failed) return { blocked: true, status: 503, message: '额度服务暂时不可用，请稍后再试' };
+    if (result.blocked) {
+      const message = result.blocked === 2 ? '今日全网免费额度已用完，明日零点自动恢复；在 AI 设置填自己的 Key 不受此限'
+        : pool === 'class' ? '本班级今日的统一 Key 额度已用完，请联系教师或明天再来'
+          : `今日免费${pool === 'account' ? '额度' : '体验次数'}已用完（${limit} 次/日）：${pool === 'ip' ? '登录账号可获更多额度，或' : '明天再来，或'}在 AI 设置填自己的 Key（不受限）`;
+      return { blocked: true, status: 429, message };
+    }
+    accepted = true;
+    return { blocked: false };
+  } finally { if (!accepted) pendingAdmissions -= 1; }
+}
+
 
 /** 抢一个并发名额（满了就排队；队列满则直接拒绝）。名额在任务结束时**转交**给下一个排队者。 */
 async function acquireJobSlot() {
@@ -599,6 +611,7 @@ function releaseJobSlot() {
 }
 
 function safeRun(name, jobId, fn) {
+  pendingAdmissions -= 1; // Every caller has passed gateServerKeyUsage.
   return acquireJobSlot()
     .then((got) => {
       if (!got) {
@@ -1561,7 +1574,7 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/auth/config') {
       return json(res, 200, { ok: true, enabled: accountsOn, store: kv.kind, durable: kvDurable,
         recoveryEnabled: Boolean((process.env.SMTP_USER && process.env.SMTP_PASS) || process.env.SMTP_TEST_MODE === '1'),
-        emailVerify: emailVerifyRequired });
+        emailVerify: emailVerifyRequired, classKeyDaily: CLASS_KEY_DAILY });
     }
     if (p.startsWith('/api/auth/')) {
       if (!accounts) {
@@ -1740,12 +1753,11 @@ const server = http.createServer(async (req, res) => {
       const style = String(body.style || '生活故事');
       const ep = await resolveEndpointFor(body);
       if (ep.error) return json(res, 400, { error: ep.error });
-      console.error('[dbg] ep =', JSON.stringify({ baseUrl: ep.baseUrl, apiKey: (ep.apiKey || '').slice(0, 12), keySource: ep.keySource, classKey: ep.classKey }));
-      const gate = await gateServerKeyUsage({ req, ep });
-      if (gate.blocked) return json(res, gate.status, { error: gate.message });
       const model = ep.classKey ? 'deepseek-chat' : String(body.model || '').trim() || stat.model();
       const { baseUrl, apiKey } = ep;
       if (!apiKey) return json(res, 400, { error: '未配置 AI_API_KEY：请复制 .env.example 为 .env 并填写，或在设置面板填入 API Key' });
+      const gate = await gateServerKeyUsage({ req, ep });
+      if (gate.blocked) return json(res, gate.status, { error: gate.message });
 
       const jobId = randomUUID();
       saveJob({ jobId, kind: 'material', title: '素材：' + topic, status: 'pending', createdAt: Date.now(), data: null, error: null });
@@ -1774,11 +1786,11 @@ const server = http.createServer(async (req, res) => {
       const body = await readBody(req);
       const image = String(body.image || '');
       if (!image) return json(res, 400, { error: '缺少图片（image 字段）' });
+      try { validateImage(image); }
+      catch (error) { return json(res, 400, { error: error.message }); }
 
       const ep = await resolveEndpointFor(body);
       if (ep.error) return json(res, 400, { error: ep.error });
-      const gate = await gateServerKeyUsage({ req, ep });
-      if (gate.blocked) return json(res, gate.status, { error: gate.message });
       const model = ep.classKey ? 'deepseek-chat' : String(body.model || '').trim() || stat.model();
       const { baseUrl, apiKey } = ep;
       // 视觉模型优先级：请求参数 > AI_VISION_MODEL > DeepSeek 路由默认 deepseek-flash > 主模型
@@ -1787,7 +1799,9 @@ const server = http.createServer(async (req, res) => {
         : String(body.visionModel || '').trim() || defaultVisionModel(baseUrl, model);
       const visionEp = ep.classKey && !normalizeApiKey(body.visionApiKey).key ? ep : await resolveEndpoint({
         bodyBase: body.visionBaseUrl,
-        bodyKey: body.visionApiKey || apiKey,
+        // Only caller-supplied keys may authorize a custom destination. Passing
+        // the resolved site key here would let visionBaseUrl exfiltrate it.
+        bodyKey: body.visionApiKey || normalizeApiKey(body.apiKey).key,
         fallbackBase: envVisionBase() || baseUrl,
         fallbackKey: envVisionKey() || apiKey,
       });
@@ -1800,6 +1814,8 @@ const server = http.createServer(async (req, res) => {
         fallbackModel: /deepseek/i.test(visionEp.baseUrl) && visionModel !== DEEPSEEK_VISION_MODEL ? DEEPSEEK_VISION_MODEL : '',
       };
       if (!vision.apiKey) return json(res, 400, { error: '未配置 AI_API_KEY：请复制 .env.example 为 .env 并填写，或在设置面板填入 API Key' });
+      const gate = await gateServerKeyUsage({ req, ep: { ...ep, apiKey: vision.apiKey, keySource: normalizeApiKey(body.visionApiKey).key ? 'own' : ep.keySource } });
+      if (gate.blocked) return json(res, gate.status, { error: gate.message });
 
       const side = body.side === 'chinese' ? 'chinese' : 'english';
       const mode = ['auto', 'handwriting', 'printed'].includes(body.mode) ? body.mode : 'auto';
@@ -1845,10 +1861,10 @@ const server = http.createServer(async (req, res) => {
         if (!items.length) return json(res, 400, { error: '没有需要批改的题目' });
         const ep = await resolveEndpointFor(body);
         if (ep.error) return json(res, 400, { error: ep.error });
-      const gate = await gateServerKeyUsage({ req, ep });
-      if (gate.blocked) return json(res, gate.status, { error: gate.message });
         const model = ep.classKey ? 'deepseek-chat' : String(body.model || '').trim() || stat.model();
         if (!ep.apiKey) return json(res, 400, { error: '未配置 AI_API_KEY：请复制 .env.example 为 .env 并填写，或在设置面板填入 API Key' });
+        const gate = await gateServerKeyUsage({ req, ep });
+        if (gate.blocked) return json(res, gate.status, { error: gate.message });
         const jobId = randomUUID();
         saveJob({ jobId, kind: 'quiz', title: '批改 · ' + items.length + ' 题', status: 'pending', createdAt: Date.now(), data: null, error: null });
         registerJob(jobId);
@@ -1874,11 +1890,11 @@ const server = http.createServer(async (req, res) => {
       const materials = drill ? String(body.materials || '').slice(0, MAX_SMALL_BYTES / 2) : '';
       const ep = await resolveEndpointFor(body);
       if (ep.error) return json(res, 400, { error: ep.error });
-      const gate = await gateServerKeyUsage({ req, ep });
-      if (gate.blocked) return json(res, gate.status, { error: gate.message });
       const model = ep.classKey ? 'deepseek-chat' : String(body.model || '').trim() || stat.model();
       const { baseUrl, apiKey } = ep;
       if (!apiKey) return json(res, 400, { error: '未配置 AI_API_KEY：请复制 .env.example 为 .env 并填写，或在设置面板填入 API Key' });
+      const gate = await gateServerKeyUsage({ req, ep });
+      if (gate.blocked) return json(res, gate.status, { error: gate.message });
 
       const jobId = randomUUID();
       saveJob({ jobId, kind: 'quiz', title: (drill ? '错误训练 · ' : '自测题 · ') + count + ' 题', status: 'pending', createdAt: Date.now(), data: null, error: null });
@@ -1976,11 +1992,11 @@ const server = http.createServer(async (req, res) => {
 
       const ep = await resolveEndpointFor(body);
       if (ep.error) return json(res, 400, { error: ep.error });
-      const gate = await gateServerKeyUsage({ req, ep });
-      if (gate.blocked) return json(res, gate.status, { error: gate.message });
       const model = ep.classKey ? 'deepseek-chat' : String(body.model || '').trim() || stat.model();
       const { baseUrl, apiKey } = ep;
       if (!apiKey) return json(res, 400, { error: '未配置 AI_API_KEY：请复制 .env.example 为 .env 并填写，或在设置面板填入 API Key' });
+      const gate = await gateServerKeyUsage({ req, ep });
+      if (gate.blocked) return json(res, gate.status, { error: gate.message });
 
       const jobId = randomUUID();
       // 删除凭据：分享链接是「可读」能力，不该顺带给出删除权，所以删除要另配一个只发一次的 token。
@@ -2093,7 +2109,7 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, () => {
+server.listen(PORT, process.env.HOST || '0.0.0.0', () => {
   console.log('回译训练工作室后端已启动: http://localhost:' + PORT);
   console.log('模型: ' + stat.model() + ' @ ' + stat.baseUrl() + '  key: ' + (stat.hasKey() ? '已配置' : '未配置'));
   console.log('语料: ' + getCorpus().lessons.length + ' 课');

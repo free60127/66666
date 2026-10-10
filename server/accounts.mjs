@@ -188,12 +188,17 @@ export function createAccounts({ kv, mail, env = process.env, sent, onDelete }) 
       const v = validate({ email, password, nickname });
       if (v.error) return { ok: false, status: 400, error: v.error };
 
+      const rAttempt = await rateLimit(kv, K_RATE('reg:attempt:ip:' + ip), 600, 30);
+      if (rAttempt.failed) return { ok: false, status: 503, error: '服务繁忙，请稍后再试' };
+      if (rAttempt.over) return { ok: false, status: 429, error: '注册尝试太频繁，请稍后再试' };
       // 邮箱验证（EMAIL_VERIFY=0 可关闭，供自托管未配 SMTP 的场景与测试）：
       // 假邮箱注册的账号永远收不到找回密码邮件（等于一次性账号），必须挡在注册这一步。
       if (emailVerifyOn) {
+        const rCode = await rateLimit(kv, K_RATE('verify:attempt:' + v.email), VERIFY_TTL_SEC, 10);
+        if (rCode.failed) return { ok: false, status: 503, error: '服务繁忙，请稍后再试' };
+        if (rCode.over) return { ok: false, status: 429, error: '验证码尝试太多，请 15 分钟后再试' };
         const err = await this.checkRegisterCode(v.email, code);
         if (err) return { ok: false, status: 400, error: err };
-        await kv.del(K_VERIFY(v.email)); // 一码一用，用完即废
       }
 
       const syncEnc = sanitizeSync(sync);
@@ -229,6 +234,7 @@ export function createAccounts({ kv, mail, env = process.env, sent, onDelete }) 
       }
 
       const token = await issueSession(user);
+      if (emailVerifyOn) await kv.del(K_VERIFY(v.email));
       return { ok: true, status: 201, token, user: publicUser(user), sync: syncEnc, classMembers: withClassMembers(user) };
     },
 
@@ -409,14 +415,17 @@ export function createAccounts({ kv, mail, env = process.env, sent, onDelete }) 
      * 与忘记密码同一套基建：CSPRNG 出码 → 只存 SHA-256 哈希 → 15 分钟 TTL。
      * 已注册的邮箱直接明确告知（注册场景直接说比让用户填完整张表才发现重复友好）。 */
     async sendRegisterCode({ email, ip }) {
-      const v = validate({ email });
-      if (v.error) return { ok: false, status: 400, error: v.error };
-      const e = v.email;
+      const e = String(email || '').trim().toLowerCase();
+      if (!EMAIL_RE.test(e)) return { ok: false, status: 400, error: '邮箱格式不正确' };
       const rEmail = await rateLimit(kv, K_RATE('verify:email:' + e), 3600, 5);
+      if (rEmail.failed) return { ok: false, status: 503, error: '服务繁忙，请稍后再试' };
       if (rEmail.over) return { ok: false, status: 429, error: '该邮箱发送过于频繁，请 1 小时后再试' };
       const rIp = await rateLimit(kv, K_RATE('verify:ip:' + ip), 600, 10);
       if (rIp.failed) return { ok: false, status: 503, error: '服务繁忙，请稍后再试' };
       if (rIp.over) return { ok: false, status: 429, error: '发送太频繁，请稍后再试' };
+      const rGlobal = await rateLimit(kv, K_RATE('verify:global'), 60, 30);
+      if (rGlobal.failed) return { ok: false, status: 503, error: '服务繁忙，请稍后再试' };
+      if (rGlobal.over) return { ok: false, status: 429, error: '系统繁忙，请稍后再试' };
       if (await loadUserByEmail(e)) return { ok: false, status: 409, error: '该邮箱已注册，请直接登录' };
 
       const code = String(randomInt(0, 1000000)).padStart(6, '0');
@@ -440,6 +449,7 @@ export function createAccounts({ kv, mail, env = process.env, sent, onDelete }) 
 
     /** 注册邮箱验证：校验码（第 2 步，register 内部调用）。 */
     async checkRegisterCode(email, code) {
+      if (!/^\d{6}$/.test(String(code || '').trim())) return '请填写 6 位邮箱验证码';
       const e = String(email || '').trim().toLowerCase();
       const stored = readJson(await kv.get(K_VERIFY(e)));
       if (!stored) return '验证码已过期或未发送，请重新获取';

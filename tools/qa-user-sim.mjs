@@ -4,6 +4,10 @@
  * 与 qa-probe-mobile-desktop.mjs 的几何检查互补。
  */
 import http from 'node:http';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'bts-user-sim-'));
 import { spawn } from 'node:child_process';
 
 let chromium;
@@ -65,7 +69,7 @@ if (!LIVE) {
   });
   await new Promise((resolve) => mock.listen(MOCK_PORT, '127.0.0.1', resolve));
   server = spawn(process.execPath, ['server/index.mjs'], {
-    env: { ...process.env, PORT: String(PORT), AI_BASE_URL: `http://127.0.0.1:${MOCK_PORT}/v1`, AI_API_KEY: 'mock-sim', ALLOW_PRIVATE_BASE_URL: '1' },
+    env: { ...process.env, PORT: String(PORT), DATA_DIR: dataDir, UPSTASH_REDIS_REST_URL: '', UPSTASH_REDIS_REST_TOKEN: '', EMAIL_VERIFY: '0', FREE_DAILY_IP: '100', DAILY_SERVER_BUDGET: '300', AI_BASE_URL: `http://127.0.0.1:${MOCK_PORT}/v1`, AI_API_KEY: 'mock-sim', ALLOW_PRIVATE_BASE_URL: '1' },
     stdio: 'ignore',
   });
   let ready = false;
@@ -412,8 +416,12 @@ try {
   }
 } finally {
   await browser.close();
-  server?.kill();
-  mock?.close();
+  if (server) {
+    const exited = server.exitCode === null ? new Promise((resolve) => server.once('exit', resolve)) : Promise.resolve();
+    server.kill(); await exited;
+  }
+  if (mock) await new Promise((resolve) => mock.close(resolve));
+  fs.rmSync(dataDir, { recursive: true, force: true });
 }
 
 const failed = results.filter((result) => !result.pass);

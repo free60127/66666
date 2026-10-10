@@ -89,18 +89,16 @@ console.log('=== 资源保护回归测试 ===\n');
   const submit = () => fetch(`http://127.0.0.1:${PORT}/api/analyze`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ title: 't', chinese: '中文', draft: 'draft' }),
-  }).then((r) => r.json());
+  }).then(async (r) => ({ ...await r.json(), httpStatus: r.status }));
 
   const first = await submit();
   await sleep(300);                       // 让第 1 个任务真正跑起来（它要 2.5 秒才结束）
   const second = await submit();
-  check('两个任务都被受理（拒绝发生在执行阶段，接口本身仍是异步的）',
-    Boolean(first.jobId) && Boolean(second.jobId), `${first.jobId ? 'ok' : first.error} / ${second.jobId ? 'ok' : second.error}`);
+  check('队列满时直接拒绝，不创建任务或消耗额度',
+    Boolean(first.jobId) && !second.jobId && second.httpStatus === 503, `${first.jobId ? 'ok' : first.error} / ${second.error}`);
 
   const readJob = async (id) => (await (await fetch(`http://127.0.0.1:${PORT}/api/analyze/${id}`)).json()).job;
-  const secondJob = await readJob(second.jobId);
-  check('超出并发的任务被明确判失败，而不是排队堆内存', secondJob.status === 'error' && /正忙|繁忙/.test(secondJob.error || ''),
-    `${secondJob.status}: ${String(secondJob.error || '').slice(0, 40)}`);
+  check('繁忙提示说明没有扣额度', /正忙|繁忙/.test(second.error || '') && /未扣除额度/.test(second.error || ''), second.error);
   check('被拒的任务没有真的打到模型接口（省下的就是钱和内存）', mockHits <= 1, `mockHits=${mockHits}`);
 
   // 第 1 个任务跑完后名额要释放出来，不能把后续请求永久卡住

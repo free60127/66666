@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { api, authBecomeTeacher, authLogin, authMe, authTeacherRegister } from './api.js';
+import { api, authBecomeTeacher, authLogin, authMe, authTeacherRegister, getAuthConfig, authSendRegisterCode } from './api.js';
 import { clearAccount, loadAccount, saveAccount, signOut } from './account.js';
 import { TeacherCorpusPanel, TeacherHomeworkPanel, TeacherStatsPanel, TeacherTeamPanel } from './components/TeacherExtensions.jsx';
 import './teacher.css';
@@ -22,7 +22,9 @@ function TeacherApp() {
   const [account, setAccount] = useState(null);
   const [ready, setReady] = useState(false);
   const [authMode, setAuthMode] = useState('login');
-  const [authForm, setAuthForm] = useState({ email: '', password: '', nickname: '' });
+  const [authForm, setAuthForm] = useState({ email: '', password: '', nickname: '', code: '' });
+  const [authConfig, setAuthConfig] = useState(null);
+  const [codeCooldown, setCodeCooldown] = useState(0);
   const [classes, setClasses] = useState([]);
   const [selectedId, setSelectedId] = useState('');
   const [detail, setDetail] = useState(null);
@@ -37,6 +39,13 @@ function TeacherApp() {
   const token = account?.token || '';
 
   useEffect(() => {
+    if (!codeCooldown) return;
+    const timer = setTimeout(() => setCodeCooldown((value) => value - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [codeCooldown]);
+
+  useEffect(() => {
+    getAuthConfig().then(setAuthConfig).catch(() => setMessage('无法读取注册设置，请刷新后重试'));
     const saved = loadAccount();
     if (!saved) { setReady(true); return; }
     authMe(saved.token).then((r) => {
@@ -167,12 +176,21 @@ function TeacherApp() {
   return <div className="teacher-app">
     <header className="teacher-top"><div><strong>回译本 · 教师后台</strong><span>班级练习与成绩</span></div><nav><a href={import.meta.env.BASE_URL}>学生端</a>{account && <button disabled={busy} onClick={() => act(async () => { await signOut(account.token); setAccount(null); setClasses([]); setSelectedId(''); })}>退出登录</button>}</nav></header>
     {message && <div className="teacher-notice" role="status">{message}<button aria-label="关闭提示" onClick={() => setMessage('')}>×</button></div>}
-    {!account ? <main className="teacher-auth card"><h1>{authMode === 'register' ? '注册教师账号' : '教师登录'}</h1><p>教师注册开放。学生无需注册，在学生端输入邀请码即可加入。</p>
+    {!account ? <main className="teacher-auth card"><h1>{authMode === 'register' ? '注册教师账号' : '教师登录'}</h1><p>教师注册开放。学生登录后加入班级，可在不同设备恢复学习数据。</p>
       <form onSubmit={signIn}>
         {authMode === 'register' && <label>称呼<input required maxLength={20} value={authForm.nickname} onChange={(e) => setAuthForm({ ...authForm, nickname: e.target.value })} /></label>}
         <label>邮箱<input required type="email" autoComplete="email" value={authForm.email} onChange={(e) => setAuthForm({ ...authForm, email: e.target.value })} /></label>
+        {authMode === 'register' && authConfig?.emailVerify && <>
+          <button type="button" disabled={busy || codeCooldown > 0 || !authForm.email.trim()} onClick={() => act(async () => {
+            const response = await authSendRegisterCode(authForm.email);
+            if (!response.ok) throw new Error(response.data?.error || '验证码发送失败');
+            setCodeCooldown(60);
+            setMessage('验证码已发送，请检查邮箱（含垃圾邮件），15 分钟内有效。');
+          })}>{codeCooldown ? `${codeCooldown} 秒后重发` : '获取注册验证码'}</button>
+          <label>邮箱验证码<input required inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} value={authForm.code} onChange={(e) => setAuthForm({ ...authForm, code: e.target.value })} /></label>
+        </>}
         <label>密码<input required type="password" minLength={8} autoComplete={authMode === 'register' ? 'new-password' : 'current-password'} value={authForm.password} onChange={(e) => setAuthForm({ ...authForm, password: e.target.value })} /></label>
-        <button className="teacher-primary" disabled={busy}>{busy ? '请稍候…' : authMode === 'register' ? '注册并进入' : '登录'}</button>
+        <button className="teacher-primary" disabled={busy || (authMode === 'register' && !authConfig)}>{busy ? '请稍候…' : authMode === 'register' ? '注册并进入' : '登录'}</button>
       </form><button className="teacher-link" onClick={() => setAuthMode(authMode === 'register' ? 'login' : 'register')}>{authMode === 'register' ? '已有账号？登录' : '没有账号？开放注册'}</button>
     </main> : account.user.role !== 'teacher' ? <main className="teacher-auth card"><h1>启用教师身份</h1><p>已登录 {account.user.email}。启用后即可建立班级，原有学习数据照常保留。</p><button className="teacher-primary" disabled={busy} onClick={becomeTeacher}>启用教师身份</button></main> :
       <main className="teacher-layout"><aside className="teacher-sidebar card"><h2>我的班级</h2><form onSubmit={createClass} className="teacher-create"><input aria-label="新班级名称" placeholder="如：高一 3 班" maxLength={40} required value={newName} onChange={(e) => setNewName(e.target.value)} /><button disabled={busy}>建班</button></form>
@@ -183,6 +201,7 @@ function TeacherApp() {
         {classKeyOpen && <form className="card teacher-key-panel" onSubmit={saveClassKey}>
           <h2>班级统一 AI Key</h2>
           <p className="teacher-muted">填写教师自己的 DeepSeek API Key。班内学生不用配置 Key 即可批改；学生自备 Key 时优先使用学生的。用量和费用由教师的 DeepSeek 账号承担。</p>
+          {authConfig?.classKeyDaily != null && <p className="teacher-muted">全班每日合计最多 {authConfig.classKeyDaily} 次 AI 任务，北京时间零点重置。批改、识别、素材和自测共用次数。</p>}
           <label>DeepSeek API Key<input type="password" autoComplete="off" value={classKeyDraft} onChange={(event) => setClassKeyDraft(event.target.value)} placeholder={detail.hasClassKey ? '已配置；输入新 Key 可替换' : 'sk-…'} maxLength={200} /></label>
           <div className="teacher-actions"><button className="teacher-primary" disabled={busy || !classKeyDraft.trim()}>保存 Key</button>{detail.hasClassKey && <button type="button" className="teacher-danger" disabled={busy} onClick={clearClassKey}>清除已有 Key</button>}<button type="button" onClick={() => { setClassKeyOpen(false); setClassKeyDraft(''); }}>取消</button></div>
         </form>}
@@ -198,6 +217,7 @@ function TeacherApp() {
         {tab === 'stats' && <TeacherStatsPanel detail={detail} />}
         {tab === 'team' && <TeacherTeamPanel detail={detail} token={token} user={account.user} request={classRequest} onChanged={reloadDetail} onError={setMessage} />}
       </>}</section></main>}
+    <footer className="teacher-site-footer"><a href="https://beian.miit.gov.cn/" target="_blank" rel="noreferrer">辽ICP备2026023090号</a></footer>
   </div>;
 }
 

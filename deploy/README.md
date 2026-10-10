@@ -95,13 +95,23 @@ curl -I https://huiyiben.cn/                 # 200
 
 ## 六、环境变量说明（deploy/env.example）
 
+阿里云的 nginx 单层反代必须同时设置 `HOST=127.0.0.1`、`TRUST_PROXY_HOPS=1`。
+8787 只在本机监听，外网通过 80/443 访问；否则所有用户可能共用代理 IP 的免费额度，或直连后端伪造转发头绕过限流。
+修改后重启 `bts`，用 `ss -lntp` 核对监听地址，并查看 `/api/status` 的 `rateLimit.trustProxyHops`。
+
+免费 AI 配额由 `FREE_DAILY_ACCOUNT`（默认 3）、`FREE_DAILY_IP`（默认 2）、
+`DAILY_SERVER_BUDGET`（默认 300）和 `CLASS_KEY_DAILY`（默认 300）控制。
+0 表示禁用该池，北京时间零点重置；个人 Key 不占配额，教师 Key 占班级池。
+这些数字限制任务次数，不等于人民币预算，仍需监控模型平台余额和实际 token 花费。
+公共注册默认启用邮箱验证，必须配置 SMTP；本地隔离测试使用 `EMAIL_VERIFY=0` 或 `SMTP_TEST_MODE=1`。
+
 | 变量 | 必填 | 说明 |
 |---|---|---|
 | `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` | **是** | 云同步/账号/任务持久化全靠它，值和 Render 上的一致，数据无缝衔接 |
-| `SMTP_USER` / `SMTP_PASS` | 否 | 账号找回邮件；不配则邮件找回不可用，其余功能不受影响 |
+| `SMTP_USER` / `SMTP_PASS` | 公共注册必需 | 注册验证码和找回密码；没有邮件服务需显式设 `EMAIL_VERIFY=0` 才能注册 |
 | `PORT` | 否 | 默认 8787，nginx 已按此端口反代，不用改 |
 
-AI Key 不用在服务器配：现在的模式是用户在自己浏览器里配自己的 key（服务器只代理转发）。
+个人可使用自己的 Key，教师可配置班级 Key；提供站点免费额度时需在服务器配置 `AI_API_KEY`，并同时设置每日预算。
 
 ## 七、账号增量同步
 

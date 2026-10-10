@@ -224,21 +224,15 @@ let resetCode = '';
 {
   const box = [];
   const r = await sendMail({
-    to: 'x@example.com', subject: '测试主题', text: '验证码是 12345678',
+    to: 'x@example.com', subject: '测试主题\r\nBcc: attacker@example.com', text: '验证码是 12345678',
     env: { SMTP_TEST_MODE: '1', SMTP_USER: 'a@qq.com' }, sent: box,
   });
   const raw = box[0] && box[0].raw || '';
   check('㊵ 邮件可正常构造（测试模式）', r.ok && box.length === 1);
   check('㊶ 中文主题按 RFC2047 编码、正文 base64',
     /^Subject: =\?UTF-8\?B\?/m.test(raw) && /Content-Transfer-Encoding: base64/.test(raw));
-  check('㊷ 邮件头无换行注入', !/Subject:.*[\r\n]+.*[\r\n]/.test(raw.split('\r\n\r\n')[0].replace(/\r\n(?=[A-Z-]+:)/g, '\n')) || true);
+  check('㊷ 邮件头无换行注入', !/^Bcc:/m.test(raw) && (raw.match(/^Subject:/gm) || []).length === 1);
 }
-
-console.log('\n' + '='.repeat(62));
-const failed = results.filter((r) => !r.ok);
-console.log(failed.length ? `❌ ${failed.length}/${results.length} 项失败` : `✅ 全部 ${results.length} 项通过`);
-try { fs.rmSync(dir, { recursive: true, force: true }); } catch (_) {}
-process.exit(failed.length ? 1 : 0);
 
 /* ---------- 8. 注册邮箱验证（EMAIL_VERIFY=1 的独立实例） ---------- */
 {
@@ -251,7 +245,8 @@ process.exit(failed.length ? 1 : 0);
   const noCode = await acc2.register({ email: email2, password: 'verify-pass-123', nickname: 'V', ip: 'v', code: '' });
   check('⑩ 无验证码注册 → 400', noCode.status === 400, `status=${noCode.status}`);
   // 错误验证码 → 400
-  await acc2.sendRegisterCode({ email: email2, ip: 'v2' });
+  const sending = await acc2.sendRegisterCode({ email: email2, ip: 'v2' });
+  check('发送注册验证码不需要密码', sending.status === 200);
   const badCode = await acc2.register({ email: email2, password: 'verify-pass-123', nickname: 'V', ip: 'v', code: '000000' });
   check('⑪ 错误验证码注册 → 400', badCode.status === 400, `status=${badCode.status}`);
   // 正确验证码 → 成功，且验证码用完即废（存储里也搜不到明文）
@@ -265,5 +260,18 @@ process.exit(failed.length ? 1 : 0);
   const spam = [];
   for (let i = 0; i < 6; i += 1) spam.push((await acc2.sendRegisterCode({ email: 'spam@example.com', ip: 's' })).status);
   check('⑭ 发码限频 → 429', spam.filter((s) => s === 429).length >= 1, spam.join(','));
+  const target = 'brute@example.com';
+  await acc2.sendRegisterCode({ email: target, ip: 'brute-send' });
+  const correct = sent2.at(-1).text.match(/\d{6}/)[0];
+  const wrong = correct === '000000' ? '999999' : '000000';
+  for (let i = 0; i < 10; i++) await acc2.register({ email: target, password: 'verify-pass-123', code: wrong, ip: 'brute-' + i });
+  check('验证码跨 IP 穷举仍受邮箱级上限保护', (await acc2.register({ email: target, password: 'verify-pass-123', code: correct, ip: 'brute-valid' })).status === 429);
+  const broken = createAccounts({ kv: { setNx() { throw new Error('offline'); } }, mail: mail2, env: { EMAIL_VERIFY: '1' } });
+  const before = sent2.length;
+  check('邮箱限流存储故障返回 503，不发送邮件', (await broken.sendRegisterCode({ email: 'offline@example.com', ip: 'off' })).status === 503 && sent2.length === before);
 }
-console.log('✅ 账号体系测试全部通过');
+console.log('\n' + '='.repeat(62));
+const failed = results.filter((r) => !r.ok);
+console.log(failed.length ? `❌ ${failed.length}/${results.length} 项失败` : `✅ 全部 ${results.length} 项通过`);
+try { fs.rmSync(dir, { recursive: true, force: true }); } catch (_) {}
+process.exit(failed.length ? 1 : 0);

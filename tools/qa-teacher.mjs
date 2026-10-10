@@ -20,7 +20,7 @@ const model = http.createServer((_req, res) => {
 });
 await new Promise((resolve) => model.listen(modelPort, '127.0.0.1', resolve));
 const server = spawn(process.execPath, ['server/index.mjs'], {
-  env: { ...process.env, PORT: String(port), DATA_DIR: dir, UPSTASH_REDIS_REST_URL: '', UPSTASH_REDIS_REST_TOKEN: '', AI_BASE_URL: `http://127.0.0.1:${modelPort}/v1`, AI_API_KEY: 'mock-teacher', ALLOW_PRIVATE_BASE_URL: '1' },
+  env: { ...process.env, PORT: String(port), DATA_DIR: dir, EMAIL_VERIFY: '0', FREE_DAILY_IP: '100', UPSTASH_REDIS_REST_URL: '', UPSTASH_REDIS_REST_TOKEN: '', AI_BASE_URL: `http://127.0.0.1:${modelPort}/v1`, AI_API_KEY: 'mock-teacher', ALLOW_PRIVATE_BASE_URL: '1' },
   stdio: 'ignore',
 });
 let browser;

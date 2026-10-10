@@ -23,8 +23,10 @@ const check = (name, ok, detail = '') => {
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-const PORT = 8934;
-const MOCK_PORT = 9884;
+const portProbe = http.createServer();
+await new Promise((resolve) => portProbe.listen(0, '127.0.0.1', resolve));
+const PORT = portProbe.address().port;
+await new Promise((resolve) => portProbe.close(resolve));
 const DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'bt-del-'));
 
 console.log('=== 历史删除测试 ===\n');
@@ -49,24 +51,33 @@ const mock = http.createServer((req, res) => {
     }, 400);
   });
 });
-await new Promise((r) => mock.listen(MOCK_PORT, '127.0.0.1', r));
+await new Promise((r) => mock.listen(0, '127.0.0.1', r));
+const MOCK_PORT = mock.address().port;
 
 /* ---------- 被测服务端 ---------- */
 const env = {
   ...process.env,
   PORT: String(PORT),
+  HOST: '127.0.0.1',
   AI_BASE_URL: `http://127.0.0.1:${MOCK_PORT}/v1`,
   AI_API_KEY: 'mock',
   ALLOW_PRIVATE_BASE_URL: '1',
   DATA_DIR,
 };
-const server = spawn(process.execPath, ['server/index.mjs'], { env, stdio: 'ignore' });
+const server = spawn(process.execPath, ['server/index.mjs'], { env, stdio: ['ignore', 'ignore', 'pipe'] });
+let startupErrors = '';
+server.stderr.on('data', (chunk) => { startupErrors += chunk; });
 let up = false;
 for (let i = 0; i < 50 && !up; i += 1) {
   try { up = (await fetch(`http://127.0.0.1:${PORT}/api/health`)).ok; } catch { /* 还没起来 */ }
   if (!up) await sleep(300);
 }
-if (!up) { console.error('服务端启动超时'); process.exit(1); }
+if (!up) {
+  console.error('服务端启动超时', startupErrors);
+  server.kill(); mock.close();
+  fs.rmSync(DATA_DIR, { recursive: true, force: true });
+  process.exit(1);
+}
 
 const base = `http://127.0.0.1:${PORT}`;
 const j = async (p, opt) => { const r = await fetch(base + p, opt); return { status: r.status, body: await r.json().catch(() => ({})) }; };
@@ -141,6 +152,7 @@ try {
   server.kill();
   mock.close();
   await sleep(200);
+  fs.rmSync(DATA_DIR, { recursive: true, force: true });
 }
 
 /* ---------- 汇总 ---------- */

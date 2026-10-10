@@ -17,6 +17,9 @@ function decodeImage(dataUrl) {
   return { buf, mime };
 }
 
+/** Validate locally before reserving a daily quota or creating a background job. */
+export function validateImage(dataUrl) { decodeImage(dataUrl); }
+
 /** 清理模型输出：去代码块围栏、去“识别结果：”前缀、统一空白与空行 */
 export function tidyOcrText(text) {
   let t = String(text || '').replace(/\r\n?/g, '\n');

@@ -15,7 +15,7 @@ const kv = createFileKv(path.join(dir, 'kv'));
 const oldStore = createFileStore(path.join(dir, 'sync'));
 const store = createFileStore(path.join(dir, 'user-data'));
 const sent = [];
-const accounts = createAccounts({ kv, mail: async (mail) => { sent.push(mail); return { ok: true }; } });
+const accounts = createAccounts({ kv, env: { EMAIL_VERIFY: '0' }, mail: async (mail) => { sent.push(mail); return { ok: true }; } });
 const password = 'migration-pass-123';
 const code = 'c'.repeat(32);
 const fixture = { ...emptySnapshot(), libraries: [{ id: 'lib-1', name: '我的分组库', createdAt: 1, sections: ['第一组', '空组'], sectionsUpdatedAt: 100,
@@ -27,7 +27,7 @@ await accounts.register({ email: 'old@example.com', password, sync: await sealTe
 const port = 8957;
 const base = `http://127.0.0.1:${port}`;
 const child = spawn(process.execPath, ['server/index.mjs'], { env: { ...process.env, PORT: String(port), DATA_DIR: dir,
-  UPSTASH_REDIS_REST_URL: '', UPSTASH_REDIS_REST_TOKEN: '', SMTP_TEST_MODE: '1' }, stdio: 'ignore' });
+  UPSTASH_REDIS_REST_URL: '', UPSTASH_REDIS_REST_TOKEN: '', SMTP_TEST_MODE: '1', EMAIL_VERIFY: '0' }, stdio: 'ignore' });
 const request = async (url, body, token) => {
   const r = await fetch(base + url, { method: body === undefined ? 'GET' : 'POST', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
   return { status: r.status, ...await r.json() };

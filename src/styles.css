@@ -1241,5 +1241,5 @@ mark.hl { background: #ffe3e3; color: inherit; padding: 0 2px; border-radius: 2p
 .goal-skip:hover { color: var(--text); }
 
 /* ICP 备案号（管局要求，侧栏底部小字） */
-.icp { display: block; margin: 10px 2px 0; text-align: center; font-size: 10.5px; color: #5f7787; }
-.icp:hover { color: #9fb3c2; }
+.site-footer { flex: 0 0 auto; padding: 6px 12px max(6px, env(safe-area-inset-bottom)); text-align: center; font-size: 12px; background: var(--bg); }
+.site-footer a { color: var(--muted); }
