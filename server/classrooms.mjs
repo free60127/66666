@@ -164,6 +164,43 @@ export function createClassrooms({ kv, accounts, findJob, lessonLookup }) {
       const validStudents = students.filter(Boolean);
       return ok({ class: room, students: validStudents.map(({ studentKey: _secret, ...publicData }) => publicData), homeworks: titledHomeworks(homeworks), corpus, teachers: teachers.filter(Boolean), mistakeStats: aggregateMistakes(validStudents), hasClassKey: Boolean(await kv.get(apiKeyKey(id))) });
     },
+    async exportHomework(token, id, hwId) {
+      // Reuse the same owner/collaborator authorization as the teacher dashboard.
+      const detail = await this.detail(token, id);
+      if (!detail.ok) return detail;
+      const homework = detail.homeworks.find((hw) => hw.id === hwId);
+      if (!homework) return fail(404, '作业不存在');
+      const selected = detail.students.flatMap((student) => {
+        const sub = (student.subs || []).filter((s) => s.hwId === hwId).sort((a, b) => b.at - a.at)[0];
+        return sub ? [{ student, sub }] : [];
+      });
+      const reports = new Array(selected.length);
+      let next = 0;
+      // A class has at most 60 students. Bound reads rather than firing 60 KV requests at once.
+      await Promise.all(Array.from({ length: Math.min(4, selected.length) }, async () => {
+        while (next < selected.length) {
+          const index = next++;
+          const { student, sub } = selected[index];
+          const entry = { name: student.name, studentNo: student.studentNo, jobId: sub.jobId,
+            score: sub.score, at: sub.at, late: Boolean(sub.late) };
+          try {
+            const job = await findJob(sub.jobId);
+            if (!job || job.kind !== 'analyze' || job.status !== 'done' || !job.data) {
+              reports[index] = { ...entry, error: '批改结果已删除或暂不可用' };
+              continue;
+            }
+            // No tokens/keys/job metadata, and only this class's teacher comment.
+            const teacherComments = sub.teacherComment?.text
+              ? [{ className: detail.class.name, ...sub.teacherComment }] : [];
+            reports[index] = { ...entry, result: { ...job.data, teacherComments } };
+          } catch {
+            reports[index] = { ...entry, error: '读取批改结果失败，请稍后重试' };
+          }
+        }
+      }));
+      return ok({ className: detail.class.name, homework: { id: homework.id, title: homework.title },
+        unsubmitted: detail.students.length - selected.length, reports });
+    },
     async addTeacher(token, id, email) {
       const access = await owner(token, id);
       if (access.error) return access.error;

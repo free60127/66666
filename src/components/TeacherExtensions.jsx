@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { getLessons, getStatus } from '../api.js';
 
 const localDateTime = (value) => {
@@ -14,7 +14,38 @@ export function TeacherHomeworkPanel({ detail, token, request, onChanged, onErro
   const [books, setBooks] = useState([]);
   const [lessons, setLessons] = useState([]);
   const [catalogBusy, setCatalogBusy] = useState(false);
+  const [exporting, setExporting] = useState(null);
+  const exportRef = useRef(null);
+  useEffect(() => () => {
+    if (exportRef.current) exportRef.current.cancelled = true;
+    exportRef.current = null;
+  }, []);
   const room = detail.class;
+  const exportHomework = async (hw) => {
+    if (exportRef.current) return;
+    const operation = { cancelled: false };
+    exportRef.current = operation;
+    const progress = (label) => { if (!operation.cancelled) setExporting({ id: hw.id, label }); };
+    progress('读取已提交作业…');
+    try {
+      const data = await request('/' + room.id + '/homeworks/' + hw.id + '/export', token);
+      if (operation.cancelled) return;
+      if (!data.reports?.length) throw new Error('这次作业还没有学生提交');
+      progress('准备 PDF 和中文字体…');
+      const { buildHomeworkArchive, downloadArchive } = await import('../homeworkPdf.js');
+      if (operation.cancelled) return;
+      const archive = await buildHomeworkArchive(data, {
+        cancelled: () => operation.cancelled,
+        onProgress: (done, total) => progress(`生成 PDF：${done}/${total}`),
+      });
+      if (operation.cancelled) return;
+      downloadArchive(archive);
+      onError(`已打包 ${archive.count} 份 PDF，每名学生保留最近一次提交。${archive.failures.length ? ` ${archive.failures.length} 份导出失败，原因已放入压缩包中的失败名单。` : ''}${data.unsubmitted ? ` ${data.unsubmitted} 名学生尚未提交。` : ''}`);
+    } catch (error) { if (!operation.cancelled) onError(error.message || 'PDF 导出失败，请重试'); }
+    finally {
+      if (exportRef.current === operation) { exportRef.current = null; setExporting(null); }
+    }
+  };
   useEffect(() => {
     if (form.type !== 'builtin') return;
     let active = true;
@@ -80,7 +111,12 @@ export function TeacherHomeworkPanel({ detail, token, request, onChanged, onErro
         <div className="teacher-hw-inner"><p>{hw.type === 'builtin' ? `内置课文：${hw.lessonTitle || `第 ${hw.book} 库 · 第 ${hw.lessonNo} 课`}` : hw.type === 'shared' ? '班级共享课文' : '自由题目'} · {hw.prompt.slice(0, 100)}{hw.prompt.length > 100 ? '…' : ''}</p>
           {!missing.length ? <p className="teacher-hw-missing ok">全班都已提交。</p>
             : <p className="teacher-hw-missing">未交（{missing.length} 人）：{missing.map((s) => s.name).join('、')} <button type="button" onClick={copyMissing}>复制名单</button></p>}
-          <button type="button" disabled={busy} onClick={() => toggleClosed(hw)}>{hw.closedAt ? '重新开放' : '结束收集'}</button>
+          <div className="teacher-actions">
+            <button type="button" disabled={busy} onClick={() => toggleClosed(hw)}>{hw.closedAt ? '重新开放' : '结束收集'}</button>
+            <button type="button" disabled={busy || Boolean(exporting) || !completed} onClick={() => exportHomework(hw)}>{exporting?.id === hw.id ? '正在导出…' : '批量下载 PDF'}</button>
+            {exporting?.id === hw.id && <button type="button" disabled={exporting.label === '正在取消…'} onClick={() => { if (exportRef.current) exportRef.current.cancelled = true; setExporting({ id: hw.id, label: '正在取消…' }); }}>取消导出</button>}
+          </div>
+          <p className="teacher-muted teacher-export-tip" role={exporting?.id === hw.id ? 'status' : undefined}>{exporting?.id === hw.id ? exporting.label : '下载 ZIP：每名学生最近一次提交，PDF 按“姓名_分数_提交年月日”命名。'}</p>
           <div className="teacher-scroll"><table><thead><tr><th>学生</th><th>学号</th><th>状态</th><th>最近成绩</th><th>结果</th></tr></thead><tbody>{detail.students.map((student) => {
             const sub = student.subs.filter((entry) => entry.hwId === hw.id).sort((a, b) => b.at - a.at)[0];
             return <tr key={student.studentNo}><td>{student.name}</td><td>{student.studentNo}</td><td>{sub ? sub.late ? '迟交' : '已完成' : '未完成'}</td><td>{sub?.score ?? '—'}</td><td>{sub && <a href={resultUrl(sub.jobId)} target="_blank" rel="noreferrer">查看批改</a>}</td></tr>;

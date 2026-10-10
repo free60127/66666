@@ -212,7 +212,7 @@ function TeacherApp() {
           {commentTarget && <form className="teacher-comment-form" onSubmit={saveComment}><h3>给 {commentTarget.name} 的「{commentTarget.title}」写评语</h3><textarea value={commentText} maxLength={1000} onChange={(event) => setCommentText(event.target.value)} placeholder="写给学生的具体建议" /><div className="teacher-actions"><button className="teacher-primary" disabled={busy}>保存评语</button><button type="button" onClick={() => setCommentTarget(null)}>取消</button></div></form>}
         </div>
         </>}
-        {tab === 'homework' && <TeacherHomeworkPanel detail={detail} token={token} request={classRequest} onChanged={reloadDetail} onError={setMessage} resultUrl={resultUrl} />}
+        {tab === 'homework' && <TeacherHomeworkPanel key={detail.class.id} detail={detail} token={token} request={classRequest} onChanged={reloadDetail} onError={setMessage} resultUrl={resultUrl} />}
         {tab === 'corpus' && <TeacherCorpusPanel detail={detail} token={token} request={classRequest} onChanged={reloadDetail} onError={setMessage} />}
         {tab === 'stats' && <TeacherStatsPanel detail={detail} />}
         {tab === 'team' && <TeacherTeamPanel detail={detail} token={token} user={account.user} request={classRequest} onChanged={reloadDetail} onError={setMessage} />}

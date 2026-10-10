@@ -1665,6 +1665,11 @@ const server = http.createServer(async (req, res) => {
         else if (action === 'teachers' && req.method === 'POST') result = await classrooms.addTeacher(token, classId, body.email);
         else if (/^teachers\/[a-f0-9]{32}$/.test(action) && req.method === 'DELETE') result = await classrooms.removeTeacher(token, classId, action.split('/')[1]);
         else if (action === 'homeworks' && req.method === 'POST') result = await classrooms.createHomework(token, classId, body);
+        else if (/^homeworks\/[a-f0-9]{24}\/export$/.test(action) && req.method === 'GET') {
+          if (rateLimited(req, 'homework-export', 10)) return json(res, 429, { error: '导出过于频繁，请稍后重试' });
+          res.setHeader('Cache-Control', 'no-store');
+          result = await classrooms.exportHomework(token, classId, action.split('/')[1]);
+        }
         else if (/^homeworks\/[a-f0-9]{24}$/.test(action) && req.method === 'POST') result = await classrooms.updateHomework(token, classId, action.split('/')[1], body);
         else if (action === 'corpus' && req.method === 'POST') result = await classrooms.saveCorpusLesson(token, classId, null, body);
         else if (/^corpus\/[a-f0-9]{24}$/.test(action) && req.method === 'POST') result = await classrooms.saveCorpusLesson(token, classId, action.split('/')[1], body);

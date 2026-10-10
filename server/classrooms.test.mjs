@@ -107,9 +107,39 @@ assert.equal((await rooms.submit({ classId: advanced.id, studentKey: pupil.stude
 assert.equal((await rooms.comment(other.token, advanced.id, { studentNo: '302', jobId: job2, comment: '注意 look for 的搭配。' })).status, 200);
 assert.equal((await rooms.comments(job2))[0].text, '注意 look for 的搭配。');
 assert.equal((await rooms.studentDashboard(advanced.id, pupil.studentKey)).student.subs[0].teacherComment.text, '注意 look for 的搭配。');
+// Export the latest submission for this homework only, authorized as owner/collaborator.
+const latestJob = '82345678-1234-1234-1234-123456789abc';
+const latestResult = { jobId: latestJob, kind: 'analyze', status: 'done', deleteToken: 'never-export-this',
+  prompt: homework.prompt, direction: 'cn2en', createdAt: homework.createdAt + 3, finishedAt: Date.now() + 10000,
+  data: { title: '最近提交', overall: { score: 92 }, draft: 'My latest answer.' } };
+jobs.set(latestJob, latestResult);
+assert.equal((await rooms.submit({ ...workSubmission, jobId: latestJob, deleteToken: 'never-export-this' })).ok, true);
+await rooms.comment(other.token, advanced.id, { studentNo: '302', jobId: latestJob, comment: '最新评语' });
+await rooms.join({ code: advanced.inviteCode, name: '未交学生', studentNo: '303', ip: 'export-missing' });
+assert.equal((await rooms.exportHomework('', advanced.id, homework.id)).status, 403);
+assert.equal((await rooms.exportHomework(teacher.token, advanced.id, 'f'.repeat(24))).status, 404);
+assert.equal((await rooms.exportHomework(teacher.token, 'f'.repeat(32), homework.id)).status, 404);
+const exported = await rooms.exportHomework(other.token, advanced.id, homework.id);
+assert.equal(exported.reports.length, 1);
+assert.equal(exported.unsubmitted, 1);
+assert.equal(exported.reports[0].jobId, latestJob);
+assert.equal(exported.reports[0].score, 92);
+assert.equal(exported.reports[0].result.draft, 'My latest answer.');
+assert.equal(exported.reports[0].result.teacherComments[0].text, '最新评语');
+assert.equal(JSON.stringify(exported).includes('never-export-this'), false);
+assert.equal(JSON.stringify(exported).includes(pupil.studentKey), false);
+assert.equal(JSON.stringify(exported).includes('sk-class-test'), false);
+assert.equal((await rooms.exportHomework(teacher.token, advanced.id, builtinHomework.id)).reports.length, 0);
+jobs.delete(latestJob);
+const deletedExport = await rooms.exportHomework(teacher.token, advanced.id, homework.id);
+assert.equal(deletedExport.reports[0].jobId, latestJob);
+assert.ok(deletedExport.reports[0].error);
+assert.equal(deletedExport.reports[0].result, undefined); // Never silently substitute an older result.
+jobs.set(latestJob, latestResult);
 assert.equal((await rooms.updateHomework(teacher.token, advanced.id, homework.id, { closed: true })).homework.closedAt > 0, true);
 assert.equal((await rooms.removeTeacher(teacher.token, advanced.id, other.user.id)).status, 200);
 assert.equal((await rooms.detail(other.token, advanced.id)).status, 404);
+assert.equal((await rooms.exportHomework(other.token, advanced.id, homework.id)).status, 404);
 assert.equal((await rooms.removeTeacher(teacher.token, advanced.id, teacher.user.id)).status, 400);
 assert.equal((await rooms.addTeacher(teacher.token, advanced.id, other.user.email)).status, 200);
 assert.equal((await rooms.list(other.token)).classes.filter((room) => room.id === advanced.id).length, 1);
@@ -123,4 +153,5 @@ assert.equal(await rooms.classKey(advanced.id), '');
 assert.equal((await rooms.saveApiKey(teacher.token, advanced.id, 'sk-new')).status, 400);
 assert.equal((await rooms.updateHomework(teacher.token, advanced.id, homework.id, { title: '归档后改名' })).status, 400);
 assert.equal((await rooms.removeCorpusLesson(teacher.token, advanced.id, 'a'.repeat(24))).status, 400);
+assert.equal((await rooms.exportHomework(teacher.token, advanced.id, homework.id)).reports.length, 1);
 console.log('✅ 教师班级阶段 1–3：权限、邀请、作业、共享语料、协作教师、评语、错题汇总测试通过');
