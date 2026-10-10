@@ -8,11 +8,12 @@ import { favFromExpression, favFromIdiom } from '../../src/favorites.js';
 import { buildLocalQuiz, favoritesToQuizPoints } from '../../src/quiz.js';
 import { gradingMode } from '../../src/quizGrade.js';
 import { sanitizeQuestions } from '../../server/questionShape.mjs';
-import { SpeakButton } from '../../src/components/ResultSheet/bits.jsx';
+import { SpeakButton, Phonetic } from '../../src/components/ResultSheet/bits.jsx';
+import * as api from '../../src/api.js';
 import { ResultSheet } from '../../src/components/ResultSheet/index.jsx';
 import { SummaryBlock } from '../../src/components/ResultSheet/cards.jsx';
 
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 const scores = () => ({ score: 100, scoreBreakdown: EN2CN_DIMENSIONS.map((label) => ({ label, score: EN2CN_MAX[label], max: EN2CN_MAX[label], deductions: [] })) });
 const data = () => ({ direction: 'en2cn', title: '测试', chinese: 'Fewer than one in five residents use it.', draft: '五分之一以上的居民使用它。', overall: scores(),
@@ -123,6 +124,14 @@ describe('中文收藏与作答', () => {
 });
 
 describe('结果显示和朗读', () => {
+  it('中文词条不请求或显示英文音标，切换英文词条仍可查询', async () => {
+    const lookup = vi.spyOn(api, 'getPhonetic').mockResolvedValue({ phonetic: '/ˈlaɪbrəri/' });
+    const view = render(<Phonetic word="图书馆" phonetic="错误音标" />);
+    expect(lookup).not.toHaveBeenCalled(); expect(view.container.textContent).toBe('');
+    view.rerender(<Phonetic word="library" />);
+    expect(await screen.findByText('/ˈlaɪbrəri/')).toBeTruthy();
+    expect(lookup).toHaveBeenCalledWith('library');
+  });
   it('只有表达建议的结果明确显示零错漏，流式评分暂不展示', () => {
     const result = { ...data(), draft: '不到五分之一的居民使用它。', sentences: [{ findings: Array.from({ length: 6 }, () => ({ level: 'improve', from: '使用', to: '利用', category: '表达' })) }] };
     render(<ResultSheet result={result} history={[]} streaming={{ active: true }} />);

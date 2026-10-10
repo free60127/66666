@@ -188,8 +188,10 @@ export function persistPhonetic() {
 export function Phonetic({ word, phonetic }) {
   const given = String(phonetic || '').trim();
   const key = String(word || '').trim().toLowerCase();
+  const english = /[a-z]/i.test(key) && !/[\u3400-\u9fff]/.test(key);
   const [value, setValue] = useState(() => given || (key ? (phoneticCacheMap().get(key) || '') : ''));
   useEffect(() => {
+    if (!english) { setValue(''); return undefined; }
     // given 有值时原来直接 return，导致 value 只在挂载时取一次：
     // 列表用下标 key 复用实例时，切换作业/筛选收藏会让音标停留在上一个词上（串词）。
     if (given) { setValue(given); return undefined; }
@@ -205,8 +207,8 @@ export function Phonetic({ word, phonetic }) {
       if (alive) setValue(v);
     }).catch(() => { cache.set(key, ''); });
     return () => { alive = false; };
-  }, [key, given]);
-  if (!value) return null;
+  }, [key, given, english]);
+  if (!english || !value) return null;
   return <span className="phonetic">{value.startsWith('/') ? value : '/' + value + '/'}</span>;
 }
 
