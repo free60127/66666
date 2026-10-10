@@ -10,6 +10,7 @@ import { ArrowLeft, CheckCheck, ClipboardCopy, LoaderCircle, RotateCcw, Star } f
 import { VERDICT_LABEL, answerLetter, gradingMode, optionLabel, optionText } from '../../quizGrade.js';
 import { useQuizGrade } from '../../hooks/useQuizGrade.js';
 import PdfExportButton from '../PdfExportButton.jsx';
+import { answerLanguage } from '../../learningLanguage.js';
 
 const BY_LABEL = { local: '本地判定', ai: 'AI 批改', self: '自评' };
 
@@ -113,7 +114,7 @@ function QuizSheetImpl({ quiz, settings, showAnswers, onToggleAnswers, onBack, o
                         onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); g.judgeOne(i); } }}
                       />
                     ) : (
-                      <textarea className="quiz-input" rows={3} value={ans} placeholder="用英文写下你的答案…" onChange={(e) => g.setAnswer(i, e.target.value)} />
+                      <textarea className="quiz-input" rows={3} value={ans} placeholder={answerLanguage(q) === 'zh' ? '用中文写下你的答案…' : '用英文写下你的答案…'} onChange={(e) => g.setAnswer(i, e.target.value)} />
                     )}
                     {mode === 'subjective' ? (
                       <span className="quiz-input-hint">写完点底部「批改」</span>

@@ -11,6 +11,8 @@
  */
 
 /** 一课的可读名字（内置库用 title_cn/en，自建库可能只有标题） */
+import { textLanguage } from './learningLanguage.js';
+
 export function lessonName(l) {
   if (!l) return '';
   const t = l.title_cn || l.title_en || l.title || '';
@@ -31,10 +33,12 @@ function findingText(f) {
 
 /** 一条错题压成给模型看的一行（错题与"可提升点"共用，只有措辞不同） */
 function pointLine(name, e, kind) {
+  const lang = e.answerLanguage || textLanguage(e.to);
+  const prefix = '[作答语言：' + (lang === 'zh' ? '中文' : '英文') + ']';
   if (kind === 'improve') {
-    return `【${name}·可提升·${e.cat}】原句「${e.cn || '（无）'}」：我写「${e.from}」，更地道的是「${e.to}」${e.why ? '。' + e.why : ''}`;
+    return prefix + `【${name}·可提升·${e.cat}】原句「${e.cn || '（无）'}」：我写「${e.from}」，更地道的是「${e.to}」${e.why ? '。' + e.why : ''}`;
   }
-  return `【${name}·${e.cat}】原句「${e.cn || '（无）'}」里我写成「${e.from || '（漏写）'}」，应为「${e.to || '（多余）'}」${e.why ? '。' + e.why : ''}`;
+  return prefix + `【${name}·${e.cat}】原句「${e.cn || '（无）'}」里我写成「${e.from || '（漏写）'}」，应为「${e.to || '（多余）'}」${e.why ? '。' + e.why : ''}`;
 }
 
 /** 短哈希（djb2）：只用来给错题做稳定标识，不做安全用途 */
@@ -197,7 +201,7 @@ export function collectDrills({ lessons, keyOf, progress = {}, history = [], loa
         if (!f || typeof f !== 'object') continue;
         const t = findingText(f);
         if (!t.cat && !t.from && !t.to) continue;
-        const item = { ...t, cn, lesson: row.lesson, lessonName: row.name };
+        const item = { ...t, cn, direction: r.direction || 'cn2en', answerLanguage: textLanguage(t.to), lesson: row.lesson, lessonName: row.name };
         if (isError(f)) {
           row.errors.push(item);
           row.byCategory[t.cat] = (row.byCategory[t.cat] || 0) + 1;
@@ -293,6 +297,7 @@ export function buildLocalDrill(rows, count = 10, { used = {} } = {}) {
           + `我写的是「${e.from}」。下面哪个才是对的？`,
         options: options.map((o, k) => String.fromCharCode(65 + k) + '. ' + o),
         answer: e.to,
+        answerLanguage: e.answerLanguage || textLanguage(e.to),
         explanation: why,
         source: r.name,
       };
@@ -306,6 +311,7 @@ export function buildLocalDrill(rows, count = 10, { used = {} } = {}) {
 请改正。`,
       options: [],
       answer: e.to,
+      answerLanguage: e.answerLanguage || textLanguage(e.to),
       explanation: why,
       source: r.name,
     };

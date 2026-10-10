@@ -12,6 +12,8 @@
  */
 
 /** 判定结果的三档（界面上直接显示这三个字） */
+import { answerLanguage } from './learningLanguage.js';
+
 export const VERDICT_LABEL = { right: '对', close: '接近', wrong: '错' };
 
 /** 选项序号用的字母表（超过 8 个选项的卷子没见过，但别在这里崩） */
@@ -161,6 +163,7 @@ export function gradingMode(q) {
   if (type.includes('选择')) return 'choice';
   if (type.includes('改错') || type.includes('纠错')) return 'fix';
   if (type.includes('填空')) return 'blank';
+  if (answerLanguage(q) === 'zh' && /翻译|造句/.test(type)) return 'subjective';
   return isShortAnswer(q && q.answer) ? 'blank' : 'subjective';
 }
 

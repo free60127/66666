@@ -102,6 +102,7 @@ export function useQuizGrade({ quiz, settings }) {
       options: Array.isArray(qs[i].options) ? qs[i].options : [],
       answer: qs[i].answer || '',
       explanation: qs[i].explanation || '',
+      answerLanguage: qs[i].answerLanguage,
       userAnswer: String(answersRef.current[i] == null ? '' : answersRef.current[i]),
     }));
     setPendingAI(batch);

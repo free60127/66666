@@ -21,14 +21,18 @@ const jumpTo = (sel) => {
 };
 
 /** 顶部速览：评分 + 问题数 + 快捷跳转。手机端实测第一处错误在 1.5 屏之外，先给结论再给细节 */
-function SheetGlance({ overall, sentences, hasVocab, hasIdiom, hasSummary }) {
+function SheetGlance({ overall, sentences, hasVocab, hasIdiom, hasSummary, checking }) {
+  const findings = sentences.flatMap((s) => Array.isArray(s.findings) ? s.findings : []);
+  const errors = findings.filter((f) => (f.level || 'error') === 'error').length;
+  const suggestions = findings.filter((f) => f.level === 'improve').length;
+  const studies = findings.filter((f) => f.level === 'study').length;
   return (
     <div className="sheet-glance">
-      <div className="glance-score"><strong>{overall.score ?? '-'}</strong><span>{overall.local ? overall.score == null ? '评分暂不可用' : '本地估算' : '综合评分'}</span></div>
+      <div className="glance-score"><strong>{checking ? '-' : overall.score ?? '-'}</strong><span>{checking ? '评分核对中' : overall.local ? overall.score == null ? '评分暂不可用' : '本地估算' : '综合评分'}</span></div>
       <div className="glance-meta">
         <span>{sentences.length} 个句群</span>
         <span className="glance-dot">·</span>
-        <span>{overall.issues ?? 0} 处问题</span>
+        <span>{errors} 处错漏 · {suggestions} 条表达建议{studies ? ` · ${studies} 条学习点` : ''}</span>
       </div>
       <div className="glance-jump">
         <button type="button" onClick={() => jumpTo('.sheet-section.analysis')}>逐句解析</button>
@@ -75,7 +79,8 @@ function ReferenceBlocks({ result, allFindings }) {
 }
 
 function ResultSheetImpl({ result, onBack, onCopy, onShare, shareTip, fav, history, jobId, streaming }) {
-  const overall = result.overall || {};
+  const checking = result.direction === 'en2cn' && Boolean(streaming?.active || result.generating);
+  const overall = checking ? { ...result.overall, score: null, scoreBreakdown: [] } : result.overall || {};
   // 整页文案按这条结果的方向走（老结果没有 direction 字段 → directionText 回落汉译英）
   const dt = directionText(result.direction);
   // 分项得分在手机上默认折叠（约 300px，会把第一处错误再推下一屏）；桌面保持展开
@@ -126,6 +131,7 @@ function ResultSheetImpl({ result, onBack, onCopy, onShare, shareTip, fav, histo
         </section>}
         <SheetGlance
           overall={overall}
+          checking={checking}
           sentences={sentences}
           hasVocab={(result.vocabularyNotes || []).length > 0}
           hasIdiom={(result.idiomHighlights || []).length > 0}

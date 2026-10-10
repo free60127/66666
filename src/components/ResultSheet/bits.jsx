@@ -4,6 +4,7 @@
  */import React, { useEffect, useState } from 'react';
 import { getPhonetic } from '../../api.js';
 import { Star, Volume2 } from 'lucide-react';
+import { textLanguage } from '../../learningLanguage.js';
 
 export function collectMarks(text, findings) {
   const src = String(text || '');
@@ -236,7 +237,7 @@ if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
   try { window.speechSynthesis.addEventListener('voiceschanged', () => { voiceCache = null; pickEnglishVoice(); }); } catch { /* 老浏览器 */ }
 }
 
-export function SpeakButton({ text, label, slow = false }) {
+export function SpeakButton({ text, label, slow = false, language }) {
   const supported = typeof window !== 'undefined' && 'speechSynthesis' in window && typeof window.SpeechSynthesisUtterance === 'function';
   const [speaking, setSpeaking] = useState(false);
   const clean = String(text || '').trim();
@@ -246,9 +247,10 @@ export function SpeakButton({ text, label, slow = false }) {
     try {
       window.speechSynthesis.cancel(); // 连续点词时旧语音会叠上来
       const u = new SpeechSynthesisUtterance(clean);
-      u.lang = 'en-US';
+      const lang = language || textLanguage(clean);
+      u.lang = lang === 'zh' ? 'zh-CN' : 'en-US';
       u.rate = slow ? 0.72 : 0.95;
-      const v = pickEnglishVoice();
+      const v = lang === 'zh' ? window.speechSynthesis.getVoices().find((voice) => /^zh[-_]CN/i.test(voice.lang)) || window.speechSynthesis.getVoices().find((voice) => /^zh/i.test(voice.lang)) : pickEnglishVoice();
       if (v) u.voice = v;
       u.onstart = () => setSpeaking(true);
       u.onend = () => setSpeaking(false);

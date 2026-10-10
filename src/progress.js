@@ -94,6 +94,7 @@ function attemptKeys(x) {
  * 这是为了兼容加 lessonKey 之前就存在的老历史，而不是为了"尽量对上"。
  */
 export function sameLesson(a, b) {
+  if ((a?.direction || 'cn2en') !== (b?.direction || 'cn2en')) return false;
   const ka = attemptKeys(a);
   const kb = attemptKeys(b);
   if (ka.strong && kb.strong) {
@@ -185,7 +186,8 @@ export function compareWithPrevious({ history, result, jobId = '', readResult = 
     };
   });
 
-  const score = compareNum(prevScore, curScore);
+  const sameRubric = (prev.overall?.scoringVersion || 'legacy') === (cur.overall?.scoringVersion || 'legacy');
+  const score = sameRubric ? compareNum(prevScore, curScore) : null;
   const errors = compareNum(prevTally.errors, curTally.errors);
   const improves = compareNum(prevTally.improves, curTally.improves);
   const issues = compareNum(prevIssues, curIssues);

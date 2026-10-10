@@ -1,4 +1,6 @@
 import { localOverall } from './gradingFallback.mjs';
+import { en2cnScoreProblems, EN2CN_SCORE_EVIDENCE_RULES, normalizeEn2cnOverall, reconcileEn2cnOverall } from './en2cnScoring.mjs';
+import { answerLanguage } from '../src/learningLanguage.js';
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -1050,12 +1052,12 @@ function buildAnalyzeData({ parsed, dir, title, chinese, draft, original, level,
   return {
     direction: dir,
     title: parsed.title || title,
-    chinese: parsed.chinese || chinese,
-    draft: parsed.draft || draft,
+    chinese: dir === 'en2cn' ? chinese : parsed.chinese || chinese,
+    draft: dir === 'en2cn' ? draft : parsed.draft || draft,
     ai: parsed.ai || '',
-    original: parsed.original || original,
+    original: dir === 'en2cn' ? original : parsed.original || original,
     aiLevel: level || DEFAULT_AI_LEVEL,
-    overall: sanitizeOverall(parsed.overall),
+    overall: sanitizeOverall(dir === 'en2cn' ? normalizeEn2cnOverall(parsed.overall) : parsed.overall),
     sentences: cleanedSentences.list,
     vocabularyNotes: objectArray(parsed.vocabularyNotes),
     idiomHighlights: objectArray(parsed.idiomHighlights),
@@ -1081,7 +1083,7 @@ async function runAnalyzeJob(jobId, { title, chinese, draft, original, lesson, l
     // 流式时在系统提示词后面追加"一行一段"的格式说明（内容要求原样保留，只换输出格式）
     const messages = dir === 'en2cn'
       ? [
-        { role: 'system', content: EN2CN_SYSTEM_PROMPT + (stream ? streamFormatRules(dir) : '') + SCORING_RULES },
+        { role: 'system', content: EN2CN_SYSTEM_PROMPT + (stream ? streamFormatRules(dir) : '') + SCORING_RULES + EN2CN_SCORE_EVIDENCE_RULES },
         { role: 'user', content: buildEn2CnUserMessage({ title, source: chinese, draft, reference: original, level }) },
       ]
       : [
@@ -1137,16 +1139,18 @@ async function runAnalyzeJob(jobId, { title, chinese, draft, original, lesson, l
       }
     }
     job.data = buildAnalyzeData({ parsed, dir, title, chinese, draft, original, level, lesson, lessonNo });
+    if (dir === 'en2cn') job.data.overall = reconcileEn2cnOverall(job.data);
     // 整体评价缺失（模型整块没写 / 只写了占位符）→ 先补一次小请求；仍失败时保留批改但不捏造数值分数。
     // 这两步都只影响"有没有分数和建议"，不改变任何逐句批改内容。
     // 只有在**有逐句批改可依据**时才补这一次请求：没有 findings 时既没有依据，
     // 又会白白多花一次调用、把任务时长翻倍（并发名额测试就是这么被拖红的）。
     const findingCount = (job.data.sentences || []).reduce((n, x) => n + ((x && Array.isArray(x.findings)) ? x.findings.length : 0), 0);
-    if (!usableOverall(job.data.overall) && findingCount > 0) {
+    const scoreProblems = dir === 'en2cn' ? en2cnScoreProblems(job.data) : [];
+    if ((!usableOverall(job.data.overall) && findingCount > 0) || scoreProblems.length) {
       try {
-        job.data.overall = await repairOverall({ baseUrl, model, apiKey, data: job.data });
+        job.data.overall = await repairOverall({ baseUrl, model, apiKey, data: job.data, scoreProblems });
         job.overallRepaired = true;
-        console.warn('[analyze] 模型没给整体评价，已用一次补救请求补上');
+        console.warn('[analyze] 整体评价已通过一次补救复核');
       } catch (e) {
         job.data.overall = localOverall(job.data);
         job.overallRepaired = false;
@@ -1281,6 +1285,7 @@ async function runQuizJob(jobId, { points, count, level, baseUrl, model, apiKey,
         options: Array.isArray(q.options) ? q.options.map((o) => String(o)) : [],
         answer: String(q.answer || ''),
         explanation: String(q.explanation || ''),
+        answerLanguage: answerLanguage(q),
         source: String(q.source || ''),
       }));
     // 形状清洗（见 server/questionShape.mjs）：丢掉"中文提示被挖空"和"同一句话出两道题"的题。
@@ -1322,17 +1327,20 @@ async function runQuizJob(jobId, { points, count, level, baseUrl, model, apiKey,
  * 补不到时保留逐句分析，标注评分暂不可用，不按分析条数推算分数。
  */
 /** 补一次“只问 overall”的请求；失败时由调用方提供无数值的反馈摘要。 */
-async function repairOverall({ baseUrl, model, apiKey, data }) {
+async function repairOverall({ baseUrl, model, apiKey, data, scoreProblems = [] }) {
   const findings = (data.sentences || []).flatMap((x) => (Array.isArray(x.findings) ? x.findings : []));
   const messages = [
-    { role: 'system', content: overallRepairPrompt(data.direction) },
-    { role: 'user', content: buildOverallRepairMessage({ title: data.title, chinese: data.chinese, draft: data.draft, ai: data.ai, findings }) },
+    { role: 'system', content: overallRepairPrompt(data.direction) + (data.direction === 'en2cn' ? EN2CN_SCORE_EVIDENCE_RULES : '') },
+    { role: 'user', content: buildOverallRepairMessage({ ...data, findings, scoreProblems }) },
   ];
   // 短超时（45 秒）：补救只是"锦上添花"，绝不能因为它把任务拖住、占着并发名额
   const raw = await callLLM({ baseUrl, model, apiKey, messages, timeoutMs: 45000 });
   const parsed = parseJsonLoose(raw);
-  const overall = sanitizeOverall(parsed && parsed.overall && typeof parsed.overall === 'object' ? parsed.overall : parsed);
+  const unwrapped = parsed && parsed.overall && typeof parsed.overall === 'object' ? parsed.overall : parsed;
+  let overall = sanitizeOverall(data.direction === 'en2cn' ? normalizeEn2cnOverall(unwrapped) : unwrapped);
+  if (data.direction === 'en2cn') overall = reconcileEn2cnOverall({ ...data, overall });
   if (!usableOverall(overall)) throw new Error('补救请求也没给出可用的整体评价');
+  if (data.direction === 'en2cn' && en2cnScoreProblems({ ...data, overall }).length) throw new Error('评分依据未通过复核');
   return overall;
 }
 
@@ -1839,6 +1847,7 @@ const server = http.createServer(async (req, res) => {
             answer: String((it && it.answer) || '').slice(0, 1200),
             explanation: String((it && it.explanation) || '').slice(0, 800),
             userAnswer: String((it && it.userAnswer) || '').slice(0, 1200),
+            answerLanguage: answerLanguage(it),
           }))
           .filter((it) => it.question || it.answer);
         const items = parsed.map((it, i) => ({ ...it, index: i }));
@@ -1993,7 +2002,7 @@ const server = http.createServer(async (req, res) => {
       registerJob(jobId);
       // 立即返回任务号，后台再调用模型；手机端/弱网不会因长时间占用请求而卡死
       safeRun('analyze', jobId, () => runAnalyzeJob(jobId, {
-        title, chinese, draft, original: lesson ? lesson.english : userOriginal,
+        title, chinese, draft, original: lesson ? (direction === 'en2cn' ? lesson.chinese : lesson.english) : userOriginal,
         lesson, lessonNo, baseUrl, model, apiKey, level, direction, stream,
       }));
       return json(res, 200, { ok: true, jobId, status: 'pending', deleteToken, stream });

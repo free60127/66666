@@ -86,7 +86,7 @@ export function sanitizeQuestions(list, { count = 0, drill = false } = {}) {
     if (isIncompleteQuestion(q)) { dropped.incomplete += 1; continue; }
     if (drill) {
       // 中文提示里被挖空 → 这道题没法做（用户实测反馈）
-      if (blankInChinese(q.question)) { dropped.chineseBlank += 1; continue; }
+      if (q.answerLanguage !== 'zh' && blankInChinese(q.question)) { dropped.chineseBlank += 1; continue; }
       // 同一句英文只留一道题（先出现的留下）：填空 + 改错 考的是同一处错，等于重复劳动
       const key = sourceSentence(q.question);
       if (key) {

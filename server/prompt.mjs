@@ -316,7 +316,7 @@ export const QUIZ_PROMPT = `你是英语自测题出题老师。用户会给你�
 
 出题要求：
 1. 只考收藏清单里的知识点，不要引入清单之外的新词或新语法点；可以换语境、换主语、换时态，但考查点必须在清单里。
-2. 题型混搭：改错、填空、翻译（中译英）、选择、造句都要出现；同一个知识点最多出 2 题。
+2. 题型混搭：改错、填空、翻译、选择、造句；根据每个知识点的作答语言出题，中文知识点考英译汉或中文表达，英文知识点考英文。每题新增 answerLanguage（zh/en），题干明确要求语言，参考答案使用该语言。混合收藏逐题判断，不能统一当成汉译英；同一个知识点最多出2题。
 3. 选择题必须 4 个选项、干扰项合理（用学生常见错误，如搭配错误、语域不符、近义词误用），答案唯一。
 4. 难度匹配用户给出的润色等级；不要越级堆砌。
 5. 每题都要有 explanation（中文、具体，点出考点）和 source（对应收藏里的词或短语）。
@@ -332,7 +332,7 @@ export function buildQuizMessage({ points, count, level }) {
   return '请根据下面这份知识点收藏出 ' + n + ' 道自测题。\n\n' +
     '【润色等级（决定题目难度）：' + L.key + '】\n' +
     '- 词汇：' + L.vocab + '\n' +
-    '- 句式：' + L.syntax + '\n\n' +
+    '- 句式：' + L.syntax + '\n以上词汇/句式只约束英文题；中文知识点按中文表达习惯出题，不设英文词汇量或句長配额。逐题遵守知识点作答语言。\n\n' +
     '【知识点收藏（共 ' + list.length + ' 条）】\n' +
     list.map((p, i) => (i + 1) + '. ' + String(p).replace(/\s+/g, ' ').slice(0, 400)).join('\n') +
     '\n\n请按要求输出完整 JSON（title + questions），题量 = ' + n + '。';
@@ -374,7 +374,7 @@ export const DRILL_PROMPT = `你是英语老师，正在给一个学生做**错�
    错题不够时，可以**另换一句话**（换主语 / 换场景 / 换一个同类型的句子）来考同一类错误，
    但**不要重复原句**，也不要只把同句里的另一个词挖掉再出一题。
 
-3. **中文提示必须完整，绝对不能挖空。** 空只能挖在**英文**里，而且空的两边必须是英文字母。
+3. 每题输出 answerLanguage（zh/en），依据错题清单的作答语言选择目标语言，保留完整源文提示。中文是源文提示时不能挖空；英译汉题可在中文译文挖空，但必须另给完整英文源句。中文改错和中文造句允许中文答案，不强求英文时态/冠词练习。
    反面例子（错）：「根据中文提示填空：当那人试图让快艇转弯时，____ 脱手了。」
    —— 中文是给学生看的提示，挖掉他就无从下手。
    正确写法：「根据中文提示填空：当那人试图让快艇转弯时，舵轮脱手了。」
@@ -414,7 +414,7 @@ export function buildDrillMessage({ points, count, level, materials }) {
   return '请根据下面这份**错题清单**出 ' + n + ' 道针对性训练题。\n\n' +
     '【难度等级：' + L.key + '】\n' +
     '- 词汇：' + L.vocab + '\n' +
-    '- 句式：' + L.syntax + '\n\n' +
+    '- 句式：' + L.syntax + '\n以上词汇/句式只约束英文题；中文知识点按中文表达习惯出题，不设英文词汇量或句长配额。逐题遵守知识点作答语言。\n\n' +
     '【错题清单（共 ' + list.length + ' 条，越靠前是越常犯的）】\n' +
     list.map((p, i) => (i + 1) + '. ' + String(p).replace(/\s+/g, ' ').slice(0, 400)).join('\n') +
     (mats ? '\n\n【课时材料（仅作选词/语境素材，别当成他的错误）】\n' + mats.slice(0, 8000) : '') +
@@ -442,7 +442,7 @@ export const GRADE_PROMPT = `你是英语老师，正在批改学生的自测题
 
 判分要求：
 1. **index 必须与输入里每道题的 index 一一对应**，一题都不能漏，也不要多出题目。
-2. 尺度：意思对、语法对、搭配对 → right；方向对但有实打实的错（时态、单复数、冠词、介词、用词不当、拼写错）→ close；意思错、答非所问、用中文作答 → wrong。
+2. 每题单独按 answerLanguage 判定作答语言（zh=中文，en=英文；未提供时结合题干和答案）。意思准确、语言通顺、搭配成立 → right；有局部真实错误 → close；意思错、答非所问、用错要求的语言 → wrong。英译汉和中文造句必须允许中文答案，不要求英语时态/冠词，也不因和参考措辞不同扣分。
 3. **翻译题允许多种译法**：只要意思与语域对，和标准答案不同也要给 right，并在 better 里给出更地道的说法。
 4. 造句题：看是否用上了要求的词/短语、搭配是否正确、句子是否完整；用上了且没错 → right。
 5. 学生**没作答**（作答为空）→ wrong，comment 写"未作答"。
@@ -466,7 +466,7 @@ export const GRADE_STREAM_PROMPT = `你是英语老师，正在批改学生的�
 判分要求：
 1. **index 与输入里每道题的 index 一一对应**，一题都不能漏、不要多出题目，也不要合并成数组。
 2. 每行的 comment 必须写成**一行**（不能有换行符），否则这一行会被解析器丢掉。
-3. 尺度：意思对、语法对、搭配对 → right；方向对但有实打实的错（时态、单复数、冠词、介词、用词不当、拼写错）→ close；意思错、答非所问、用中文作答 → wrong。
+3. 每题单独按 answerLanguage 判定作答语言（zh=中文，en=英文；未提供时结合题干和答案）。意思准确、语言通顺、搭配成立 → right；有局部真实错误 → close；意思错、答非所问、用错要求的语言 → wrong。英译汉和中文造句必须允许中文答案，不要求英语时态/冠词，也不因和参考措辞不同扣分。
 4. **翻译题允许多种译法**：只要意思与语域对，和标准答案不同也要给 right，并在 better 里给出更地道的说法。
 5. 造句题：看是否用上了要求的词/短语、搭配是否正确、句子是否完整；用上了且没错 → right。
 6. 学生**没作答**（作答为空）→ wrong，comment 写"未作答"。
@@ -479,7 +479,7 @@ export const SCORING_RULES = `
 2. error 仅用于确实改变含义、重要信息缺失或影响理解的语言错误；improve 是可选润色；study 是对照学习。可选润色和学习点不扣分，不按 findings 条数线性扣分。同一处错误只扣一次，不跨多个维度重复扣分；分项点评要举出真实证据。
 3. 90–100：信息准确完整、表达自然；80–89：整体准确清楚，只有少量局部错误；70–79：大意准确且能成篇，有若干影响局部信息的错误；60–69：大意可辨但多处关键信息出错；低于60：严重或大面积误译/漏译，核心信息传递受到明显影响。不得机械固定某个分数，也不得为了鼓励而给真实严重错误加分。
 4. 五个分项之和等于总分。每项独立衡量：数字/名词误读不能同时让中文流畅度、语体等全部失分；译文通顺的部分应获得相应分数。
-5. 英译汉必须使用「理解准确、表达地道、语体得当、流畅度、完整性」五项；汉译英使用「词汇准确、语法与时态、语境与逻辑、流畅度、地道程度」五项，每项20分。
+5. 英译汉使用「理解准确40、表达地道15、语体得当10、流畅度10、完整性25」五项，侧重信息传递；汉译英使用「词汇准确、语法与时态、语境与逻辑、流畅度、地道程度」五项，每项20分。总满分均为100。
 6. 英译汉允许语境成立的意译、借代、句式调整、省略可由上下文明白的信息。例如 village 在上下文中可指村民群体；“这并不算远”不必机械补出 number；“海岸线向内移”与后退可表达相同事实；“吞噬”“花费巨大”“永冻层”不能仅因参考译文用词不同就判错。判断这些译法仍须结合当前原文，不能无条件判对。
 7. 专名没有明确提供权威定译时，不凭记忆声称“通行译名”或把音译差异直接判为硬错误；给出建议并注明不确定。解释、词源和例句不可编造，无法确认的词源留空。数字、否定和实物词义的明显误译要清楚指出。
 8. 反馈先指出学生译文真实的优点，再优先讲2–3个最值得修正的问题，使用尊重的学习反馈，不使用“完全走偏”“擅自”“基础太差”等羞辱性表达。明确说明分数是学习参考，不是考试认定。
@@ -488,7 +488,13 @@ export const SCORING_RULES = `
 11. 参考译文和 AI 版是可比较的译法，不必比学生更高级；学生已准确自然时明确肯定，不强行改写制造优劣。逐句分析多，不意味着应扣分多。总评中“漏译”的每个例子都必须在学生全文中确实没有对应意思，否则不写。`;
 
 export function streamFormatRules(direction) {
-  return direction === 'en2cn' ? STREAM_FORMAT_RULES.replaceAll('词汇准确', '理解准确').replaceAll('覆盖中文提示里的每一句', '覆盖英文原文里的每一句') : STREAM_FORMAT_RULES;
+  if (direction !== 'en2cn') return STREAM_FORMAT_RULES;
+  return `【流式格式】使用 NDJSON，每行一个完整 JSON 对象，不输出围栏或数组。
+按顺序输出 {"t":"meta","title":"标题","chinese":"完整英文原文","draft":"完整中文初稿","original":"参考中文译文"}，
+{"t":"ai","ai":"完整中文对照译文"}，每个英文源句输出 {"t":"sentence","item":逐句对象}，再输出 {"t":"overall","overall":整体评价对象}，每条词汇输出 {"t":"vocab","item":词汇对象}，
+每条中文惯用表达输出 {"t":"idiom","item":表达对象}，每条高级译法输出 {"t":"advanced","item":"英文原句 → 中文译法 · 中文点拨：处理依据"}，
+每条亮点输出 {"t":"bonus","item":"英文原句 → 中文译法 · 中文点拨：处理依据"}。
+数据字段遵守英译汉 JSON 结构与评分规则；覆盖全部英文源句，保留中文合理拆分/合并的对应关系。先完成逐句分析再给 overall 扣分账本；最后输出 {"t":"done"}。`;
 }
 
 export const OVERALL_REPAIR_PROMPT = `你是「回译本」的英语导师。学生的回译作业已经逐句批改完毕，但**整体评价（overall）缺失**了。
@@ -515,23 +521,25 @@ export const OVERALL_REPAIR_PROMPT = `你是「回译本」的英语导师。学
 export function overallRepairPrompt(direction) {
   let prompt = OVERALL_REPAIR_PROMPT;
   if (direction === 'en2cn') {
-    for (const [old, next] of [['词汇准确', '理解准确'], ['语法与时态', '表达地道'], ['语境与逻辑', '语体得当'], ['地道程度', '完整性']]) prompt = prompt.replaceAll(old, next);
+    prompt = `你是英译汉翻译导师。请复核英文原文、学生完整中文译文及逐句记录，重做有证据的整体评价。
+仅输出下面结构的 overall JSON 对象，scoreBreakdown 必须为数组，不能用对象代替；示例空账本为无真实错误时的满分，存在真实错误须据实扣分：
+{"score":100,"scoreBreakdown":[{"label":"理解准确","score":40,"max":40,"comment":"有据点评","deductions":[]},{"label":"表达地道","score":15,"max":15,"comment":"有据点评","deductions":[]},{"label":"语体得当","score":10,"max":10,"comment":"有据点评","deductions":[]},{"label":"流畅度","score":10,"max":10,"comment":"有据点评","deductions":[]},{"label":"完整性","score":25,"max":25,"comment":"有据点评","deductions":[]}],"summary":"中文总评","highlights":[],"advice":[],"issues":0}
+原文为唯一信息依据；相邻句可能已表达信息，全文核对之后才判断漏译。数字或否定译错归理解准确，不能重复扣完整性。中文句式生硬不得作为英文理解错误。新闻语体成立就认可，不为可选文采扣分。点评需逐项解释真实错误和扣分，亮点只引用初稿中存在的表达，建议针对中文翻译。
+deductions 用 sourceQuote/from 与提供的 error finding 逐字对应。若 error 尚未附 sourceQuote，deductions 中补充 sourceQuote（精确引用英文原文）供系统核验，并沿用输入 findingIndex。错误证据不足则不扣分。不要返回或复制整份 issues/findings 数组，issues 只填数量。`;
   }
   return prompt + SCORING_RULES;
 }
 
 /** 补救请求的用户消息：把逐句批改压缩成一份"证据清单" */
-export function buildOverallRepairMessage({ title, chinese, draft, ai, findings }) {
+export function buildOverallRepairMessage({ title, chinese, draft, findings, direction, scoreProblems = [] }) {
   const list = Array.isArray(findings) ? findings : [];
-  const lines = list.slice(0, 60).map((f, i) => (i + 1) + '. [' + (f.category || '其它') + '] '
-    + String(f.from || '').slice(0, 60) + ' → ' + String(f.to || '').slice(0, 60)
-    + (f.level ? '（' + f.level + '）' : '')
-    + (f.explanation ? '：' + String(f.explanation).replace(/\s+/g, ' ').slice(0, 80) : ''));
+  const lines = list.map((f, i) => JSON.stringify({ findingIndex: i + 1, category: f.category, level: f.level,
+    from: f.from, to: f.to, sourceQuote: f.sourceQuote, primaryDimension: f.primaryDimension, explanation: f.explanation }));
   const NL = String.fromCharCode(10);
   return '【作业】' + String(title || '').slice(0, 80)
-    + NL + '【中文提示（节选）】' + String(chinese || '').replace(/\s+/g, ' ').slice(0, 500)
-    + NL + '【学生初稿（节选）】' + String(draft || '').replace(/\s+/g, ' ').slice(0, 700)
-    + (ai ? NL + '【AI 润色版（节选）】' + String(ai).replace(/\s+/g, ' ').slice(0, 700) : '')
+    + NL + (direction === 'en2cn' ? '【完整英文原文】' : '【完整中文提示】') + String(chinese || '')
+    + NL + '【学生完整初稿】' + String(draft || '')
+    + NL + '【需复核项】' + scoreProblems.join('；')
     + NL + NL + '【逐句批改记录（共 ' + list.length + ' 条，这就是全部证据）】' + NL
     + (lines.join(NL) || '（无）')
     + NL + NL + '请只输出这一个 JSON 对象。';
@@ -544,6 +552,7 @@ export function buildGradeMessage({ items, level }) {
     const lines = [
       '【第 ' + it.index + ' 题 · ' + (it.type || '问答') + '】',
       '题干：' + String(it.question || '').replace(/\s+/g, ' ').slice(0, 600),
+      '作答语言：' + (it.answerLanguage === 'zh' ? '中文（zh）' : it.answerLanguage === 'en' ? '英文（en）' : '依据题干及参考答案判断'),
     ];
     if (Array.isArray(it.options) && it.options.length) {
       lines.push('选项：' + it.options.map((o) => String(o).slice(0, 80)).join(' / ').slice(0, 400));
@@ -579,11 +588,11 @@ export const EN2CN_SYSTEM_PROMPT = `你是「回译本」的资深翻译导师�
   "overall": {
     "score": 0-100 的整数，从理解准确、表达地道、语体得当、流畅度、完整性五方面综合评分,
     "scoreBreakdown": [
-      { "label": "理解准确", "score": 0-20, "max": 20, "comment": "一句话点评：原文意思有没有读错、读漏" },
-      { "label": "表达地道", "score": 0-20, "max": 20, "comment": "一句话点评：中文是否自然，有没有翻译腔" },
-      { "label": "语体得当", "score": 0-20, "max": 20, "comment": "一句话点评：正式/口语/文学等语体是否与原文匹配" },
-      { "label": "流畅度", "score": 0-20, "max": 20, "comment": "一句话点评：句子衔接、指代、节奏" },
-      { "label": "完整性", "score": 0-20, "max": 20, "comment": "一句话点评：有没有漏译、略译、无故增译" }
+      { "label": "理解准确", "score": 0-40, "max": 40, "comment": "一句话点评：原文意思有没有读错", "deductions": [] },
+      { "label": "表达地道", "score": 0-15, "max": 15, "comment": "一句话点评：中文是否自然，有没有翻译腔", "deductions": [] },
+      { "label": "语体得当", "score": 0-10, "max": 10, "comment": "一句话点评：正式/口语/文学等语体是否与原文匹配", "deductions": [] },
+      { "label": "流畅度", "score": 0-10, "max": 10, "comment": "一句话点评：句子衔接、指代、节奏", "deductions": [] },
+      { "label": "完整性", "score": 0-25, "max": 25, "comment": "一句话点评：有没有真正漏译、无故增译", "deductions": [] }
     ],
     "issues": 漏译/误译/改进点/学习点的总数,
     "summary": "3-5 句整体评价（中文）：先肯定亮点，再概括主要问题类型（漏译？词义偏差？翻译腔？语体不符？），再指出最值得改进的方向",
@@ -643,18 +652,19 @@ export const EN2CN_SYSTEM_PROMPT = `你是「回译本」的资深翻译导师�
       "situation": "适用场景"
     }
   ],
-  "advancedSentences": [ "可学习的高级译法，每条一句：给出原文结构 → 好的中文处理 → 为什么好" ],
-  "bonusExpressions": [ "加分译法/亮点表达，每条一句" ]
+  "advancedSentences": [ "英文原句 → 中文译法 · 中文点拨：处理依据" ],
+  "bonusExpressions": [ "英文原句 → 中文译法 · 中文点拨：处理依据" ]
 }
 
 硬性要求（违反会被系统过滤或判为不合格）：
-1. **逐句覆盖**：sentences 必须覆盖英文原文的**每一句**，顺序与原文一致，不得合并、跳句。
+1. **逐句覆盖**：sentences 必须覆盖英文原文的每一句，顺序与原文一致；中文译文可合理拆分或合并，对应 draft 可跨相邻句，先检查完整译文再判断漏译，不得要求中文机械逐句对齐。
 2. **from 必须真的出现在学生译稿里**，且与 to **逐字不同**；找不到问题的句子就把 findings 留空数组，不要为凑数硬编。
 3. findings 的 from / to 都是**中文**（英译汉的改法落在中文上）；只有 examples / synonyms 里可以出现英文。
 4. 漏译要单独作为一条 finding（category=漏译），from 填相邻的译稿片段，to 填补上之后的完整译法，explanation 说明漏掉了什么信息。
 5. 参考译文仅供对照，不保证其中每个细节都正确。以英文原文为依据；学生译稿已经很好的句子，findings 可以为空，ai 可以保留合理处理，不要求强行改成更好的版本。
 6. 中文标点用全角（，。！？；：""''《》……——），英文原文里的引号、破折号按中文习惯转换。
 7. 专有名词、数字、单位必须准确；不确定的专名保留原文并加注。
+8. JSON 字段输出顺序：先 title/chinese/draft/ai/original，再 sentences，最后 overall 与学习材料；先分析事实再生成评分，不先定分数再凑扣分理由。
 `;
 
 /**
@@ -662,8 +672,23 @@ export const EN2CN_SYSTEM_PROMPT = `你是「回译本」的资深翻译导师�
  * @param {{title:string, source:string, draft:string, reference:string, level:string}} o
  *   source = 英文原文；draft = 学生的中文译稿；reference = 参考译文
  */
+export function en2cnLevelGuide(level) {
+  const key = normalizeLevel(level);
+  const depth = {
+    '小初': '用易懂的中文解释基础词义、人物、时间及简单逻辑，不堆术语。',
+    '高考英语': '解释常见从句、指代、词义选择与句间逻辑，例子简明。',
+    '四六级': '解释词义范围、否定、条件及信息结构，区分误译和正常异译。',
+    '考研/专四': '解释复杂句法的意义、语体和篇章衔接，不把英文结构机械搬到中文。',
+    '专八': '深入说明语用、修辞和文化含义，明确不确定处，不强加文学化表达。',
+  }[key];
+  return { key, vocab: '按原文语境选择准确自然的中文词，不设英语词汇量门槛。' + depth,
+    syntax: '按中文信息顺序灵活拆分、合并、调整句式，允许清楚的指代和合理被字句。',
+    idiom: '语体忠实于原文，不强制使用成语、套话或英文习语。',
+    length: '完整传递信息，不设英文单词数或中文句长配额，不因中文简洁而认定漏译。' };
+}
+
 export function buildEn2CnUserMessage({ title, source, draft, reference, level }) {
-  const L = levelGuide(level);
+  const L = en2cnLevelGuide(level);
   const wantMorphology = ['四六级', '考研/专四', '专八'].includes(L.key);
   const morphologyRule = wantMorphology
     ? '- 词根词缀：vocabularyNotes 里凡「非基础词 + 能真实拆解」的英文词（如 articulate / unprecedented / detrimental）都给 morphology（parts + image，可选 family）；小初/高考基础词留空；不确定词源就留空。\n'
@@ -672,17 +697,17 @@ export function buildEn2CnUserMessage({ title, source, draft, reference, level }
     '\n英文原文（题目）：\n' + source +
     '\n\n学生的中文译稿：\n' + draft +
     '\n\n参考译文：\n' + (reference || '（未提供）') +
-    '\n\n【本次目标中文水平：' + L.key + '】\n' +
-    'AI 润色译文（整体 ai 与逐句 ai）、advancedSentences、bonusExpressions，以及 findings 里推荐给学生替换用的译法，都要匹配「' + L.key + '」读者能接受的中文水平：\n' +
+    '\n\n【英文材料难度与讲解深度：' + L.key + '】\n' +
+    '对照译文与学习材料使用准确自然的中文，解释深度匹配「' + L.key + '」英文学习阶段：\n' +
     '- 词汇：' + L.vocab + '\n' +
     '- 句式：' + L.syntax + '\n' +
     '- 语体与文采：' + L.idiom + '\n' +
     '- 篇幅：' + L.length + '\n' +
     morphologyRule +
-    '注意：这里约束的是**中文译文的水平**（用词深浅、句式长短、文采浓淡），不是英文原文的难度；译文不要超出该水平太多，也不要幼稚化。\n' +
+    '等级用于英文理解难度和讲解深度，不是中文词汇量或句长配额；译文始终忠实自然，语体由原文决定。\n' +
     '\n请按要求输出完整 JSON。本次分析要求：\n' +
     '1. 每一句都要说清「英文原文说了什么 → 学生译成了什么 → 好在哪里/差在哪里 → 更好的中文怎么写」；\n' +
-    '2. 翻译腔（欧化长句、的的不休、被字句滥用、滥用"一个/进行/作出"）必须单独指出来并给改写；\n' +
+    '2. 只在确有影响理解或不符合原文语体时指出翻译腔；被字句、指代、断句及合理省略本身不是错误。可选改写标 improve，不扣分；\n' +
     '3. 词义范围与语体色彩要讲透：同一个英文词在不同语境里的中文对应差别（如 claim / allege / assert）；\n' +
     '4. vocabularyNotes 聚焦"这个词/词组怎么译最自然"，而不是泛泛讲英文释义；\n' +
     '5. 英译汉不需要给中文标音标；但保留英文原词时要给 IPA；\n' +

@@ -5,6 +5,7 @@
  * - quizToText()：导出/复制纯文本（可含答案）
  */
 import { FAV_KIND_LABEL } from './favorites.js';
+import { expressionParts, textLanguage } from './learningLanguage.js';
 
 export function favoritesToQuizPoints(favorites) {
   return (Array.isArray(favorites) ? favorites : []).filter(Boolean).map((x) => {
@@ -12,7 +13,8 @@ export function favoritesToQuizPoints(favorites) {
     const cat = x.category && x.category !== kind ? ' / ' + x.category : '';
     const body = x.body ? ' — ' + String(x.body).replace(/\s+/g, ' ').slice(0, 180) : '';
     const extra = x.extra ? '（' + String(x.extra).replace(/\s+/g, ' ').slice(0, 180) + '）' : '';
-    return '[' + kind + cat + '] ' + x.title + body + extra;
+    const lang = x.answerLanguage || (x.kind === 'vocab' ? textLanguage(vocabWord(x)) : textLanguage(x.expression?.translation || x.title));
+    return '[作答语言：' + (lang === 'zh' ? '中文' : '英文') + '][' + kind + cat + '] ' + x.title + body + extra;
   });
 }
 
@@ -67,17 +69,28 @@ function localQuestions(fav) {
       });
     }
   } else if (fav.kind === 'expression') {
-    const en = String(fav.title || '').trim();
-    const cn = tipOf(fav);
-    if (en && cn) {
-      out.push({
-        type: '翻译',
-        question: '用更地道的英文表达下面这句话的意思：' + cn.replace(/^[^：]*：/, '').slice(0, 80),
-        options: [],
-        answer: en,
-        explanation: cn,
-        source: en,
-      });
+    const parsed = fav.expression || expressionParts(fav.title, fav.direction);
+    const source = parsed.source || /^原文：(.+)/.exec(String(fav.extra || ''))?.[1];
+    const chineseTarget = fav.answerLanguage === 'zh' || fav.direction === 'en2cn' || (!fav.direction && Boolean(parsed.translation));
+    if (chineseTarget && source) {
+      out.push({ type: '翻译', question: '请译成自然、准确的中文：' + source, options: [], answer: parsed.translation || fav.title, explanation: parsed.explanation || tipOf(fav), source, answerLanguage: 'zh' });
+    } else if (chineseTarget) {
+      const expression = parsed.translation || fav.title;
+      out.push({ type: '造句', question: '用中文表达「' + expression + '」写一个符合语境的完整句子。', options: [], answer: expression, explanation: '在语境中正确使用该表达，句子完整、自然即可。' + tipOf(fav), source: expression, answerLanguage: 'zh' });
+    } else {
+      const en = String(parsed.source || fav.title || '').trim();
+      const cn = tipOf(fav) || parsed.translation;
+      if (en && cn) {
+        out.push({
+          type: '翻译',
+          question: '用更地道的英文表达下面这句话的意思：' + cn.replace(/^[^：]*：/, '').slice(0, 80),
+          options: [],
+          answer: en,
+          explanation: cn,
+          source: en,
+          answerLanguage: 'en',
+        });
+      }
     }
   } else {
     const [from, to] = splitTitle(fav.title);
@@ -100,7 +113,7 @@ function localQuestions(fav) {
       });
     }
   }
-  return out;
+  return out.map((q) => ({ ...q, answerLanguage: q.answerLanguage || textLanguage(q.answer) }));
 }
 
 /** 离线兜底：只靠收藏内容出题 */

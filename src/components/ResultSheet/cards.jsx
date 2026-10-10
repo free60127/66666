@@ -47,7 +47,7 @@ function ErrorProfileImpl({ result, history, jobId }) {
       if (!h || !h.jobId) continue;
       if (jobId && h.jobId === jobId) continue; // 当前这次由下面单独加，避免重复计入
       const r = loadResultCache(h.jobId);
-      if (r && Array.isArray(r.sentences) && r.sentences.length) out.push(r);
+      if (r && (r.direction || 'cn2en') === (result?.direction || 'cn2en') && Array.isArray(r.sentences) && r.sentences.length) out.push(r);
     }
     // 本次结果可能还没进历史（或历史被清了），确保一定算进去
     if (result && Array.isArray(result.sentences) && result.sentences.length) out.unshift(result);
@@ -188,7 +188,7 @@ function IdiomHighlightsImpl({ items, result, fav }) {
   if (!arr.length) return null;
   return (
     <section className="sheet-section idiom">
-      <div className="section-heading"><span className="label-dot" /><h2>地道习语强化</h2><span className="muted small">{arr.length} 条 · 写作与口语加分素材</span></div>
+      <div className="section-heading"><span className="label-dot" /><h2>{result?.direction === 'en2cn' ? '中文表达与译法' : '地道习语强化'}</h2><span className="muted small">{arr.length} 条 · {result?.direction === 'en2cn' ? '结合语境学习，不必套用成语' : '写作与口语加分素材'}</span></div>
       {arr.map((id, i) => {
         const favItem = fav ? favFromIdiom(id, result) : null;
         return (
@@ -214,17 +214,18 @@ function SummaryBlockImpl({ title, tone, items, result, fav }) {
     <div className="summary-block">
       <h3 className={'summary-title ' + tone}>{title}</h3>
       {arr.map((item, i) => {
-        const s = typeof item === 'string' ? item : JSON.stringify(item);
-        const parts = s.split(/[·•]\s*中文[点说]/i);
-        const favItem = fav ? favFromExpression(item, result, title) : null;
+        const parsed = favFromExpression(item, result, title);
+        const quote = parsed.expression.translation || parsed.expression.source || parsed.title;
+        const favItem = fav ? parsed : null;
         return (
           <div className={'summary-card ' + tone} key={'sm' + tone + '#' + (typeof item === 'string' ? item : i)}>
             <div className="summary-head">
-              <p className="summary-quote">{parts[0].trim()}</p>
-              <SpeakButton text={parts[0].trim()} label={parts[0].trim().slice(0, 30)} />
+              <p className="summary-quote">{quote}</p>
+              <SpeakButton text={quote} label={quote.slice(0, 30)} />
               {fav ? <FavStar active={fav.has(favItem.id)} onToggle={() => fav.toggle(favItem)} /> : null}
             </div>
-            {parts[1] ? <p className="summary-tip">中文点拨：{parts[1].trim()}</p> : null}
+            {parsed.expression.translation && parsed.expression.source ? <p className="summary-tip">原文：{parsed.expression.source}</p> : null}
+            {parsed.body ? <p className="summary-tip">中文点拨：{parsed.body}</p> : null}
           </div>
         );
       })}

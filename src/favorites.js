@@ -9,6 +9,7 @@
 
 // 「今天是哪一天」只认 src/studyStreak.js 那一份实现（连续天数与复习排期必须同口径）
 import { dayKey } from './studyStreak.js';
+import { expressionParts, textLanguage } from './learningLanguage.js';
 
 export const FAV_KEY = 'bt-favorites';
 export const FAV_MAX = 2000;
@@ -233,6 +234,8 @@ export function favFromFinding(finding, result) {
   return {
     id: favKey(['finding', result && result.title, f.category, f.from, f.to]),
     kind: 'finding',
+    direction: result?.direction || 'cn2en',
+    answerLanguage: textLanguage(f.to),
     title: (f.from ? f.from + ' → ' + f.to : f.to) || f.category || '知识点',
     category: f.category || '',
     level: f.level || '',
@@ -253,6 +256,8 @@ export function favFromVocab(v, result) {
   return {
     id: favKey(['vocab', result && result.title, word]),
     kind: 'vocab',
+    direction: result?.direction || 'cn2en',
+    answerLanguage: textLanguage(word),
     title: word + (v && v.phonetic ? '  ' + wrapPhonetic(v.phonetic) : ''),
     category: (v && v.type) || '词汇',
     level: '',
@@ -273,6 +278,8 @@ export function favFromIdiom(it, result) {
   return {
     id: favKey(['idiom', result && result.title, x.idiom]),
     kind: 'idiom',
+    direction: result?.direction || 'cn2en',
+    answerLanguage: textLanguage(x.idiom),
     title: x.idiom || '习语',
     category: '习语',
     level: '',
@@ -292,14 +299,19 @@ export function favFromExpression(item, result, category = '加分表达') {
   const parts = String(raw).split(/[·•]\s*中文[点说]拨?\s*[:：]?\s*/i);
   const en = (parts[0] || '').trim();
   const tip = parts[1] ? parts[1].trim() : '';
+  const parsed = expressionParts(item, result?.direction);
+  const chineseTarget = result?.direction === 'en2cn' || (!result?.direction && Boolean(parsed.translation));
   return {
     id: favKey(['expr', result && result.title, category, en]),
     kind: 'expression',
-    title: en || '加分表达',
+    title: chineseTarget ? parsed.translation || en : parsed.source || en || '加分表达',
     category,
     level: '',
-    body: tip,
-    extra: '',
+    body: chineseTarget ? parsed.explanation : tip || parsed.translation || parsed.explanation,
+    extra: chineseTarget && parsed.source ? '原文：' + parsed.source : '',
+    direction: chineseTarget ? 'en2cn' : 'cn2en',
+    answerLanguage: chineseTarget ? 'zh' : 'en',
+    expression: parsed,
     source: (result && result.title) || '',
     sourceLevel: (result && result.aiLevel) || '',
   };

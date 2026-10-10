@@ -13,8 +13,8 @@ describe('grading rubric across generation formats', () => {
     expect(cn.slice(0, cn.indexOf('【评分与反馈校准'))).toContain('理解准确');
     expect(cn.slice(0, cn.indexOf('【评分与反馈校准'))).not.toContain('语法与时态');
     expect(overallRepairPrompt('cn2en')).toContain('语法与时态');
-    expect(streamFormatRules('en2cn')).toContain('覆盖英文原文里的每一句');
-    expect(streamFormatRules('en2cn')).toContain('"label":"理解准确"');
+    expect(streamFormatRules('en2cn')).toContain('覆盖全部英文源句');
+    expect(streamFormatRules('en2cn')).toContain('中文译法');
     expect(SCORING_RULES).toContain('可选润色和学习点不扣分');
     expect(SCORING_RULES).toContain('不得为了鼓励而给真实严重错误加分');
   });
