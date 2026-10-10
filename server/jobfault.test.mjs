@@ -24,7 +24,6 @@ const check = (name, ok, detail = '') => {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const PORT = 8951;
-const MOCK_PORT = 9891;
 const DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'bt-jobfault-'));
 
 console.log('=== 任务异常兜底测试 ===\n');
@@ -40,7 +39,8 @@ const mock = http.createServer((req, res) => {
     }) } }] }));
   });
 });
-await new Promise((r) => mock.listen(MOCK_PORT, '127.0.0.1', r));
+await new Promise((r, reject) => { mock.once('error', reject); mock.listen(0, '127.0.0.1', r); });
+const MOCK_PORT = mock.address().port;
 
 const env = {
   ...process.env,

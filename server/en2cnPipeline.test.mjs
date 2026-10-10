@@ -32,7 +32,9 @@ const mock = http.createServer(async (req, res) => {
     content = { edits: [], additions: [], overall: null };
     if (mode === 'semantic') content = { edits: [], additions: [{ sentenceIndex: 1, finding: {
       ...findings[1], explanation: '原文的居民欢迎信息尚未译出。',
-    } }], overall: overall() };
+    } }], overall: overall(), ai: '不到五分之一的居民使用它。许多居民欢迎这个计划。',
+      sentenceTranslations: [{ sentenceIndex: 1, ai: '不到五分之一的居民使用它。许多居民欢迎这个计划。' }],
+      advancedSentences: ['Fewer than one in five → 不到五分之一 · 中文点拨：保留数量上限。'] };
   } else if (system.includes('重做有证据的整体评价')) {
     content = mode === 'failed-review' ? { score: 58 } : overall();
     if (mode === 'repair-no-citation') content.scoreBreakdown.forEach((row) => { row.deductions = row.deductions.map((d) => ({ sourceQuote: findings[d.findingIndex - 1].sourceQuote, from: findings[d.findingIndex - 1].from, points: d.points })); });
@@ -97,6 +99,9 @@ try {
   assert.equal(semantic.sentences[0].findings.length, 2, 'semantic review adds the missed source fact');
   assert.equal(semantic.translationReview.added, 1);
   assert.equal(semantic.overall.score, 91);
+  assert.equal(semantic.ai, '不到五分之一的居民使用它。许多居民欢迎这个计划。');
+  assert.equal(semantic.sentences[0].ai, semantic.ai, 'corrected teaching survives the HTTP/job pipeline');
+  assert.match(semantic.advancedSentences[0], /保留数量上限/);
   assert.equal(requests.length, 13, 'reviewed valid ledger does not need a third model call');
   const quiz = await submit('quiz', { points: ['[作答语言：中文]不到五分之一'], count: 1 });
   assert.equal(quiz.questions[0].answerLanguage, 'zh');

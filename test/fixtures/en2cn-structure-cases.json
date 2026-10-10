@@ -1,0 +1,42 @@
+[
+  {
+    "id": "structure", "level": "考研/专四", "title": "委员会的新决定",
+    "source": "The decision, which the committee announced after a lengthy debate, worried researchers who work at small institutes. The rapid expansion of online courses has made higher education accessible to remote communities. This has created opportunities for adults who cannot attend campus classes.",
+    "draft": "经过漫长的辩论，研究人员宣布了委员会的决定，这使在小型机构工作的委员会感到担忧。随着在线课程迅速扩展，偏远社区也能接受高等教育。此举为无法到校上课的成年人创造了机会。",
+    "corrected": "委员会经过漫长讨论后宣布了这一决定。在小型机构工作的研究人员对此感到担忧。在线课程迅速发展，使偏远社区也能接受高等教育。这为无法到校上课的成年人创造了机会。",
+    "errors": ["宣布决定的是委员会，不是研究人员", "在小型机构工作并担忧的是研究人员，不是委员会"],
+    "acceptable": ["拆分原文第一句", "名词 expansion 译成发展", "跨句 This 指代前文带来的教育机会"]
+  },
+  {
+    "id": "time", "level": "四六级", "title": "方案审核顺序",
+    "source": "The proposal was rejected after questions were raised about its feasibility. The minutes record the sequence of events but give no reason for the rejection. By the time the revised plan was published, the board had already approved it. The report highlights the need for a review.",
+    "draft": "由于方案的可行性受到质疑，方案遭到否决。会议记录写明了事件顺序，但没有说明否决的原因。修订方案公布后，董事会才批准了它。报告强调了审查的必要性。",
+    "corrected": "方案的可行性受到质疑后，方案未获通过。会议记录写明了事件顺序，但没有说明否决的原因。修订方案公布时，董事会早已批准了它。报告强调了审查的必要性。",
+    "errors": ["after 加上下文只说明先后，不能强加因果", "批准早于公布，不能译为公布后才批准"],
+    "acceptable": ["被动句译成未获通过", "保留报告这个无生命主语", "完整表达时间无需逐个对译时态"]
+  },
+  {
+    "id": "focus", "level": "考研/专四", "title": "实验与限制",
+    "source": "It was only after the trial failed that the researchers began to question their assumption. The city introduced restrictions on cars; this prompted protests from shop owners, who relied on passing trade. The mayor said the restrictions would be reviewed, not removed.",
+    "draft": "试验失败前，研究人员就开始质疑自己的假设。市政府对汽车实行限制；这些汽车引发了依靠路过顾客做生意的店主抗议。市长说将取消限制。",
+    "corrected": "直到试验失败，研究人员才开始质疑自己的假设。市政府限制汽车通行，此举引发了依靠路过顾客做生意的店主抗议。市长说将重新审查限制措施，而非取消。",
+    "errors": ["only after 的时间限制反转", "this 指代实行限制这一举措，不是汽车", "reviewed not removed 的处理决定反转"],
+    "acceptable": ["分号可改句号或逗号，逻辑保留即可", "后置 who 从句可前置为定语"]
+  },
+  {
+    "id": "stance", "level": "专八", "title": "初步研究的边界",
+    "source": "The findings, though preliminary, suggest that policies designed to reduce emissions may, if implemented without public support, produce unintended economic consequences. The recognition of this risk does not constitute proof that the policies will fail. The committee recommends further assessment rather than immediate withdrawal.",
+    "draft": "研究结果已经定论，证明这些政策已经减少了排放；即使得到公众支持，也必然造成政策制定者本来希望出现的经济后果。认识到这一风险，说明这些政策必将失败。委员会建议立即撤回政策，不必进一步评估。",
+    "corrected": "尽管还只是初步结果，研究仍提示：旨在减少排放的政策，如果在缺乏公众支持的情况下实施，可能产生非预期的经济后果。认识到这一风险，并不构成政策必将失败的证据。委员会建议进一步评估，而非立即撤回政策。",
+    "errors": ["preliminary 变成已经定论", "suggest may 变成证明必然", "设计目的被当成已实现结果", "缺乏支持的条件变成即使获得支持", "unintended 反译", "风险认识不构成失败证明被反译", "建议进一步评估而非撤回被反译"],
+    "acceptable": ["名词 recognition 可改为认识到", "冒号可表达提示内容，不需照搬插入语形式"]
+  },
+  {
+    "id": "ambiguity", "level": "专八", "title": "语境不足与法律语体",
+    "source": "All students did not pass. The implementation of this policy requires the approval of the board. The evidence indicates a possible association between the changes, but does not establish causation.",
+    "draft": "学生全都没通过。实施这项政策须经董事会批准。证据提示这些变化之间可能存在关联，但不能据此确立因果关系。",
+    "corrected": "学生全都没通过。实施这项政策须经董事会批准。证据提示这些变化之间可能存在关联，但不能据此确立因果关系。",
+    "errors": [],
+    "acceptable": ["All students did not pass 孤立句的否定范围有歧义，不强判为并非全部", "法律语体允许批准等名词化表达", "拆合、中文动词化和适度连接词省略不扣分"]
+  }
+]

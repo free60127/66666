@@ -56,4 +56,41 @@ assert.equal(overlapping.sentences[0].findings.length, 1, 'review cannot add the
 assert.equal(overlapping.translationReview.added, 0);
 const safeShape = applyEn2cnReview(data, { ...review, edits: [{ findingIndex: 1, finding: { ...numeric, synonyms: 'wrong shape', examples: { invalid: true } } }] });
 assert.equal(safeShape.sentences[0].findings[0].synonyms, undefined, 'review cannot inject malformed learning-card fields');
+for (const source of [
+  'The decision, which the committee announced, worried researchers who work abroad.',
+  'The proposal was rejected after questions about feasibility were raised.',
+  'The report indicates an association.',
+  'The town changed its rules. This prompted protests.',
+  'The rapid growth of distance courses has made education accessible.',
+  'The policy was designed to reduce emissions.',
+]) {
+  const task = { direction: 'en2cn', chinese: source, draft: '成立的中文译法。', sentences: [{ draft: '成立的中文译法。', findings: [] }] };
+  assert.ok(needsEn2cnReview(task), 'structure/stance risks must not depend on first-pass detection: ' + source);
+  assert.equal(needsEn2cnReview({ ...task, direction: 'cn2en' }), false);
+}
+const contradictory = { ...data, ai: '费用下降了20个百分点。', advancedSentences: ['after 表示由于'],
+  sentences: [{ ...data.sentences[0], ai: '费用下降了20个百分点。' }, data.sentences[1]] };
+const aligned = applyEn2cnReview(contradictory, { edits: [], additions: [], overall: null,
+  ai: '费用下降了20%。公交车继续运行。', sentenceTranslations: [{ sentenceIndex: 1, ai: '费用下降了20%。' }],
+  advancedSentences: ['after → 在……之后 · 中文点拨：先后不自动等于因果。'] });
+assert.equal(aligned.sentences[0].ai, '费用下降了20%。', 'review correction reaches the displayed sentence translation');
+assert.equal(aligned.ai, '费用下降了20%。公交车继续运行。');
+assert.equal(contradictory.sentences[0].ai, '费用下降了20个百分点。', 'review remains atomic and immutable');
+assert.match(buildEn2cnReviewMessage(contradictory), /after 表示由于/, 'review sees potentially conflicting teaching material');
+const staleIdiom = { ...data, sentences: [{ ...data.sentences[0], findings: [{ ...numeric, idiom: '先斩后奏', examples: [{ cn: '错误例子' }] }] }] };
+assert.match(buildEn2cnReviewMessage(staleIdiom), /先斩后奏/);
+const cleared = applyEn2cnReview(staleIdiom, { edits: [{ findingIndex: 1, finding: numeric, clearLearning: true }], additions: [] });
+assert.equal(cleared.sentences[0].findings[0].idiom, undefined);
+assert.deepEqual(cleared.sentences[0].findings[0].examples, []);
+assert.equal(staleIdiom.sentences[0].findings[0].idiom, '先斩后奏');
+const falseError = applyEn2cnReview({ ...result, ai: '费用下降了20个百分点。' }, {
+  edits: [{ findingIndex: 1, finding: { ...numeric, level: 'study', to: numeric.from, explanation: '学生原译成立；仅修正AI对照的误读。' } }],
+  additions: [], overall: null, ai: '费用下降了20%。',
+});
+assert.equal(reconcileEn2cnOverall(falseError).score, 95, 'accepting the student and correcting AI removes only the false student deduction');
+for (const extension of [
+  { ai: '' }, { ai: {} }, { sentenceTranslations: [{ sentenceIndex: 0, ai: '中文' }] },
+  { sentenceTranslations: [{ sentenceIndex: 1, ai: '中文' }, { sentenceIndex: 1, ai: '重复' }] },
+  { advancedSentences: [{ invalid: true }] },
+]) assert.throws(() => applyEn2cnReview(contradictory, { edits: [], additions: [], ...extension }), /语义复核/);
 console.log('PASS en2cn semantic review: numerical severity, unsupported tail, citations, bounded edits, optional removal, cn2en isolation');
