@@ -4,22 +4,58 @@ export const EN2CN_MAX = { 理解准确: 40, 表达地道: 15, 语体得当: 10,
 function deductionFinding(findings, deduction) {
   const quoted = findings.filter((f) => deduction.sourceQuote && f.sourceQuote === deduction.sourceQuote && (!deduction.from || f.from === deduction.from));
   if (quoted.length === 1) return quoted[0];
+  // When the findings carry citations and this deduction cites none of them, the
+  // citation is stale (e.g. it pointed at a merged duplicate): it must not grab
+  // an arbitrary finding by position. A repair supplying citations for findings
+  // that lack them is unaffected — those findings are uncited.
+  const cited = findings.some((f) => f && f.sourceQuote);
+  if (cited && deduction.sourceQuote && !quoted.length) return null;
   const index = Number(deduction.findingIndex);
-  if (Number.isInteger(index) && index > 0) return findings[index - 1];
+  const byIndex = Number.isInteger(index) && index > 0 ? findings[index - 1] : null;
+  // An index may confirm a citation or repair a missing one; it must never
+  // override a mismatched citation.
+  if (byIndex && (!deduction.sourceQuote || !byIndex.sourceQuote || byIndex.sourceQuote === deduction.sourceQuote)) return byIndex;
   // A repair can cite a unique existing draft fragment when the first response omitted citation metadata.
   const byDraft = findings.filter((f) => !f.sourceQuote && deduction.from && f.from === deduction.from);
   return byDraft.length === 1 ? byDraft[0] : null;
 }
 
-/** A whole-sentence charge may repeat clause errors in another dimension. */
-function redundantCrossDimensionSpan(data, findings, deduction, label) {
+/** A whole-sentence charge may repeat clause errors in another dimension, or the
+ *  same proposition at greater width within the same one: the precise finding
+ *  already covers it, so the wider charge merges away. */
+function redundantRepeatSpan(data, findings, deduction, label) {
   const source = deduction.sourceQuote;
   const draft = deduction.from;
   if (typeof source !== 'string' || !source || typeof draft !== 'string' || !draft ||
       !String(data.chinese || '').includes(source) || !String(data.draft || '').includes(draft)) return false;
   const covered = findings.filter((f) => f.level === 'error' && f.sourceQuote && f.from &&
     source.includes(f.sourceQuote) && draft.includes(f.from));
-  return covered.length > 0 && covered.every((f) => f.primaryDimension && f.primaryDimension !== label);
+  if (!covered.length) return false;
+  return covered.every((f) => f.primaryDimension && f.primaryDimension !== label) ||
+    covered.some((f) => f.primaryDimension === label && f.sourceQuote.length < source.length);
+}
+
+/** Merge repeats of one source proposition: an error finding whose source and
+ *  draft spans both contain a more precise error finding with the same
+ *  primaryDimension charges the same information twice. Keep the precise one.
+ *  Independent errors in the same sentence, and repeats across dimensions, are
+ *  left for the ledger and review rules — they may be genuine. */
+export function dedupeEn2cnFindings(data) {
+  if (data?.direction !== 'en2cn' || !Array.isArray(data?.sentences)) return data;
+  const all = data.sentences.flatMap((s) => (Array.isArray(s?.findings) ? s.findings : []));
+  let dropped = 0;
+  const sentences = data.sentences.map((s) => ({
+    ...s,
+    findings: (Array.isArray(s.findings) ? s.findings : []).filter((f) => {
+      const duplicate = f && f.level === 'error' && f.sourceQuote && f.from && f.primaryDimension && all.some((g) =>
+        g && g !== f && g.level === 'error' && g.sourceQuote && g.from && g.primaryDimension === f.primaryDimension &&
+        g.sourceQuote.length < f.sourceQuote.length && f.sourceQuote.includes(g.sourceQuote) && f.from.includes(g.from));
+      if (duplicate) dropped++;
+      return !duplicate;
+    }),
+  }));
+  if (dropped) console.warn(`[en2cn] 合并 ${dropped} 条与更精确片段重复的宽条目（同一处原文信息只计一次）`);
+  return dropped ? { ...data, sentences } : data;
 }
 
 /** A narrow source span cannot justify spending most of the completeness budget. */
@@ -47,6 +83,7 @@ export function en2cnScoreProblems(data) {
   if (!Array.isArray(rows) || rows.length !== 5 || new Set(rows.map((r) => r?.label)).size !== 5) return ['缺少五项独立评分'];
   const used = new Set();
   const sourceUsed = new Set();
+  const charged = [];
   let total = 0;
   for (const label of EN2CN_DIMENSIONS) {
     const row = rows.find((r) => r?.label === label);
@@ -65,6 +102,7 @@ export function en2cnScoreProblems(data) {
       if (!f.from || !String(data.draft || '').includes(f.from) || !sourceQuote || !String(data.chinese || '').includes(sourceQuote)) problems.push('扣分片段不能在原文和初稿中核验');
       if (f.primaryDimension && f.primaryDimension !== label) problems.push('扣分维度与错误归因不符');
       if (used.has(index) || sourceUsed.has(sourceQuote)) problems.push('同一信息重复扣分');
+      charged.push(f);
       if (/误译|数字|专名/.test(f.category || '') && label !== '理解准确') problems.push('事实误译应归理解准确');
       if (/漏译|增译/.test(f.category || '') && label !== '完整性') problems.push('信息缺失或新增应归完整性');
       if (label === '完整性' && localCompletenessPenalty(data, f, d)) problems.push('局部漏增译完整性扣分超过8分：请按全文影响范围复核，不能把其他误译再次算作缺失');
@@ -76,6 +114,13 @@ export function en2cnScoreProblems(data) {
     total += score;
   }
   for (const [i, f] of findings.entries()) if (f.level === 'error' && !used.has(i)) problems.push('真实错误未体现于扣分依据');
+  // The pipeline dedupes nested repeats before validation; a ledger that still
+  // charges both halves of one proposition must go back to the model.
+  for (const [i, a] of charged.entries()) for (const b of charged.slice(i + 1)) {
+    if (a.primaryDimension && a.primaryDimension === b.primaryDimension && a.sourceQuote && b.sourceQuote &&
+        a.sourceQuote !== b.sourceQuote && (a.sourceQuote.includes(b.sourceQuote) || b.sourceQuote.includes(a.sourceQuote)) &&
+        (a.from.includes(b.from) || b.from.includes(a.from))) problems.push('同一信息重复扣分');
+  }
   if (Number(overall.score) !== total) problems.push('总分与分项不一致');
   return [...new Set(problems)];
 }
@@ -99,7 +144,7 @@ export function reconcileEn2cnOverall(data) {
       if (!f) {
         // Drop only evidenced repetitions. Unknown citations still require repair,
         // and the final validator still requires every real error to be charged.
-        if (redundantCrossDimensionSpan(data, findings, d, label)) continue;
+        if (redundantRepeatSpan(data, findings, d, label)) continue;
         return overall;
       }
       if (f.level === 'improve' || f.level === 'study' || (f.primaryDimension && f.primaryDimension !== label)) continue;
@@ -126,9 +171,10 @@ export const EN2CN_SCORE_EVIDENCE_RULES = `
 误译、数字、专名误读归理解准确；真正未表达的信息或无依据新增归完整性。已表达但译错不是漏译。表达地道/语体得当/流畅度只记录独立存在的中文语言错误，不能因同一事实错误再次扣分。
 先完成 sentences，再输出 overall，避免先评分后凑错误。overall.scoreBreakdown 每一项新增 deductions 数组，每条为 {"sourceQuote":"对应finding的英文原文引用","from":"对应finding的初稿片段","points":2}，sourceQuote/from 必须逐字照抄所对应的 error finding 字段，不用易错的数组编号作为唯一依据。
 英译汉的满分权重为理解准确40、表达地道15、语体得当10、流畅度10、完整性25，总计100。信息准确和完整共占65分，避免严重误译只扣20分而其余通顺就获得高分。没有真实错误的分项 deductions=[]、得该项满分，只有可选建议时不得凭感觉扣分。
-扣分严重程度结合影响范围判断，不按错误数量机械计分；同一条 finding、同一处原文信息只能归一个分项且扣一次，合并重复错误。每项 score=max-本项扣分合计，总分为五项之和。
+扣分严重程度结合影响范围判断，不按错误数量机械计分；同一条 finding、同一处原文信息只能归一个分项且扣一次，合并重复错误。同一处原文信息不得以不同宽度的片段或不同分类重复列条：保留最能定位问题的最短片段那条，其余合并（系统也会按此规则合并宽条目）。每项 score=max-本项扣分合计，总分为五项之和。
+理解准确的单条扣分按"读者会得出什么相反结论"分级，不把所有误译按相近分值处理：个别词的搭配或轻重偏差、不改变句子命题的细节失真扣1–3分；数字、时间、地点、指代错位或单一因果/条件错位等关键事实错误扣4–8分；否定、因果、条件、建议或结论与原文方向相反（立场/语义反转，如把不建议译成建议、把必要条件译成充分条件、把未证实译成已证实）每处至少10分、通常12–18分；多处方向性反转或全篇主旨误读可在40分预算内继续叠加。不得以"影响范围有限"为由把立场反转压成局部小错；影响范围用于完整性分配，不用于降低方向性错误的定性。
 每项扣分合计不得超过该项满分，必须在该项预算内评估全部错误；不能负分，也不能为了压低总分把理解错误改作表达、语体、流畅度或完整性再扣一次。逐句只有理解准确error时，其余四项不得另造整句扣分；完整性必须引用独立的漏译/增译finding，不能拿误译整句充当遗漏。返回前重新求和，不照抄旧分数。
-英译汉以本扣分账本及独立维度规则为准，不为符合通用总分分档而编造额外扣分。理解准确严重失分时，总评必须明确指出核心信息失真；总分仍是五项相加的学习参考，不用总分达到60来宣称及格或已准确完成翻译任务。
+英译汉以本扣分账本及独立维度规则为准，不为符合通用总分分档而编造额外扣分。理解准确严重失分时，总评必须明确指出核心信息失真；存在方向性反转扣分时，总评开头就应点明"关键立场/事实译反、需重译相关句"，不得只给温和措辞；总分仍是五项相加的学习参考，不用总分达到60来宣称及格或已准确完成翻译任务。
 完整性依据全文缺失的信息占比及重要性判断；漏掉一个普通分句不能视为大部分全文缺失，不得为把总分压进某档而把大部分完整性分扣在一个局部漏译上。对照全文中已准确保留的事实，按实际影响范围分配扣分。
 局部漏译或无依据增译（对应原文不足全文三分之一）单条完整性扣分不得超过8分，通常1–3分为局部细节、4–6分为重要信息、7–8分为严重局部影响；这是复核上限，不是每条默认扣8分。大范围缺失可更高，但 sourceQuote 必须完整覆盖缺失的原文范围，不能拿一个词当成整段缺失的证据。已表达但译反的事实只能算理解错误，不得在完整性点评中再次宣称这些内容“漏掉了”。
 中文可用被字句、合理指代、省略可推知主语、拆分或合并句子；句号改分号、不是改并非、同义词替换等正常异译属于可选建议。除非有独立语义/语体错误，不得扣分。`;

@@ -21,7 +21,7 @@ export const EN2CN_REVIEW_PROMPT = `你是英译汉批改的独立语义复核�
 只输出JSON，先检查对照译文，再处理学生finding：
 {"ai":"经核对的完整中文对照译文；输入ai正确则原样保留，有误则修正","sentenceTranslations":[{"sentenceIndex":1,"ai":"经核对的该源句中文对照译文"}],"edits":[{"findingIndex":1,"finding":{"category":"误译","level":"error","from":"现有初稿片段","to":"正确中文","explanation":"基于原文的准确说明","sourceQuote":"英文原文逐字引用","primaryDimension":"理解准确"}}],"additions":[{"sentenceIndex":1,"finding":同上}],"overall":完整评分对象或null}
 ai和sentenceTranslations独立于edits，输入有ai时总是返回完整ai和各源句的sentenceTranslations；即使edits为空也不能跳过此项。输入无ai时可以省略。只纠正实际误读，不做同义改写。
-findingIndex为输入编号，仅用来定位原有条目；每个编号最多一次修改。删除没有学习价值的原可选建议可用{"findingIndex":1,"remove":true,"reason":"理由"}，不得直接删除error；误判的error改为study并说明原译成立。新增只限确实漏判的error，不补同义词润色。
+findingIndex为输入编号，仅用来定位原有条目；每个编号最多一次修改。删除没有学习价值的原可选建议可用{"findingIndex":1,"remove":true,"reason":"理由"}，不得直接删除error；误判的error改为study并说明原译成立。新增只限确实漏判的error，不补同义词润色；新增前先对照全部现有条目，与其他条目构成同一命题重复（即使是更宽片段或不同分类）就不要新增。
 同义例句或idiom中的教学如有无依据推导、与原文矛盾，可在对应edit上加clearLearning:true并在finding.explanation说明依据，清除该条旧学习材料；正确的条目不清除。
 additions优先用sentenceIndex定位已有源句；整句漏译而第一轮没有该句时用sourceSentence（英文原文中完整的句子）代替；新增无依据事实用extra:true，sourceQuote引用邻近源文作定位，并明确说明全文不存在这项信息。
 error的from必须逐字存在于完整初稿，sourceQuote必须逐字存在于完整英文；漏译的from引用相邻初稿，to为补译内容。若首次漏译记录用了“学生译稿无对应句”等不存在于译稿的占位符，必须改成实际相邻初稿片段；该片段只定位插入位置，不要让补译替换掉相邻句。所有修订保留准确的原文引用。未发现需要修改时edits=[]、additions=[]，不要凑条目。
@@ -116,9 +116,9 @@ export function applyEn2cnReview(data, review) {
     }
     const duplicate = sentences.some((s) => s.findings.some((f) => f && (
       (f.from === finding.from && f.to === finding.to && f.sourceQuote === finding.sourceQuote) ||
-      // A review may repeat a clause-level error as a whole-sentence error.
-      // Keep the existing entry when both source and draft spans cover it.
-      (f.level === 'error' && f.primaryDimension === finding.primaryDimension && f.category === finding.category && f.sourceQuote &&
+      // A review may repeat a clause-level error as a whole-sentence error under
+      // another category label; the same source proposition must not be listed twice.
+      (f.level === 'error' && f.primaryDimension === finding.primaryDimension && f.sourceQuote &&
        (f.sourceQuote.includes(finding.sourceQuote) || finding.sourceQuote.includes(f.sourceQuote)) &&
        (f.from.includes(finding.from) || finding.from.includes(f.from)))
     )));

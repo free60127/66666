@@ -1,5 +1,5 @@
 import { localOverall } from './gradingFallback.mjs';
-import { en2cnScoreProblems, EN2CN_SCORE_EVIDENCE_RULES, normalizeEn2cnOverall, reconcileEn2cnOverall } from './en2cnScoring.mjs';
+import { dedupeEn2cnFindings, en2cnScoreProblems, EN2CN_SCORE_EVIDENCE_RULES, normalizeEn2cnOverall, reconcileEn2cnOverall } from './en2cnScoring.mjs';
 import { needsEn2cnReview, EN2CN_REVIEW_PROMPT, buildEn2cnReviewMessage, applyEn2cnReview } from './en2cnReview.mjs';
 import { normalizeEn2cnFeedback } from './en2cnFeedback.mjs';
 import { answerLanguage } from '../src/learningLanguage.js';
@@ -1141,7 +1141,12 @@ async function runAnalyzeJob(jobId, { title, chinese, draft, original, lesson, l
       }
     }
     job.data = buildAnalyzeData({ parsed, dir, title, chinese, draft, original, level, lesson, lessonNo });
-    if (dir === 'en2cn') job.data.overall = reconcileEn2cnOverall(job.data);
+    if (dir === 'en2cn') {
+      // 合并同一处原文信息的重复条目（如整句重复逐句错误），必须在扣分账本校验之前做：
+      // 重复扣分会先把账本判为无效，触发补救甚至把整个评分打成"暂不可用"。
+      job.data = dedupeEn2cnFindings(job.data);
+      job.data.overall = reconcileEn2cnOverall(job.data);
+    }
     if (needsEn2cnReview(job.data)) {
       try {
         const reviewed = await callLLM({ baseUrl, model, apiKey, timeoutMs: 45000, messages: [
@@ -1149,6 +1154,7 @@ async function runAnalyzeJob(jobId, { title, chinese, draft, original, lesson, l
           { role: 'user', content: buildEn2cnReviewMessage(job.data, en2cnScoreProblems(job.data)) },
         ] });
         job.data = applyEn2cnReview(job.data, parseJsonLoose(reviewed));
+        job.data = dedupeEn2cnFindings(job.data);
         job.data.overall = reconcileEn2cnOverall(job.data);
       } catch (e) {
         job.data.translationReview = { status: 'unavailable' };
@@ -1161,6 +1167,7 @@ async function runAnalyzeJob(jobId, { title, chinese, draft, original, lesson, l
     // 又会白白多花一次调用、把任务时长翻倍（并发名额测试就是这么被拖红的）。
     const findingCount = (job.data.sentences || []).reduce((n, x) => n + ((x && Array.isArray(x.findings)) ? x.findings.length : 0), 0);
     const scoreProblems = dir === 'en2cn' ? en2cnScoreProblems(job.data) : [];
+    if (scoreProblems.length) console.warn('[analyze] 评分账本未通过校验，进入补救：' + scoreProblems.join(' / '));
     if ((!usableOverall(job.data.overall) && findingCount > 0) || scoreProblems.length) {
       try {
         job.data.overall = await repairOverall({ baseUrl, model, apiKey, data: job.data, scoreProblems });
@@ -1169,7 +1176,10 @@ async function runAnalyzeJob(jobId, { title, chinese, draft, original, lesson, l
       } catch (e) {
         job.data.overall = localOverall(job.data);
         job.overallRepaired = false;
-        console.warn('[analyze] 整体评价补救失败，保留分析但暂不评分：' + (e && e.message));
+        // 脱敏诊断：只记校验问题类型和失败阶段，便于定位"评分暂不可用"，不含用户内容。
+        job.data.scoreIssue = { stage: 'overall-repair', problems: scoreProblems.slice(0, 8), message: String((e && e.message) || e).slice(0, 300) };
+        console.warn('[analyze] 整体评价补救失败，保留分析但暂不评分：' + (e && e.message) +
+          (scoreProblems.length ? '；账本校验问题：' + scoreProblems.join(' / ') : ''));
       }
     }
     job.data = normalizeEn2cnFeedback(job.data);

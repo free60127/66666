@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { needsEn2cnReview, applyEn2cnReview, buildEn2cnReviewMessage } from './en2cnReview.mjs';
-import { EN2CN_DIMENSIONS, EN2CN_MAX, reconcileEn2cnOverall, en2cnScoreProblems } from './en2cnScoring.mjs';
+import { dedupeEn2cnFindings, EN2CN_DIMENSIONS, EN2CN_MAX, reconcileEn2cnOverall, en2cnScoreProblems } from './en2cnScoring.mjs';
 import { normalizeEn2cnFeedback } from './en2cnFeedback.mjs';
 
 const original = { category: '数字误译', level: 'improve', from: '20个百分点', to: '20%', explanation: '原文是相对降幅。' };
@@ -115,4 +115,59 @@ for (const extension of [
   { sentenceTranslations: [{ sentenceIndex: 1, ai: '中文' }, { sentenceIndex: 1, ai: '重复' }] },
   { advancedSentences: [{ invalid: true }] },
 ]) assert.throws(() => applyEn2cnReview(contradictory, { edits: [], additions: [], ...extension }), /语义复核/);
+// Same-proposition duplicates: a wider same-dimension finding merges into the
+// precise one (real-model regression: one negation reversal listed twice, which
+// used to pass the ledger and could leave scoring unavailable).
+const dupSource = 'The report calls for a review of the decision; it does not recommend stopping all work.';
+const dupDraft = '报告要求重新审议这一决定，并建议全面停工。';
+const narrowDup = { category: '误译', level: 'error', from: '并建议全面停工', to: '但并不建议停止全部工程',
+  sourceQuote: 'it does not recommend stopping all work', primaryDimension: '理解准确', explanation: '否定漏掉，立场反转。' };
+const wideDup = { category: '连贯', level: 'error', from: dupDraft, to: '报告要求对这一决定进行复议；报告并不建议停止全部工程。',
+  sourceQuote: dupSource, primaryDimension: '理解准确', explanation: '同一次否定反转的整句重复。' };
+const dupData = { direction: 'en2cn', chinese: dupSource, draft: dupDraft,
+  sentences: [{ cn: dupSource, draft: dupDraft, findings: [narrowDup, wideDup] }] };
+const deduped = dedupeEn2cnFindings(dupData);
+assert.equal(deduped.sentences[0].findings.length, 1, 'wider same-proposition repeat merges into the precise finding');
+assert.equal(deduped.sentences[0].findings[0].from, narrowDup.from);
+assert.equal(dedupeEn2cnFindings({ ...dupData, direction: 'cn2en' }).sentences[0].findings.length, 2, 'cn2en is untouched');
+const monthError = { category: '数字与单位', level: 'error', from: '七月开工', to: '六月开工',
+  sourceQuote: 'in June', primaryDimension: '理解准确', explanation: '月份读错。' };
+const monthChinese = "The committee's approval enabled work to begin in June; it does not recommend stopping all work.";
+const monthDraft = '委员会的批准使工程得以在七月开工，并建议全面停工。';
+const monthDeduped = dedupeEn2cnFindings({ direction: 'en2cn', chinese: monthChinese, draft: monthDraft,
+  sentences: [{ findings: [monthError, narrowDup, { ...wideDup, from: monthDraft }] }] });
+assert.equal(monthDeduped.sentences[0].findings.length, 2, 'an independent second error in the same sentence survives');
+const breakdown = (points, deductions) => ({ score: EN2CN_MAX['理解准确'] - points, scoreBreakdown: EN2CN_DIMENSIONS.map((label) => ({ label, max: EN2CN_MAX[label],
+  score: EN2CN_MAX[label] - (label === '理解准确' ? points : 0), deductions: label === '理解准确' ? deductions : [] })) });
+monthDeduped.overall = { ...breakdown(15, [
+  { sourceQuote: monthError.sourceQuote, from: monthError.from, points: 5 },
+  { sourceQuote: narrowDup.sourceQuote, from: narrowDup.from, points: 5 },
+  { sourceQuote: monthChinese, from: monthDraft, points: 5, findingIndex: 2 },
+]), score: 85 };
+const monthReconciled = reconcileEn2cnOverall(monthDeduped);
+assert.equal(monthReconciled.score, 90, 'stale wide charge merges away and the ledger recomputes');
+assert.deepEqual(en2cnScoreProblems({ ...monthDeduped, overall: monthReconciled }), []);
+assert.ok(en2cnScoreProblems({ ...dupData,
+  overall: { ...breakdown(15, [
+    { sourceQuote: narrowDup.sourceQuote, from: narrowDup.from, points: 5 },
+    { sourceQuote: wideDup.sourceQuote, from: wideDup.from, points: 10 },
+  ]), score: 85 } }).includes('同一信息重复扣分'), 'a ledger charging both halves of one proposition is rejected');
+// A stale citation must not grab an unrelated error by array position.
+const grab = { direction: 'en2cn', chinese: 'Alpha beta. Gamma delta.', draft: '甲乙。丙丁。',
+  sentences: [{ findings: [
+    { category: '误译', level: 'error', from: '甲乙', to: '甲丙', sourceQuote: 'Alpha beta', primaryDimension: '理解准确', explanation: 'a' },
+    { category: '误译', level: 'error', from: '丙丁', to: '戊己', sourceQuote: 'Gamma delta', primaryDimension: '理解准确', explanation: 'b' },
+  ] }] };
+grab.overall = { ...breakdown(10, [
+  { sourceQuote: 'Alpha beta. Gamma delta.', from: '甲乙。丙丁。', points: 5, findingIndex: 2 },
+  { sourceQuote: 'Alpha beta', from: '甲乙', points: 5 },
+]), score: 90 };
+const grabProblems = en2cnScoreProblems(grab);
+assert.ok(grabProblems.includes('理解准确引用了非错误或无效扣分'),
+  'a stale wide citation cannot grab the second error via its array index');
+// Review cannot re-add the same proposition under a different category label.
+const crossCat = applyEn2cnReview(result, { edits: [], additions: [{ sentenceIndex: 1, finding: {
+  category: '连贯', level: 'error', from: '费用下降了20个百分点。', to: '费用下降了20%。',
+  sourceQuote: 'Costs fell by 20 percent.', primaryDimension: '理解准确', explanation: '整句重复。' } }], overall: null });
+assert.equal(crossCat.translationReview.added, 0, 'same-proposition repeat is rejected across categories');
 console.log('PASS en2cn semantic review: numerical severity, unsupported tail, citations, bounded edits, optional removal, cn2en isolation');
