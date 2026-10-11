@@ -22,6 +22,7 @@ flock -w 300 9 || { echo 'Another deployment is still running' >&2; exit 75; }
 [[ -e "$APP/.env" || -e "$SHARED/.env" ]] || { echo 'Existing server .env is missing' >&2; exit 78; }
 
 STAGE="$(mktemp -d "$RELEASES/.staging-$SHA-XXXXXX")"
+chmod 755 "$STAGE"
 OLD=""
 SWITCHED=0
 COMMITTED=0

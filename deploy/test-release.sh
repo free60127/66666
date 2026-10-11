@@ -88,6 +88,7 @@ echo 'PASS unsafe archive rejected before application changes'
 
 bash "$SCRIPT_DIR/server-release.sh" "$TEST_ROOT/$GOOD.tgz" "$GOOD"
 [[ -L "$BTS_DEPLOY_ROOT/bts" && -L "$BTS_DEPLOY_ROOT/bts/.env" && -L "$BTS_DEPLOY_ROOT/bts/data" ]]
+[[ $(stat -Lc %a "$BTS_DEPLOY_ROOT/bts") == 755 ]]
 grep -qx 'old-browser-chunk' "$BTS_DEPLOY_ROOT/bts/dist/assets/legacy.js"
 [[ -f "$BTS_DEPLOY_ROOT/bts/public/corpus/server-only.json" && -f "$BTS_DEPLOY_ROOT/bts/dist/corpus/server-only.json" ]]
 printf 'written-after-release\n' > "$BTS_DEPLOY_ROOT/bts/data/new-record.json"
