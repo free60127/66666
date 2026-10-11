@@ -2,7 +2,7 @@ import { localOverall } from './gradingFallback.mjs';
 import { en2cnScoreProblems, EN2CN_SCORE_EVIDENCE_RULES, normalizeEn2cnOverall, reconcileEn2cnOverall } from './en2cnScoring.mjs';
 import { needsEn2cnReview, EN2CN_REVIEW_PROMPT, buildEn2cnReviewMessage, applyEn2cnReview } from './en2cnReview.mjs';
 import { needsCn2enReview, CN2EN_REVIEW_PROMPT, buildCn2enReviewMessage, applyCn2enReview } from './cn2enReview.mjs';
-import { cn2enScoreProblems, normalizeCn2enOverall, reconcileCn2enOverall } from './cn2enScoring.mjs';
+import { cn2enScoreProblems, CN2EN_SCORE_EVIDENCE_RULES, normalizeCn2enOverall, reconcileCn2enOverall } from './cn2enScoring.mjs';
 import { dedupeExactErrors, EVIDENCE_POLICY } from './scoringEvidence.mjs';
 import { normalizeEn2cnFeedback } from './en2cnFeedback.mjs';
 import { answerLanguage } from '../src/learningLanguage.js';
@@ -1056,6 +1056,10 @@ function reconcileEvidenceFor(data) {
 function evidenceProblemsFor(data) {
   return (data.direction === 'en2cn' ? en2cnScoreProblems : cn2enScoreProblems)(data);
 }
+/** 修复轮也必须带上对应方向的扣分账本规则，否则重建的账本必然与校验规则不符。 */
+function evidenceRulesFor(direction) {
+  return direction === 'en2cn' ? EN2CN_SCORE_EVIDENCE_RULES : CN2EN_SCORE_EVIDENCE_RULES;
+}
 
 function buildAnalyzeData({ parsed, dir, title, chinese, draft, original, level, lesson, lessonNo }) {
   // 清洗 findings：丢掉「went → went」这类无意义对照（模型偶尔会为凑数而生造），
@@ -1367,7 +1371,7 @@ async function runQuizJob(jobId, { points, count, level, baseUrl, model, apiKey,
 async function repairOverall({ baseUrl, model, apiKey, data, scoreProblems = [] }) {
   const findings = (data.sentences || []).flatMap((x) => (Array.isArray(x.findings) ? x.findings : []));
   const messages = [
-    { role: 'system', content: overallRepairPrompt(data.direction) + (data.direction === 'en2cn' ? EN2CN_SCORE_EVIDENCE_RULES : '') },
+    { role: 'system', content: overallRepairPrompt(data.direction) + evidenceRulesFor(data.direction) },
     { role: 'user', content: buildOverallRepairMessage({ ...data, findings, scoreProblems }) },
   ];
   // 短超时（45 秒）：补救只是"锦上添花"，绝不能因为它把任务拖住、占着并发名额

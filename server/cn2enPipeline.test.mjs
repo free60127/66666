@@ -24,12 +24,15 @@ const mock = http.createServer(async (req, res) => {
     const input = JSON.parse(body.messages[1].content);
     assert.equal(input.source, source); assert.equal(input.draft, draft);
     content = mode === 'failed' ? { invalid: true } : { edits: [], additions: [], overall: ledger(), ai: 'We should foster cooperation.',
-      sentenceTranslations: [{ sentenceIndex: 1, ai: 'We should foster cooperation.', correctedSentence: draft }], advancedSentences: [], vocabularyNotes: [] };
+      sentenceTranslations: [{ sentenceIndex: 1, ai: 'We should foster cooperation.' }], advancedSentences: [], vocabularyNotes: [] };
   } else if (system.includes('重做有证据的整体评价')) content = { score: 58 };
   else {
     content = { title: 'T', chinese: 'fabricated source', draft: 'fabricated draft', original: 'fabricated reference', ai: 'It is imperative to strengthen international cooperation.',
       overall: mode === 'failed' ? { score: 58 } : ledger(), sentences: [{ cn: source, draft, ai: 'Unfounded upgrade', findings: [] }] };
-    assert.match(system, /完整纠错/); assert.doesNotMatch(system, /文学性再创作——/);
+    assert.doesNotMatch(system, /完整纠错/);
+    assert.doesNotMatch(system, /文学性再创作——/);
+    assert.match(system, /宁深勿浅，宁多勿漏/);
+    assert.match(system, /近义词尽量给 2-4 个对比/);
   }
   if (body.stream) {
     const segments = [{ t: 'meta', ...Object.fromEntries(['title', 'chinese', 'draft', 'original'].map((key) => [key, content[key]])) },
@@ -68,7 +71,7 @@ try {
     assert.equal(result.overall.scoringVersion, 'cn2en-evidence-v1');
     assert.equal(result.chinese, source); assert.equal(result.draft, draft); assert.equal(result.original, '');
     assert.equal(result.ai, 'We should foster cooperation.', 'the separate AI version may improve valid phrasing without affecting grades');
-    assert.equal(result.sentences[0].correctedSentence, draft);
+    assert.equal(result.sentences[0].correctedSentence, undefined, 'the full-correction row is no longer generated');
     assert.equal(result.translationReview.status, 'done');
     assert.deepEqual(result.advancedSentences, []);
   }

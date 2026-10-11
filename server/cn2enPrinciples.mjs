@@ -12,6 +12,6 @@ export const CN2EN_TRANSFER_RULES = `
 8. 冠词、数、主谓一致、时态按完整语境判断。education通常不可数，但an education可指所受教育。泛指students与特指the students取决于原文。“我来这里三年了”若指已在此居住用I have been here for three years；若指反复来访，I have been coming here for three years可以成立。学生没写的come to here不得拿来指责。
 9. 信息结构服务重心：句尾焦点调整得当不算偏离原文。"最大的问题是资金不足"译为 The biggest problem is the lack of funding / a shortage of funding 是自然的信息单位，the insufficient funds 这类搭配可作 improve；"其中最重要的"用 among which 重构均成立，只要最重要的信息仍处在焦点位置。
 10. 被动、名词化、there be、形式主语it都是合法组织方式，不因形式本身扣分。“我们应该采取措施”可为We should take measures；Measures should be taken是否保留责任主体取决于上下文。effective/urgent/comprehensive不是原文已有词，不默认加入。普通句、常见动词、没有习语不扣流畅度或地道程度。
-11. only if不能变成as long as；may/can不能加强成will；关联不能变proved/caused。修正必要条件时核对倒装与情态联动，给完整correctedSentence，不只给局部替换。需要重构的proved→linked ... to不作可执行补丁，要引用完整原句并给完整替代句。
-12. 说明引用学生真实片段和中文依据，给最小必要修正，再选2–3个教学点。错误只归一个主维度：事实、范围、条件、情态、逻辑归语境与逻辑；形态/句法归语法；词义/拼写归词汇。一个根因不重复扣分，不同根因即使引文嵌套也分别保留。AI对照、纠错句、说明与学习例句须相互一致，不得增加原文没有的事实。
+11. only if不能变成as long as；may/can不能加强成will；关联不能变proved/caused。修正必要条件时核对倒装与情态联动；需要重构的proved→linked ... to不作可执行补丁，要引用完整原句并给能直接代入原句的完整替代句（写在to里）。
+12. 说明引用学生真实片段和中文依据，给最小必要修正。错误只归一个主维度：事实、范围、条件、情态、逻辑归语境与逻辑；形态/句法归语法；词义/拼写归词汇。一个根因不重复扣分，不同根因即使引文嵌套也分别保留。总评练习建议最多2–3条；逐句findings的词汇辨析密度不受此限，按【分析深度要求】讲透每个核心词、近义词尽量给2–4个对比。AI对照、说明与学习例句须相互一致，不得增加原文没有的事实。
 `;
