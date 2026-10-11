@@ -78,7 +78,7 @@ function ReferenceBlocks({ result, allFindings }) {
 }
 
 function ResultSheetImpl({ result, onBack, onCopy, onShare, shareTip, fav, history, jobId, streaming }) {
-  const checking = result.direction === 'en2cn' && Boolean(streaming?.active || result.generating);
+  const checking = Boolean(streaming?.active || result.generating);
   const overall = checking ? { ...result.overall, score: null, scoreBreakdown: [] } : result.overall || {};
   // 整页文案按这条结果的方向走（老结果没有 direction 字段 → directionText 回落汉译英）
   const dt = directionText(result.direction);
@@ -147,6 +147,7 @@ function ResultSheetImpl({ result, onBack, onCopy, onShare, shareTip, fav, histo
             <div className="score-ring"><strong>{overall.score ?? '-'}</strong><span>{overall.local ? overall.score == null ? '评分暂不可用' : '本地估算' : '综合评分'}</span></div>
             <div className="overall-body">
               <p>{overall.summary || ''}</p>
+              {overall.taskAssessment?.message ? <p className="score-task-warning" role="status">{overall.taskAssessment.message}</p> : null}
               <div className="chips">{(overall.highlights || []).map((h, i) => <span key={'hl' + i} className="chip"><CheckCircle2 size={13} />{h}</span>)}</div>
               <div className="advice"><strong>练习建议</strong><ul>{(overall.advice || []).map((a, i) => <li key={'ad' + i}>{a}</li>)}</ul></div>
               {Array.isArray(overall.scoreBreakdown) && overall.scoreBreakdown.length ? (

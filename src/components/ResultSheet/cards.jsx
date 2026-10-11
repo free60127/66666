@@ -112,7 +112,9 @@ function SentenceCardImpl({ index, sentence, result, fav }) {
       <div className="sentence-head"><span className="sentence-index">{String(index + 1).padStart(2, '0')}</span><p className="sentence-cn">{sentence.cn}</p><span className="finding-count">{findings.length} 项</span></div>
       <div className="versions">
         <VersionRow label="原稿" tone="draft" text={<DraftText text={sentence.draft} findings={findings} />} />
-        <VersionRow label="AI 修正版" tone="ai" text={sentence.ai} />
+        {typeof sentence.correctedSentence === 'string' && sentence.correctedSentence !== sentence.draft && findings.some((f) => f.level === 'error')
+          ? <VersionRow label="完整纠错版" tone="ai" text={sentence.correctedSentence} /> : null}
+        <VersionRow label="AI 提升译文" tone="ai" text={sentence.ai} />
         {sentence.original ? <VersionRow label="课文原文" tone="original" text={sentence.original} /> : null}
       </div>
       <div className="findings">

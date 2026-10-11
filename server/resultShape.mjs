@@ -44,7 +44,8 @@ export function cleanFindings(rawFindings) {
   let dropped = 0;
   for (const f of objectArray(rawFindings)) {
     if (isNoopFinding(f)) { dropped += 1; continue; }
-    const key = `${f.category || ''}|${String(f.from).trim()}|${String(f.to).trim()}`;
+    const key = JSON.stringify([f.category || '', String(f.from).trim(), String(f.to).trim(),
+      f.level || '', f.sourceQuote || '', f.primaryDimension || '', f.severity || '']);
     if (seen.has(key)) { dropped += 1; continue; } // 模型偶尔把同一条列两遍
     seen.add(key);
     list.push({

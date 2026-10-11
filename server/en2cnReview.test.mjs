@@ -52,8 +52,8 @@ const omitted = normalizeEn2cnFeedback({ ...data, sentences: [{ findings: [{ ...
 assert.equal(omitted.sentences[0].findings[0].operation, 'insert');
 const overlapping = applyEn2cnReview(result, { edits: [], additions: [{ sentenceIndex: 1, finding: { ...numeric,
   from: '费用下降了20个百分点。', sourceQuote: 'Costs fell by 20 percent.', to: '费用下降了20%。' } }], overall: null });
-assert.equal(overlapping.sentences[0].findings.length, 1, 'review cannot add the same numerical error as a longer overlapping span');
-assert.equal(overlapping.translationReview.added, 0);
+assert.equal(overlapping.sentences[0].findings.length, 2, 'overlap alone cannot prove two findings equivalent');
+assert.equal(overlapping.translationReview.added, 1);
 const safeShape = applyEn2cnReview(data, { ...review, edits: [{ findingIndex: 1, finding: { ...numeric, synonyms: 'wrong shape', examples: { invalid: true } } }] });
 assert.equal(safeShape.sentences[0].findings[0].synonyms, undefined, 'review cannot inject malformed learning-card fields');
 // Real-model regression: whole-sentence completeness charges repeated two
@@ -67,9 +67,12 @@ pair.overall = { score: 12, scoreBreakdown: EN2CN_DIMENSIONS.map((label) => ({ l
   deductions: label === '理解准确' ? pair.sentences[0].findings.map((f) => ({ sourceQuote: f.sourceQuote, from: f.from, points: 5 }))
     : label === '完整性' ? [{ sourceQuote: pair.chinese, from: pair.draft, points: 8 }] : [] })) };
 const bounded = reconcileEn2cnOverall(pair);
-assert.equal(bounded.score, 90, 'remove evidenced whole-sentence double charges and recompute arithmetic');
-assert.deepEqual(en2cnScoreProblems({ ...pair, overall: bounded }), []);
-assert.deepEqual(bounded.scoreBreakdown[4].deductions, []);
+assert.deepEqual(bounded, pair.overall, 'unknown broad charges require semantic review rather than automatic deletion');
+const reviewedPair = structuredClone(pair);
+reviewedPair.overall.scoreBreakdown[4].deductions = [];
+const repairedPair = reconcileEn2cnOverall(reviewedPair);
+assert.equal(repairedPair.score, 90);
+assert.deepEqual(en2cnScoreProblems({ ...reviewedPair, overall: repairedPair }), []);
 const unknownCharge = structuredClone(pair);
 unknownCharge.overall.scoreBreakdown[4].deductions[0].sourceQuote = 'Invented source';
 assert.deepEqual(reconcileEn2cnOverall(unknownCharge), unknownCharge.overall, 'unknown citations still need model repair');
@@ -127,8 +130,11 @@ const wideDup = { category: '连贯', level: 'error', from: dupDraft, to: '报�
 const dupData = { direction: 'en2cn', chinese: dupSource, draft: dupDraft,
   sentences: [{ cn: dupSource, draft: dupDraft, findings: [narrowDup, wideDup] }] };
 const deduped = dedupeEn2cnFindings(dupData);
-assert.equal(deduped.sentences[0].findings.length, 1, 'wider same-proposition repeat merges into the precise finding');
-assert.equal(deduped.sentences[0].findings[0].from, narrowDup.from);
+assert.equal(deduped.sentences[0].findings.length, 2, 'span nesting is not sufficient for automatic removal');
+const merged = applyEn2cnReview(dupData, { edits: [], additions: [], duplicates: [{ findingIndex: 2, duplicateOf: 1, reason: '两条都仅指出同一次否定反转。' }] });
+assert.equal(merged.sentences[0].findings.length, 1);
+assert.equal(merged.translationReview.merged, 1);
+assert.equal(dedupeEn2cnFindings({ ...dupData, sentences: [{ findings: [narrowDup, { ...narrowDup }] }] }).sentences[0].findings.length, 1, 'exact duplicates still merge');
 assert.equal(dedupeEn2cnFindings({ ...dupData, direction: 'cn2en' }).sentences[0].findings.length, 2, 'cn2en is untouched');
 const monthError = { category: '数字与单位', level: 'error', from: '七月开工', to: '六月开工',
   sourceQuote: 'in June', primaryDimension: '理解准确', explanation: '月份读错。' };
@@ -136,7 +142,7 @@ const monthChinese = "The committee's approval enabled work to begin in June; it
 const monthDraft = '委员会的批准使工程得以在七月开工，并建议全面停工。';
 const monthDeduped = dedupeEn2cnFindings({ direction: 'en2cn', chinese: monthChinese, draft: monthDraft,
   sentences: [{ findings: [monthError, narrowDup, { ...wideDup, from: monthDraft }] }] });
-assert.equal(monthDeduped.sentences[0].findings.length, 2, 'an independent second error in the same sentence survives');
+assert.equal(monthDeduped.sentences[0].findings.length, 3, 'an independent second error survives before semantic duplicate review');
 const breakdown = (points, deductions) => ({ score: EN2CN_MAX['理解准确'] - points, scoreBreakdown: EN2CN_DIMENSIONS.map((label) => ({ label, max: EN2CN_MAX[label],
   score: EN2CN_MAX[label] - (label === '理解准确' ? points : 0), deductions: label === '理解准确' ? deductions : [] })) });
 monthDeduped.overall = { ...breakdown(15, [
@@ -145,13 +151,13 @@ monthDeduped.overall = { ...breakdown(15, [
   { sourceQuote: monthChinese, from: monthDraft, points: 5, findingIndex: 2 },
 ]), score: 85 };
 const monthReconciled = reconcileEn2cnOverall(monthDeduped);
-assert.equal(monthReconciled.score, 90, 'stale wide charge merges away and the ledger recomputes');
-assert.deepEqual(en2cnScoreProblems({ ...monthDeduped, overall: monthReconciled }), []);
+assert.equal(monthReconciled.score, 85, 'a stale wide charge is not silently erased or rebound to a narrow error');
+assert.ok(en2cnScoreProblems({ ...monthDeduped, overall: monthReconciled }).length > 0);
 assert.ok(en2cnScoreProblems({ ...dupData,
   overall: { ...breakdown(15, [
     { sourceQuote: narrowDup.sourceQuote, from: narrowDup.from, points: 5 },
     { sourceQuote: wideDup.sourceQuote, from: wideDup.from, points: 10 },
-  ]), score: 85 } }).includes('同一信息重复扣分'), 'a ledger charging both halves of one proposition is rejected');
+  ]), score: 85 } }).length === 0, 'only semantic review can establish whether nested spans describe independent roots');
 // A stale citation must not grab an unrelated error by array position.
 const grab = { direction: 'en2cn', chinese: 'Alpha beta. Gamma delta.', draft: '甲乙。丙丁。',
   sentences: [{ findings: [
@@ -169,5 +175,5 @@ assert.ok(grabProblems.includes('理解准确引用了非错误或无效扣分')
 const crossCat = applyEn2cnReview(result, { edits: [], additions: [{ sentenceIndex: 1, finding: {
   category: '连贯', level: 'error', from: '费用下降了20个百分点。', to: '费用下降了20%。',
   sourceQuote: 'Costs fell by 20 percent.', primaryDimension: '理解准确', explanation: '整句重复。' } }], overall: null });
-assert.equal(crossCat.translationReview.added, 0, 'same-proposition repeat is rejected across categories');
+assert.equal(crossCat.translationReview.added, 1, 'a broader finding needs explicit semantic equivalence evidence');
 console.log('PASS en2cn semantic review: numerical severity, unsupported tail, citations, bounded edits, optional removal, cn2en isolation');

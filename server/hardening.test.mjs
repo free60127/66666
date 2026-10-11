@@ -102,11 +102,18 @@ console.log('=== 资源保护回归测试 ===\n');
   check('被拒的任务没有真的打到模型接口（省下的就是钱和内存）', mockHits <= 1, `mockHits=${mockHits}`);
 
   // 第 1 个任务跑完后名额要释放出来，不能把后续请求永久卡住
-  await sleep(2600);
+  // 完成可能包括语义复核和评分补救；按任务状态等待，不假设只有一次模型调用。
+  let firstFinished = false;
+  for (let i = 0; i < 120; i++) {
+    const job = await readJob(first.jobId);
+    if (job && ['done', 'error'].includes(job.status)) { firstFinished = true; break; }
+    await sleep(100);
+  }
+  check('前一个任务在完整处理链结束后完成', firstFinished);
   const third = await submit();
-  const thirdJob = await readJob(third.jobId);
-  check('名额会释放：前一个任务结束后新任务能正常跑', thirdJob.status !== 'error' || !/正忙|繁忙/.test(thirdJob.error || ''),
-    `${thirdJob.status}: ${String(thirdJob.error || '').slice(0, 40)}`);
+  const thirdJob = third.jobId ? await readJob(third.jobId) : null;
+  check('名额会释放：前一个任务结束后新任务能正常跑', Boolean(third.jobId && thirdJob) && (thirdJob.status !== 'error' || !/正忙|繁忙/.test(thirdJob.error || '')),
+    thirdJob ? `${thirdJob.status}: ${String(thirdJob.error || '').slice(0, 40)}` : third.error);
 }
 
 app.kill();

@@ -39,7 +39,7 @@ describe('英译汉评分归因', () => {
     d.overall.scoreBreakdown[0].deductions = [{ sourceQuote: 'Fewer than one in five', from: f.from, points: 4 }];
     d.overall.scoreBreakdown[4].comment = '数字译反导致全部信息丢失';
     const checked = reconcileEn2cnOverall(d);
-    expect(checked.score).toBe(96); expect(checked.scoringVersion).toBe('en2cn-evidence-v3');
+    expect(checked.score).toBe(96); expect(checked.scoringVersion).toBe('en2cn-evidence-v4');
     expect(checked.scoreBreakdown[4].comment).not.toContain('数字译反');
     d.overall.scoreBreakdown[0].deductions[0].sourceQuote = 'invented';
     expect(en2cnScoreProblems(d)).toContain('扣分片段不能在原文和初稿中核验');
@@ -150,6 +150,25 @@ describe('中文收藏与作答', () => {
 });
 
 describe('结果显示和朗读', () => {
+  it('汉译英也等待复核后显示分数，并把完整纠错与关键错误提示保留到PDF', async () => {
+    const correction = 'Only if the review passes may the project continue.';
+    const result = { ...data(), direction: 'cn2en', draft: 'As long as the review passes, the project will continue.',
+      overall: { ...scores(), score: 58, taskAssessment: { status: 'needs-revision', message: '存在关键条件错误，请先修正相关句。' } },
+      sentences: [{ cn: '只有审查通过，项目才可能继续。', draft: 'As long as the review passes, the project will continue.',
+        ai: correction, correctedSentence: correction, findings: [{ level: 'error', from: 'will continue', to: 'may continue', category: '逻辑' }] }] };
+    const view = render(<ResultSheet result={{ ...result, generating: true }} history={[]} />);
+    expect(screen.queryByText('58')).toBeNull();
+    expect(screen.getByText('评分核对中')).toBeTruthy();
+    view.rerender(<ResultSheet result={result} history={[]} />);
+    expect(screen.getByText('完整纠错版')).toBeTruthy();
+    expect(screen.getByText(result.overall.taskAssessment.message)).toBeTruthy();
+    const { reportPdfModel } = await import('../../src/reportPdfLayout.js');
+    const model = reportPdfModel({ result }, '', '回归作业');
+    const card = model.find((n) => n.continuation === '句群 01');
+    expect(card.children.find((n) => n.label === '完整纠错版').runs[0].text).toBe(correction);
+    const summary = model.find((n) => n.continuation === '综合评价');
+    expect(summary.children.some((n) => n.runs?.some((r) => r.text === result.overall.taskAssessment.message))).toBe(true);
+  });
   it('语义复核失败时显示实际状态，不把首次批改伪装成已复核', () => {
     render(<ResultSheet result={{ ...data(), translationReview: { status: 'unavailable' } }} history={[]} />);
     expect(screen.getByText(/本次语义复核未完成/)).toBeTruthy();

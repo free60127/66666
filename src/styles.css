@@ -555,6 +555,7 @@ mark.hl { background: #ffe3e3; color: inherit; padding: 0 2px; border-radius: 2p
 
 /* 分项得分（P2 #12） */
 .score-breakdown { margin-top: 12px; border-top: 1px dashed var(--line); padding-top: 12px; }
+.score-task-warning { padding: 10px 12px; border-left: 3px solid var(--danger, #c0392b); background: #fff3ee; color: #9b3024; border-radius: 6px; }
 .score-breakdown-title { font-size: 12px; font-weight: 700; color: var(--muted); margin-bottom: 7px; }
 .score-row { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
 .score-label { width: 92px; font-size: 12.5px; color: var(--text); flex-shrink: 0; }

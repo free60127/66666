@@ -1,6 +1,9 @@
 import { localOverall } from './gradingFallback.mjs';
-import { dedupeEn2cnFindings, en2cnScoreProblems, EN2CN_SCORE_EVIDENCE_RULES, normalizeEn2cnOverall, reconcileEn2cnOverall } from './en2cnScoring.mjs';
+import { en2cnScoreProblems, EN2CN_SCORE_EVIDENCE_RULES, normalizeEn2cnOverall, reconcileEn2cnOverall } from './en2cnScoring.mjs';
 import { needsEn2cnReview, EN2CN_REVIEW_PROMPT, buildEn2cnReviewMessage, applyEn2cnReview } from './en2cnReview.mjs';
+import { needsCn2enReview, CN2EN_REVIEW_PROMPT, buildCn2enReviewMessage, applyCn2enReview } from './cn2enReview.mjs';
+import { cn2enScoreProblems, normalizeCn2enOverall, reconcileCn2enOverall } from './cn2enScoring.mjs';
+import { dedupeExactErrors, EVIDENCE_POLICY } from './scoringEvidence.mjs';
 import { normalizeEn2cnFeedback } from './en2cnFeedback.mjs';
 import { answerLanguage } from '../src/learningLanguage.js';
 import http from 'node:http';
@@ -1044,6 +1047,16 @@ async function callLLMStream({ baseUrl, model, apiKey, messages }, { onDelta, ti
  * 就会出现"我看到的"和"历史里存下来的"不是同一个东西（少一句、少一条点评），
  * 而这种不一致只有在用户回头看历史时才会发现。
  */
+function normalizeEvidenceFor(direction, overall) {
+  return (direction === 'en2cn' ? normalizeEn2cnOverall : normalizeCn2enOverall)(overall);
+}
+function reconcileEvidenceFor(data) {
+  return (data.direction === 'en2cn' ? reconcileEn2cnOverall : reconcileCn2enOverall)(data);
+}
+function evidenceProblemsFor(data) {
+  return (data.direction === 'en2cn' ? en2cnScoreProblems : cn2enScoreProblems)(data);
+}
+
 function buildAnalyzeData({ parsed, dir, title, chinese, draft, original, level, lesson, lessonNo }) {
   // 清洗 findings：丢掉「went → went」这类无意义对照（模型偶尔会为凑数而生造），
   // 丢了多少条打进日志 —— 数量长期偏高就说明 prompt 需要再收一收。
@@ -1054,12 +1067,13 @@ function buildAnalyzeData({ parsed, dir, title, chinese, draft, original, level,
   return {
     direction: dir,
     title: parsed.title || title,
-    chinese: dir === 'en2cn' ? chinese : parsed.chinese || chinese,
-    draft: dir === 'en2cn' ? draft : parsed.draft || draft,
+    chinese,
+    draft,
     ai: parsed.ai || '',
-    original: dir === 'en2cn' ? original : parsed.original || original,
+    original,
+    gradingPolicyVersion: EVIDENCE_POLICY,
     aiLevel: level || DEFAULT_AI_LEVEL,
-    overall: sanitizeOverall(dir === 'en2cn' ? normalizeEn2cnOverall(parsed.overall) : parsed.overall),
+    overall: sanitizeOverall(normalizeEvidenceFor(dir, parsed.overall)),
     sentences: cleanedSentences.list,
     vocabularyNotes: objectArray(parsed.vocabularyNotes),
     idiomHighlights: objectArray(parsed.idiomHighlights),
@@ -1141,32 +1155,29 @@ async function runAnalyzeJob(jobId, { title, chinese, draft, original, lesson, l
       }
     }
     job.data = buildAnalyzeData({ parsed, dir, title, chinese, draft, original, level, lesson, lessonNo });
-    if (dir === 'en2cn') {
-      // 合并同一处原文信息的重复条目（如整句重复逐句错误），必须在扣分账本校验之前做：
-      // 重复扣分会先把账本判为无效，触发补救甚至把整个评分打成"暂不可用"。
-      job.data = dedupeEn2cnFindings(job.data);
-      job.data.overall = reconcileEn2cnOverall(job.data);
-    }
-    if (needsEn2cnReview(job.data)) {
+    // 自动去重只处理完全相同的条目，嵌套引文须由语义复核确认根因。
+    job.data = dedupeExactErrors(job.data);
+    job.data.overall = reconcileEvidenceFor(job.data);
+    if (dir === 'en2cn' ? needsEn2cnReview(job.data) : needsCn2enReview(job.data)) {
       try {
         const reviewed = await callLLM({ baseUrl, model, apiKey, timeoutMs: 45000, messages: [
-          { role: 'system', content: EN2CN_REVIEW_PROMPT },
-          { role: 'user', content: buildEn2cnReviewMessage(job.data, en2cnScoreProblems(job.data)) },
+          { role: 'system', content: dir === 'en2cn' ? EN2CN_REVIEW_PROMPT : CN2EN_REVIEW_PROMPT },
+          { role: 'user', content: (dir === 'en2cn' ? buildEn2cnReviewMessage : buildCn2enReviewMessage)(job.data, evidenceProblemsFor(job.data)) },
         ] });
-        job.data = applyEn2cnReview(job.data, parseJsonLoose(reviewed));
-        job.data = dedupeEn2cnFindings(job.data);
-        job.data.overall = reconcileEn2cnOverall(job.data);
+        job.data = (dir === 'en2cn' ? applyEn2cnReview : applyCn2enReview)(job.data, parseJsonLoose(reviewed));
+        job.data = dedupeExactErrors(job.data);
+        job.data.overall = reconcileEvidenceFor(job.data);
       } catch (e) {
         job.data.translationReview = { status: 'unavailable' };
-        console.warn('[analyze/en2cn] 语义复核未完成，保留第一轮分析：' + (e && e.message));
+        console.warn('[analyze/' + dir + '] 语义复核未完成，保留第一轮分析：' + (e && e.message));
       }
     }
     // 整体评价缺失（模型整块没写 / 只写了占位符）→ 先补一次小请求；仍失败时保留批改但不捏造数值分数。
     // 这两步都只影响"有没有分数和建议"，不改变任何逐句批改内容。
-    // 只有在**有逐句批改可依据**时才补这一次请求：没有 findings 时既没有依据，
-    // 又会白白多花一次调用、把任务时长翻倍（并发名额测试就是这么被拖红的）。
+    // 有分析但没有可用整体评价，或账本证据无效时，最多补救一次。
+    // 没有错误也须有空扣分账本，不能仅凭模型给的总分接受结果。
     const findingCount = (job.data.sentences || []).reduce((n, x) => n + ((x && Array.isArray(x.findings)) ? x.findings.length : 0), 0);
-    const scoreProblems = dir === 'en2cn' ? en2cnScoreProblems(job.data) : [];
+    const scoreProblems = evidenceProblemsFor(job.data);
     if (scoreProblems.length) console.warn('[analyze] 评分账本未通过校验，进入补救：' + scoreProblems.join(' / '));
     if ((!usableOverall(job.data.overall) && findingCount > 0) || scoreProblems.length) {
       try {
@@ -1177,7 +1188,7 @@ async function runAnalyzeJob(jobId, { title, chinese, draft, original, lesson, l
         job.data.overall = localOverall(job.data);
         job.overallRepaired = false;
         // 脱敏诊断：只记校验问题类型和失败阶段，便于定位"评分暂不可用"，不含用户内容。
-        job.data.scoreIssue = { stage: 'overall-repair', problems: scoreProblems.slice(0, 8), message: String((e && e.message) || e).slice(0, 300) };
+        job.data.scoreIssue = { stage: 'overall-repair', problems: (e.scoreProblems || scoreProblems).slice(0, 8), message: '评分证据未通过复核，已保留逐句批改。' };
         console.warn('[analyze] 整体评价补救失败，保留分析但暂不评分：' + (e && e.message) +
           (scoreProblems.length ? '；账本校验问题：' + scoreProblems.join(' / ') : ''));
       }
@@ -1363,10 +1374,15 @@ async function repairOverall({ baseUrl, model, apiKey, data, scoreProblems = [] 
   const raw = await callLLM({ baseUrl, model, apiKey, messages, timeoutMs: 45000 });
   const parsed = parseJsonLoose(raw);
   const unwrapped = parsed && parsed.overall && typeof parsed.overall === 'object' ? parsed.overall : parsed;
-  let overall = sanitizeOverall(data.direction === 'en2cn' ? normalizeEn2cnOverall(unwrapped) : unwrapped);
-  if (data.direction === 'en2cn') overall = reconcileEn2cnOverall({ ...data, overall });
+  let overall = sanitizeOverall(normalizeEvidenceFor(data.direction, unwrapped));
+  overall = reconcileEvidenceFor({ ...data, overall });
   if (!usableOverall(overall)) throw new Error('补救请求也没给出可用的整体评价');
-  if (data.direction === 'en2cn' && en2cnScoreProblems({ ...data, overall }).length) throw new Error('评分依据未通过复核');
+  const problems = evidenceProblemsFor({ ...data, overall });
+  if (problems.length) {
+    const error = new Error('评分依据未通过复核');
+    error.scoreProblems = problems;
+    throw error;
+  }
   return overall;
 }
 

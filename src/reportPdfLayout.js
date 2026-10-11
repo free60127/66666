@@ -95,6 +95,7 @@ export function reportPdfModel(report, className, homeworkTitle) {
   model.push(heading('综合评价'), box([
     text(`综合评分  ${report.score ?? overall.score ?? '未评分'} / 100${overall.local ? '（' + (overall.score == null ? '评分暂不可用' : '本地估算') + '）' : ''}`, { size: 15, color: C.blue, bold: true }),
     text(overall.summary || '（未提供综合评价）'),
+    overall.taskAssessment?.message ? text(overall.taskAssessment.message, { color: C.red }) : null,
     ...(arr(overall.highlights).length ? [label('亮点'), ...arr(overall.highlights).map((v) => text('• ' + valueText(v), { color: C.teal }))] : []),
     ...(arr(overall.advice).length ? [label('练习建议'), ...arr(overall.advice).map((v) => text('• ' + valueText(v)))] : []),
     ...arr(overall.scoreBreakdown).flatMap((b) => [
@@ -115,7 +116,9 @@ export function reportPdfModel(report, className, homeworkTitle) {
     model.push(box([
       rich([{ text: ` ${number} `, badge: C.blue }, { text: '  ' + (sentence.cn || ''), bold: true }], { size: 11, gap: 9, keep: 45 }),
       { kind: 'row', label: result.direction === 'en2cn' ? '我的译稿' : '原稿', runs: markedRuns(sentence.draft, fs), color: C.draft },
-      { kind: 'row', label: result.direction === 'en2cn' ? 'AI 润色译文' : 'AI 修正版', runs: [{ text: sentence.ai || '（未提供）' }], color: C.teal },
+      typeof sentence.correctedSentence === 'string' && sentence.correctedSentence !== sentence.draft && fs.some((f) => f.level === 'error')
+        ? { kind: 'row', label: '完整纠错版', runs: [{ text: sentence.correctedSentence }], color: C.teal } : null,
+      { kind: 'row', label: 'AI 提升译文', runs: [{ text: sentence.ai || '（未提供）' }], color: C.teal },
       sentence.original ? { kind: 'row', label: result.direction === 'en2cn' ? '参考译文' : '课文原文', runs: [{ text: sentence.original }], color: C.reference } : null,
       ...fs.map(findingCard), fs.length ? null : text('该句未发现明显问题。', { size: 9, color: C.muted }),
     ], { fill: C.white, continuation: `句群 ${number}` }));

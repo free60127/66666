@@ -15,8 +15,8 @@ let mode = 'repair';
 const source = 'Fewer than one in five residents use it. Many residents welcomed the plan.';
 const draft = '五分之一以上的居民使用它。';
 const findings = [
-  { level: 'error', category: '误译', from: '五分之一以上', to: '不到五分之一', sourceQuote: 'Fewer than one in five', primaryDimension: '理解准确' },
-  { level: 'error', category: '漏译', from: draft, to: draft + '许多居民对这个计划表示欢迎。', sourceQuote: 'Many residents welcomed the plan.', primaryDimension: '完整性' },
+  { level: 'error', category: '误译', severity: 'major', from: '五分之一以上', to: '不到五分之一', sourceQuote: 'Fewer than one in five', primaryDimension: '理解准确' },
+  { level: 'error', category: '漏译', severity: 'major', from: draft, to: draft + '许多居民对这个计划表示欢迎。', sourceQuote: 'Many residents welcomed the plan.', primaryDimension: '完整性' },
 ];
 const overall = () => ({ score: 91, summary: '纠正比例并补充居民欢迎的信息。',
   scoreBreakdown: EN2CN_DIMENSIONS.map((label, i) => ({ label, max: EN2CN_MAX[label], score: EN2CN_MAX[label] - (i === 0 ? 4 : i === 4 ? 5 : 0),
@@ -30,10 +30,11 @@ const mock = http.createServer(async (req, res) => {
   if (system.includes('独立语义复核员')) {
     assert.match(body.messages[1].content, /Many residents welcomed the plan/);
     content = { edits: [], additions: [], overall: null };
+    if (mode === 'repair-no-citation') content.edits = findings.map((f, i) => ({ findingIndex: i + 1, finding: { ...f, explanation: '核对原文与初稿后保留此错误。' } }));
     if (mode === 'semantic') content = { edits: [], additions: [{ sentenceIndex: 1, finding: {
       ...findings[1], explanation: '原文的居民欢迎信息尚未译出。',
     } }], overall: overall(), ai: '不到五分之一的居民使用它。许多居民欢迎这个计划。',
-      sentenceTranslations: [{ sentenceIndex: 1, ai: '不到五分之一的居民使用它。许多居民欢迎这个计划。' }],
+      sentenceTranslations: [{ sentenceIndex: 1, ai: '不到五分之一的居民使用它。许多居民欢迎这个计划。', correctedSentence: '不到五分之一的居民使用它。许多居民对这个计划表示欢迎。' }],
       advancedSentences: ['Fewer than one in five → 不到五分之一 · 中文点拨：保留数量上限。'] };
   } else if (system.includes('重做有证据的整体评价')) {
     content = mode === 'failed-review' ? { score: 58 } : overall();
@@ -101,6 +102,7 @@ try {
   assert.equal(semantic.overall.score, 91);
   assert.equal(semantic.ai, '不到五分之一的居民使用它。许多居民欢迎这个计划。');
   assert.equal(semantic.sentences[0].ai, semantic.ai, 'corrected teaching survives the HTTP/job pipeline');
+  assert.equal(semantic.sentences[0].correctedSentence, '不到五分之一的居民使用它。许多居民对这个计划表示欢迎。', 'full minimal corrections remain separate from the AI version');
   assert.match(semantic.advancedSentences[0], /保留数量上限/);
   assert.equal(requests.length, 13, 'reviewed valid ledger does not need a third model call');
   const quiz = await submit('quiz', { points: ['[作答语言：中文]不到五分之一'], count: 1 });
