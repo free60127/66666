@@ -12,7 +12,7 @@ const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bts-cn2en-'));
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const source = '我们应该加强合作。';
 const draft = 'We should strengthen cooperation.';
-const ledger = () => ({ score: 88, summary: '旧的文风扣分。', advice: [], scoreBreakdown: CN2EN_DIMENSIONS.map((label) => ({ label, max: CN2EN_MAX[label], score: CN2EN_MAX[label], deductions: [] })) });
+const ledger = () => ({ score: 100, summary: '直接评分，分项之和等于总分。', advice: [], scoreBreakdown: CN2EN_DIMENSIONS.map((label) => ({ label, max: CN2EN_MAX[label], score: CN2EN_MAX[label] })) });
 let mode = 'valid';
 const requests = [];
 const mock = http.createServer(async (req, res) => {
@@ -67,8 +67,7 @@ try {
   assert.ok(ready);
   for (const stream of [false, true]) {
     const result = await submit(stream);
-    assert.equal(result.overall.score, 100, 'correct ordinary translation has no style deductions');
-    assert.equal(result.overall.scoringVersion, 'cn2en-evidence-v1');
+    assert.equal(result.overall.score, 100, 'correct ordinary translation keeps the model score without ledger gating');
     assert.equal(result.chinese, source); assert.equal(result.draft, draft); assert.equal(result.original, '');
     assert.equal(result.ai, 'We should foster cooperation.', 'the separate AI version may improve valid phrasing without affecting grades');
     assert.equal(result.sentences[0].correctedSentence, undefined, 'the full-correction row is no longer generated');
@@ -78,11 +77,11 @@ try {
   assert.equal(requests.length, 4, 'two calls per successful task, with one semantic review');
   mode = 'failed';
   const failed = await submit(false);
-  assert.equal(failed.overall.score, null);
+  assert.equal(failed.overall.score, 58, 'without the ledger gate the model score passes through as-is');
   assert.equal(failed.translationReview.status, 'unavailable');
-  assert.equal(failed.scoreIssue.stage, 'overall-repair');
+  assert.equal(failed.scoreIssue, undefined, 'no scoring repair is needed without ledger validation');
   assert.equal(failed.draft, draft);
-  assert.equal(requests.length, 7, 'failure remains bounded to one review and one score repair');
+  assert.equal(requests.length, 6, 'a bare score needs no repair round');
   console.log('PASS cn2en HTTP: real inputs, faithful review, optional scoring, full corrections, streaming parity and bounded failure');
 } finally {
   const closed = once(app, 'exit'); app.kill(); await closed;

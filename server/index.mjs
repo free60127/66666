@@ -2,7 +2,6 @@ import { localOverall } from './gradingFallback.mjs';
 import { en2cnScoreProblems, EN2CN_SCORE_EVIDENCE_RULES, normalizeEn2cnOverall, reconcileEn2cnOverall } from './en2cnScoring.mjs';
 import { needsEn2cnReview, EN2CN_REVIEW_PROMPT, buildEn2cnReviewMessage, applyEn2cnReview } from './en2cnReview.mjs';
 import { needsCn2enReview, CN2EN_REVIEW_PROMPT, buildCn2enReviewMessage, applyCn2enReview } from './cn2enReview.mjs';
-import { cn2enScoreProblems, CN2EN_SCORE_EVIDENCE_RULES, normalizeCn2enOverall, reconcileCn2enOverall } from './cn2enScoring.mjs';
 import { dedupeExactErrors, EVIDENCE_POLICY } from './scoringEvidence.mjs';
 import { normalizeEn2cnFeedback } from './en2cnFeedback.mjs';
 import { answerLanguage } from '../src/learningLanguage.js';
@@ -1048,17 +1047,19 @@ async function callLLMStream({ baseUrl, model, apiKey, messages }, { onDelta, ti
  * 而这种不一致只有在用户回头看历史时才会发现。
  */
 function normalizeEvidenceFor(direction, overall) {
-  return (direction === 'en2cn' ? normalizeEn2cnOverall : normalizeCn2enOverall)(overall);
+  return direction === 'en2cn' ? normalizeEn2cnOverall(overall) : sanitizeOverall(overall);
 }
 function reconcileEvidenceFor(data) {
-  return (data.direction === 'en2cn' ? reconcileEn2cnOverall : reconcileCn2enOverall)(data);
+  // 汉译英不使用扣分账本（真模型下账本校验长期失败导致"评分暂不可用"），
+  // 分数由模型按五维权重直接给出，分项求和的合理性由 prompt 约定。
+  return data.direction === 'en2cn' ? reconcileEn2cnOverall(data) : data.overall;
 }
 function evidenceProblemsFor(data) {
-  return (data.direction === 'en2cn' ? en2cnScoreProblems : cn2enScoreProblems)(data);
+  return data.direction === 'en2cn' ? en2cnScoreProblems(data) : [];
 }
 /** 修复轮也必须带上对应方向的扣分账本规则，否则重建的账本必然与校验规则不符。 */
 function evidenceRulesFor(direction) {
-  return direction === 'en2cn' ? EN2CN_SCORE_EVIDENCE_RULES : CN2EN_SCORE_EVIDENCE_RULES;
+  return direction === 'en2cn' ? EN2CN_SCORE_EVIDENCE_RULES : '';
 }
 
 function buildAnalyzeData({ parsed, dir, title, chinese, draft, original, level, lesson, lessonNo }) {

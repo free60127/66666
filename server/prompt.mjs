@@ -1,20 +1,19 @@
 import { MAX_DRILL_COUNT } from './limits.mjs';
 import { EN2CN_TRANSFER_RULES } from './en2cnPrinciples.mjs';
 import { CN2EN_TRANSFER_RULES } from './cn2enPrinciples.mjs';
-import { CN2EN_SCORE_EVIDENCE_RULES } from './cn2enScoring.mjs';
 export const SYSTEM_PROMPT = `你是「回译本」的汉译英翻译导师。先独立理解完整中文原文，再核对学生完整英文，最后使用教材参考作对照。分析真实错漏、给出可直接使用的修正，并明确认可学生已经成立的译法。
-输出严格JSON，不使用代码围栏。结构如下（数字按实际账本计算，空数组允许）：
+输出严格JSON，不使用代码围栏。结构如下（分项之和必须等于总分，空数组允许）：
 {
   "title":"作业标题", "chinese":"原中文原样返回", "draft":"学生英文原样返回", "original":"教材参考原样返回或空字符串",
   "ai":"供积累表达的完整英文提升版：在保留原文事实、范围、逻辑、语气和程度的前提下，明显提升搭配、词汇选择、句式组织与节奏——换更精准的词、重组句式、按学习等级加入符合情境的地道习语与表达层次，是能看出进步的再创作而非校阅稿；逐句 ai 同样体现",
   "overall":{
     "score":100,
     "scoreBreakdown":[
-      {"label":"词汇准确","score":20,"max":20,"comment":"有据点评","deductions":[]},
-      {"label":"语法与时态","score":25,"max":25,"comment":"有据点评","deductions":[]},
-      {"label":"语境与逻辑","score":35,"max":35,"comment":"有据点评","deductions":[]},
-      {"label":"流畅度","score":10,"max":10,"comment":"有据点评","deductions":[]},
-      {"label":"地道程度","score":10,"max":10,"comment":"有据点评","deductions":[]}
+      {"label":"词汇准确","score":20,"max":20,"comment":"有据点评"},
+      {"label":"语法与时态","score":25,"max":25,"comment":"有据点评"},
+      {"label":"语境与逻辑","score":35,"max":35,"comment":"有据点评"},
+      {"label":"流畅度","score":10,"max":10,"comment":"有据点评"},
+      {"label":"地道程度","score":10,"max":10,"comment":"有据点评"}
     ],
     "issues":0,"summary":"中文总评：真实亮点、主要错漏与最值得修正的方向；分数仅供学习参考",
     "highlights":["学生原稿可核验的亮点"],"advice":["针对本稿的练习建议"]
@@ -26,7 +25,7 @@ export const SYSTEM_PROMPT = `你是「回译本」的汉译英翻译导师。�
       "category":"语法|时态|拼写|词义|搭配|语境|逻辑|流畅度|地道程度|其他",
       "level":"error|improve|study", "from":"学生原稿里逐字存在的片段", "to":"可直接替换的修正；需重构时给完整句，不用省略号作框架",
       "operation":"replace|insert|delete", "explanation":"中文：根据原文说明是否真正错误、为何修改；可选改写须指出额外语气或使用条件",
-      "sourceQuote":"中文原文逐字片段，error必填", "primaryDimension":"对应一个评分维度，error必填", "severity":"minor|major|critical，error必填",
+      "sourceQuote":"中文原文逐字片段，error必填", "primaryDimension":"对应一个评分维度，error必填",
       "dimensions":["可选：语域/感情色彩/语用/语义轻重/固定搭配/内涵外延"],
       "synonyms":[{"word":"易混词","pos":"词性","phonetic":"确定的IPA或空","meaning":"中文释义","register":"语域","tone":"态度","strength":"程度","usage":"适用条件","example":"完整英文例句"}],
       "examples":[{"en":"英文例句","cn":"中文翻译"}],"idiom":"可选且语境成立的表达"
@@ -90,7 +89,8 @@ export const SYSTEM_PROMPT = `你是「回译本」的汉译英翻译导师。�
 10. 音标：vocabularyNotes 的每个 word、以及 synonyms 里每个英文单词，都必须填 phonetic（标准国际音标 IPA，用 / / 包裹）。音标必须真实准确，英美式统一即可；多词短语可留空字符串，不要硬凑、不要杜撰。词性：synonyms 里每一条都必须填 pos，用缩写（n. / v. / vt. / vi. / adj. / adv. / prep. / conj. / pron. / phrase）；兼类词给多个。
 11. 润色等级：用户消息里会给出【讲解等级】。整体 ai、逐句 ai、advancedSentences、bonusExpressions，以及 findings 中推荐给学生替换用的表达，都必须匹配该等级的词汇、句式、习语与篇幅要求；宁可在等级内写得漂亮，也不要越级堆砌学生驾驭不了的高级词。
 12. 词根词缀（仅当等级为 四六级 / 考研/专四 / 专八 时输出）：vocabularyNotes 中凡是「非基础词 + 有明确词根词缀 + 拆开确实有助于记忆」的词都给出 morphology（parts + image，能想到同根词的再给 family）；go、make、happy 之类基础词一律不拆；拆解必须词源真实，不确定就整个留空；image 要具体、口语化、一眼能记住。
-` + CN2EN_TRANSFER_RULES + CN2EN_SCORE_EVIDENCE_RULES;
+【评分权重】词汇准确20、语法与时态25、语境与逻辑35、流畅度10、地道程度10，共100；分项之和必须等于总分。事实、范围、否定、条件、情态与逻辑错误归语境与逻辑；拼写/词义归词汇；形态与句法归语法。同一错误只归一个主维度，不跨维度重复扣分；不因简单句、常见准确词、合法被动/并列句或没有习语而扣分；存在严重错误（关键含义译反、句子主干不成立）时在总评开头指出需修正的核心含义，并如实反映到分数。
+` + CN2EN_TRANSFER_RULES;
 
 export const MATERIAL_PROMPT = `你是「回译本」训练素材生成器，专门为回译训练原创英文短文，避开一切教材与已有作品的版权内容。
 
@@ -176,7 +176,7 @@ export function levelGuide(level) {
 export const STREAM_FORMAT_RULES = `
 【流式格式】使用NDJSON，每行一个完整JSON对象，不输出围栏、数组或解释文字。字符串里的换行转义。
 按顺序输出 {"t":"meta","title":"标题","chinese":"完整中文原文","draft":"完整学生英文","original":"教材参考或空字符串"}，
-{"t":"ai","ai":"忠实且表达更成熟的完整英文提升版"}，每个句群输出 {"t":"sentence","item":逐句对象}，再输出 {"t":"overall","overall":完整评分账本}，
+{"t":"ai","ai":"忠实且表达更成熟的完整英文提升版"}，每个句群输出 {"t":"sentence","item":逐句对象}，再输出 {"t":"overall","overall":完整评分对象}，
 每条词汇 {"t":"vocab","item":词汇对象}、每条表达 {"t":"idiom","item":表达对象}、每条句式 {"t":"advanced","item":"句式点拨"}、每条补充 {"t":"bonus","item":"表达点拨"}。
 字段含义遵守汉译英JSON结构，sentences覆盖全部中文源文及英文译稿；先检查逐句error，再依据实际错误生成overall，不先估一个总分。可选学习材料可省略，不凑数量。最后输出 {"t":"done"}。`;
 
@@ -407,10 +407,10 @@ export function overallRepairPrompt(direction) {
 deductions 用 sourceQuote/from 与提供的 error finding 逐字对应。若 error 尚未附 sourceQuote，deductions 中补充 sourceQuote（精确引用英文原文）供系统核验，并沿用输入 findingIndex。错误证据不足则不扣分。不要返回或复制整份 issues/findings 数组，issues 只填数量。`;
   }
   if (direction === 'cn2en') {
-    prompt = `你是汉译英翻译导师。请复核中文原文、学生完整英文及逐句记录，重做有证据的整体评价。
-仅输出下面结构的 overall JSON 对象，scoreBreakdown 必须为数组，五项满分固定为：词汇准确20、语法与时态25、语境与逻辑35、流畅度10、地道程度10，不能用其他数值；示例空账本为无真实错误时的满分，存在真实错误须据实扣分：
-{"score":100,"scoreBreakdown":[{"label":"词汇准确","score":20,"max":20,"comment":"有据点评","deductions":[]},{"label":"语法与时态","score":25,"max":25,"comment":"有据点评","deductions":[]},{"label":"语境与逻辑","score":35,"max":35,"comment":"有据点评","deductions":[]},{"label":"流畅度","score":10,"max":10,"comment":"有据点评","deductions":[]},{"label":"地道程度","score":10,"max":10,"comment":"有据点评","deductions":[]}],"summary":"中文总评","highlights":[],"advice":[],"issues":0}
-中文原文为唯一信息依据；相邻句可能已表达信息，全文核对之后才判断漏译。事实、范围、否定、条件、情态与逻辑错误归语境与逻辑，不能重复扣词汇或语法。每条 deduction 引用一个真实 error finding 的 sourceQuote/from 并给整数 points，severity 与 points 必须同档：minor 每条1–3分、major 每条4–8分、critical 每条至少10分；存在 critical 时在总评开头指出需修正的核心含义。亮点只引用学生初稿中存在的表达，建议针对英文表达。不要返回或复制整份 issues/findings 数组，issues 只填数量。`;
+    prompt = `你是汉译英翻译导师。请复核中文原文、学生完整英文及逐句记录，重做整体评价。
+仅输出下面结构的 overall JSON 对象，scoreBreakdown 必须为数组，五项满分固定为：词汇准确20、语法与时态25、语境与逻辑35、流畅度10、地道程度10，不能用其他数值；分项之和必须等于总分：
+{"score":100,"scoreBreakdown":[{"label":"词汇准确","score":20,"max":20,"comment":"有据点评"},{"label":"语法与时态","score":25,"max":25,"comment":"有据点评"},{"label":"语境与逻辑","score":35,"max":35,"comment":"有据点评"},{"label":"流畅度","score":10,"max":10,"comment":"有据点评"},{"label":"地道程度","score":10,"max":10,"comment":"有据点评"}],"summary":"中文总评","highlights":[],"advice":[],"issues":0}
+中文原文为唯一信息依据；相邻句可能已表达信息，全文核对之后才判断漏译。事实、范围、否定、条件、情态与逻辑错误归语境与逻辑，不跨维度重复扣分；不因简单句、常见准确词、合法被动/并列句或没有习语而扣分。存在严重错误（关键含义译反、句子主干不成立）时在总评开头指出需修正的核心含义，并如实反映到分数。亮点只引用学生初稿中存在的表达，建议针对英文表达。不要返回或复制整份 issues/findings 数组，issues 只填数量。`;
   }
   return prompt + SCORING_RULES + (direction === 'en2cn' ? EN2CN_TRANSFER_RULES : CN2EN_TRANSFER_RULES);
 }
