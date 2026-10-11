@@ -1,7 +1,7 @@
 # huiyiben.cn 上线部署手册
 
-> 目标：把「回译本」从 Render 迁到你的阿里云服务器（2C2G，北京），用域名 huiyiben.cn 对外服务。
-> 本目录 5 个文件就是全部物料：nginx 配置、systemd 服务、环境变量模板、一键发布脚本、本手册。
+> huiyiben.cn 已在阿里云服务器运行；以下初始化章节保留供重建服务器使用，现有服务器不需要重复初始化。
+> 日常更新由 GitHub Actions 自动发布，详见「五、日常发布 / 回滚」。
 
 ## 〇、先记住关键顺序（域名不是买了就能用）
 
@@ -89,9 +89,36 @@ curl -I https://huiyiben.cn/                 # 200
 
 ## 五、日常发布 / 回滚
 
-- **发布**：本机 `deploy/deploy.sh root@服务器IP`（构建 → 上传 → 自动重启，几秒钟）。
+- **自动发布**：提交并推送 `main` 后，`.github/workflows/ci.yml` 先跑发布脚本回归、静态检查、完整测试、账号服务测试和构建。全部成功才执行「发布到 huiyiben.cn」。PR 和其他分支只测试，不发布。
+- **版本一致**：部署上传该次 CI 构建的成品，不在服务器重新构建；发布前确认提交仍是 `main` 当前版本，防止排队的旧提交覆盖新版。`https://huiyiben.cn/release.json` 可查看实际上线的完整提交号。
+- **保留数据**：`/var/www/bts` 是当前代码版本的链接，代码保存在 `/var/www/bts-releases/`；环境配置和本地数据单独放在 `/var/www/bts-shared/.env`、`/var/www/bts-shared/data/`。Upstash 数据不参加打包和回滚。服务器独有语料也会保留。
+- **失败处理**：服务器检查服务状态、健康接口、提交号和教师页；新版本启动或检查失败时自动切回上一版代码。保留最近三个代码版本，配置和用户数据始终共用。GitHub Actions 再检查公网 HTTPS，并在失败时显示红色结果。
+- **访问窗口**：当前是单实例 Node 服务，每次发布会重启，可能有几秒不可访问，并可能影响正在生成的任务。需要无中断发布时再做双实例切换；当前不承诺零停机。
+- **查看进度**：打开仓库的 [Actions](https://github.com/free60127/66666/actions/workflows/ci.yml)。测试失败时线上版本保持原样；修复后推送即可再次发布，也可以在 `main` 使用 Run workflow 重新执行。
+- **手动发布**：本机 Git Bash 执行 `deploy/deploy.sh bts-server`（先提交改动；应先运行测试）。该脚本同样使用服务器的切换、检查与回滚机制，不再直接覆盖运行中的文件。
 - **回滚**：选择兼容当前数据格式的旧提交，再发布。增量同步上线后，不能直接回到只认识完整快照的后端；需要先将所有账号增量日志整理成完整快照，或保留新版存储读取模块。不要用上线前备份直接覆盖后续用户新增的数据。
 - **看日志**：`journalctl -u bts -f`；**重启**：`systemctl restart bts`。
+
+### 自动发布凭证与服务器脚本
+
+仓库 Settings → Secrets and variables → Actions 中配置三个 repository secrets：
+
+| Secret | 用途 |
+|---|---|
+| `ALIYUN_HOST` | 阿里云服务器地址 |
+| `ALIYUN_SSH_KEY` | 专用 SSH 私钥，只在发布任务期间写入临时文件 |
+| `ALIYUN_KNOWN_HOSTS` | 通过现有可信 SSH 连接取得的服务器主机公钥，严格验证主机身份 |
+
+服务器专用用户为 `bts-deploy`。公钥在 `/var/lib/bts-deploy/.ssh/authorized_keys`，使用 `restrict` 和强制命令，仅接受 `deploy <完整提交号>` 以及压缩包，不提供交互 shell 或端口转发。原有 `admin` 管理连接保留。
+
+- `deploy/server-receive.sh` 安装到 `/usr/local/bin/bts-deploy-receive`，接收上传并调用发布器。
+- `deploy/server-release.sh` 安装到 `/usr/local/sbin/bts-release`，由 root 管理，锁定并发发布、验证压缩包、切换、检查、回滚和清理旧代码。
+- `/etc/sudoers.d/bts-deploy` 只允许专用用户调用发布器。SSH 私钥、GitHub 登录凭证、SMTP 和 AI/数据库密钥均不放进仓库或构建产物。
+- 修改这两个服务器脚本后，需要用管理员 SSH 更新服务器对应脚本；普通前后端改动自动发布即可。
+- 更换服务器时需要更新三个 secrets 和服务器公钥；停用自动发布时可在 Actions 停用该工作流或移除专用公钥。删除私钥 secret 会让发布明确失败。
+- 修改 AI、SMTP 或数据库配置：编辑 `/var/www/bts-shared/.env` 后重启 `bts`，不需要修改代码或推送密钥。
+
+发布事务可在 Ubuntu 隔离临时目录测试：`sudo bash deploy/test-release.sh`。它模拟启动/健康检查失败，确认只回滚代码，不丢掉发布之后新增的学生数据，不会操作真实 `bts` 服务。
 
 ## 六、环境变量说明（deploy/env.example）
 

@@ -12,10 +12,15 @@ on:
   push:
     branches: ['**']
   pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # A newer main push must not cancel an SSH deployment halfway through publication.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   test:
@@ -33,6 +38,9 @@ jobs:
       - name: 安装依赖
         run: npm ci
 
+      - name: 发布脚本回归（隔离目录，验证失败回滚与数据保留）
+        run: sudo env "PATH=$PATH" bash deploy/test-release.sh
+
       # 静态检查放在测试前面：ESLint 的 no-undef / jsx-no-undef 能抓住「漏了 import」
       # 这类只在浏览器里才炸的白屏问题（曾经带着这种提交上线过），
       # check-hook-scope 再抓一层「hook 声明前引用」的 TDZ。
@@ -47,3 +55,73 @@ jobs:
 
       - name: 构建（构建失败同样不该放过）
         run: npm run build
+        env:
+          VITE_BASE: /
+          VITE_API_BASE: ''
+
+      - name: 打包经过测试的阿里云版本
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        run: node tools/package-release.mjs "$GITHUB_SHA"
+
+      - uses: actions/upload-artifact@v4
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        with:
+          name: aliyun-release-${{ github.sha }}
+          path: tmp/bts-release.tgz
+          if-no-files-found: error
+          retention-days: 3
+
+  deploy-aliyun:
+    name: 发布到 huiyiben.cn
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: aliyun-production
+      cancel-in-progress: false
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: aliyun-release-${{ github.sha }}
+          path: release
+
+      - name: 仅部署 main 当前版本
+        id: latest
+        env:
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}.git
+        run: |
+          latest_sha=$(git ls-remote "$REPO_URL" refs/heads/main | cut -f1)
+          test -n "$latest_sha"
+          if [ "$latest_sha" = "$GITHUB_SHA" ]; then
+            echo 'deploy=true' >> "$GITHUB_OUTPUT"
+          else
+            echo '新提交已进入 main，跳过这个旧版本。'
+            echo 'deploy=false' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: 上传、切换版本并检查服务（失败自动回滚）
+        if: steps.latest.outputs.deploy == 'true'
+        env:
+          DEPLOY_HOST: ${{ secrets.ALIYUN_HOST }}
+          DEPLOY_KEY: ${{ secrets.ALIYUN_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.ALIYUN_KNOWN_HOSTS }}
+        run: |
+          test -n "$DEPLOY_HOST" && test -n "$DEPLOY_KEY" && test -n "$DEPLOY_KNOWN_HOSTS"
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/aliyun
+          chmod 600 ~/.ssh/aliyun
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          trap 'rm -f ~/.ssh/aliyun' EXIT
+          ssh -i ~/.ssh/aliyun -o BatchMode=yes -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes -o ConnectTimeout=15 -o ServerAliveInterval=15 \
+            "bts-deploy@$DEPLOY_HOST" "deploy $GITHUB_SHA" < release/bts-release.tgz
+
+      - name: 检查公网 HTTPS 与发布版本
+        if: steps.latest.outputs.deploy == 'true'
+        run: |
+          curl --retry 3 --retry-delay 2 --fail --silent --show-error --max-time 20 \
+            https://huiyiben.cn/api/health | python3 -c 'import json,sys; assert json.load(sys.stdin).get("ok") is True'
+          curl --retry 3 --retry-delay 2 --fail --silent --show-error --max-time 20 \
+            https://huiyiben.cn/release.json | python3 -c 'import json,sys; assert json.load(sys.stdin).get("commit") == sys.argv[1]' "$GITHUB_SHA"
+          printf '### 阿里云发布成功\n\n提交：`%s`\n\n网站：https://huiyiben.cn/\n' "$GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"

@@ -1,20 +1,26 @@
 #!/usr/bin/env bash
-# 一键发布：本机构建 → 打包上传 → 服务器自动重启
+# 手动发布：本机构建 → 打包上传 → 与 CI 相同的切换 / 检查 / 回滚
 # 用法（项目根目录）：deploy/deploy.sh root@服务器IP
 # 依赖：本机 Git Bash（tar/ssh Windows 自带）；服务器已按 deploy/README.md 初始化
 set -euo pipefail
 
-HOST="${1:?用法: deploy/deploy.sh root@服务器IP}"
-REMOTE_DIR="${REMOTE_DIR:-/var/www/bts}"
+DEPLOY_HOST="${1:?用法: deploy/deploy.sh bts-server}"
+SHA="$(git rev-parse HEAD)"
+if [[ -n "$(git status --porcelain)" ]]; then
+  echo '请先提交所有已跟踪文件的修改，再发布，保证版本号对应实际代码。' >&2
+  exit 1
+fi
 
 echo "==> 本机构建前端…"
-npm run build
+VITE_BASE=/ VITE_API_BASE='' npm run build
+node tools/package-release.mjs "$SHA"
 
-echo "==> 打包并上传到 $HOST:$REMOTE_DIR …"
-# dist = 前端成品（含语料静态副本）；server = 零依赖后端；src = 服务端运行时引用的共享模块；public/corpus = 服务端运行时语料
-tar czf - dist server src public/corpus | ssh "$HOST" "mkdir -p $REMOTE_DIR && tar xzf - -C $REMOTE_DIR"
+echo "==> 上传版本 $SHA …"
+REMOTE_ARCHIVE="$(ssh "$DEPLOY_HOST" 'mktemp /tmp/bts-manual-release-XXXXXX.tgz')"
+[[ "$REMOTE_ARCHIVE" =~ ^/tmp/bts-manual-release-[A-Za-z0-9]+\.tgz$ ]] || exit 1
+scp tmp/bts-release.tgz "$DEPLOY_HOST:$REMOTE_ARCHIVE"
 
-echo "==> 重启服务…"
-ssh "$HOST" "sudo systemctl restart bts && sleep 2 && systemctl is-active bts"
+echo "==> 切换版本并检查服务…"
+ssh "$DEPLOY_HOST" "sudo /usr/local/sbin/bts-release '$REMOTE_ARCHIVE' '$SHA'; result=\$?; rm -f -- '$REMOTE_ARCHIVE'; exit \$result"
 
-echo "==> 完成。验证：浏览器打开 https://huiyiben.cn/（备案前用 http://服务器IP/ 自测）"
+echo "==> 完成。验证：https://huiyiben.cn/release.json"
