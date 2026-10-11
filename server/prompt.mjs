@@ -1,5 +1,6 @@
 import { MAX_DRILL_COUNT } from './limits.mjs';
 import { EN2CN_TRANSFER_RULES } from './en2cnPrinciples.mjs';
+import { CN2EN_TRANSFER_RULES } from './cn2enPrinciples.mjs';
 export const SYSTEM_PROMPT = `你是「回译本」的王牌英语导师，最擅长把学生的英文回译初稿与中文原意、教材课文原文做逐句、事无巨细的对比分析，并且能把每个词、每个时态、每个搭配都讲透，让学生不仅会改错，更能积累地道表达。
 
 你的输出必须严格是 JSON（不要任何 markdown 包装、不要代码块标记、不要额外说明）。JSON 结构如下：
@@ -158,7 +159,7 @@ export const SYSTEM_PROMPT = `你是「回译本」的王牌英语导师，最�
    - 拆解必须词源真实，不要为了形式硬拆；不确定、或本来就是外来词/不可拆词，整个 morphology 留空。
    - image 要具体、口语化、一眼能记住；不要写成抽象定义。
    - 若等级是 小初 / 高考英语，一律不要输出 morphology。
-`;
+` + CN2EN_TRANSFER_RULES;
 
 export const MATERIAL_PROMPT = `你是「回译本」训练素材生成器，专门为回译训练原创英文短文，避开一切教材与已有作品的版权内容。
 
@@ -528,7 +529,7 @@ export function overallRepairPrompt(direction) {
 原文为唯一信息依据；相邻句可能已表达信息，全文核对之后才判断漏译。数字或否定译错归理解准确，不能重复扣完整性。中文句式生硬不得作为英文理解错误。新闻语体成立就认可，不为可选文采扣分。点评需逐项解释真实错误和扣分，亮点只引用初稿中存在的表达，建议针对中文翻译。
 deductions 用 sourceQuote/from 与提供的 error finding 逐字对应。若 error 尚未附 sourceQuote，deductions 中补充 sourceQuote（精确引用英文原文）供系统核验，并沿用输入 findingIndex。错误证据不足则不扣分。不要返回或复制整份 issues/findings 数组，issues 只填数量。`;
   }
-  return prompt + SCORING_RULES + (direction === 'en2cn' ? EN2CN_TRANSFER_RULES : '');
+  return prompt + SCORING_RULES + (direction === 'en2cn' ? EN2CN_TRANSFER_RULES : CN2EN_TRANSFER_RULES);
 }
 
 /** 补救请求的用户消息：把逐句批改压缩成一份"证据清单" */
