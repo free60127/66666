@@ -1,4 +1,4 @@
-import { EN2CN_DIMENSIONS, EN2CN_SCORE_EVIDENCE_RULES } from './en2cnScoring.mjs';
+import { EN2CN_DIMENSIONS, EN2CN_SCORING_GUIDE } from './en2cnScoring.mjs';
 import { EN2CN_TRANSFER_RULES } from './en2cnPrinciples.mjs';
 import { normalizeEvidenceOverall, sameError } from './scoringEvidence.mjs';
 
@@ -16,8 +16,11 @@ export function needsEn2cnReview(data) {
 
 export const REVIEW_MERGE_RULES = `
 复核重复条目时输出 duplicates:[{"findingIndex":待合并编号,"duplicateOf":保留编号,"reason":"为什么是同一个语义或语法根因"}]。引文嵌套仅用于定位，不是重复的证明；必要条件错误与可能/必然错误、数字与否定等独立根因即使片段嵌套也必须分别保留。同一编号不能既edit又合并，不得形成合并链。保留条目要完整解释共同根因，overall仅引用保留条目并计一次。
-sentenceTranslations 须同时输出 correctedSentence（完整纠错句）：只改学生的真实错误，保留正确措辞，正确时保留原句。主AI对照与该句都不得引入新的事实、程度、语气。需要倒装、否定或句式联动时，不要用半截短语替代完整修正。解释应针对学生真正写出的形式，不讨论不存在的错误；语法规则要写清上下文边界。
 学习材料也逐项核对；存在无依据具体化或语气增强时，返回对应的修正后全部 vocabularyNotes / idiomHighlights / bonusExpressions 或 advancedSentences，可为空，不以高级表达配额补内容。`;
+
+/** 英译汉复核仍要求完整纠错句；汉译英已取消该栏位，不附加本段。 */
+export const CORRECTED_SENTENCE_RULES = `
+sentenceTranslations 须同时输出 correctedSentence（完整纠错句）：只改学生的真实错误，保留正确措辞，正确时保留原句。主AI对照与该句都不得引入新的事实、程度、语气。需要倒装、否定或句式联动时，不要用半截短语替代完整修正。解释应针对学生真正写出的形式，不讨论不存在的错误；语法规则要写清上下文边界。`;
 
 export const EN2CN_REVIEW_PROMPT = `你是英译汉批改的独立语义复核员。重新读完整英文原文和中文译稿，再检查第一轮记录；不要因第一轮已经判定就附和它。仅复核，不另造词汇、习语；只在AI对照译文或句式点拨存在实际误读时修正这些内容。
 重点逐项核对数字/单位/百分比与百分点、否定范围、必要充分条件、比较方向、施事与指代、时间、情态和证据强度。源文和译文双向检查：原文的每个实质信息是否已表达，以及译稿的每个事实是否有原文依据，尤其不要漏掉译稿末尾新增的承诺。
@@ -31,10 +34,10 @@ findingIndex为输入编号，仅用来定位原有条目；每个编号最多�
 同义例句或idiom中的教学如有无依据推导、与原文矛盾，可在对应edit上加clearLearning:true并在finding.explanation说明依据，清除该条旧学习材料；正确的条目不清除。
 additions优先用sentenceIndex定位已有源句；整句漏译而第一轮没有该句时用sourceSentence（英文原文中完整的句子）代替；新增无依据事实用extra:true，sourceQuote引用邻近源文作定位，并明确说明全文不存在这项信息。
 error的from必须逐字存在于完整初稿，sourceQuote必须逐字存在于完整英文；漏译的from引用相邻初稿，to为补译内容。若首次漏译记录用了“学生译稿无对应句”等不存在于译稿的占位符，必须改成实际相邻初稿片段；该片段只定位插入位置，不要让补译替换掉相邻句。所有修订保留准确的原文引用。未发现需要修改时edits=[]、additions=[]，不要凑条目。
-如果修改了error的内容/等级、添加了error，或者输入指出评分需复核，同时给出完整overall；未改变错误也无评分问题则overall=null。overall包括score、scoreBreakdown、summary、highlights、advice、issues；五项名称、满分和扣分依据遵守下文规则，deductions引用修改之后的finding的sourceQuote/from（不能用旧数组编号）。亮点只能来自原初稿。评分按全部原有和修订后的error计算，不能只给新增问题扣分。
+如果修改了error的内容/等级、添加了error，或者输入指出评分需复核，同时给出完整overall；未改变错误也无评分问题则overall=null。overall包括score、scoreBreakdown、summary、highlights、advice、issues；五项名称与满分遵守输入中的权重，分项之和等于总分，点评逐项说明真实错误与扣分理由，不输出deductions数组。亮点只能来自原初稿。评分按全部原有和修订后的error计算，不能只给新增问题扣分。
 复核还要核对输入的句式点拨，不得与修正后的说明矛盾。仅当句式点拨存在事实、关系、立场误读时可额外输出advancedSentences:[修正后全部句式点拨字符串，最多3条]；未修改的句式点拨字段不输出。这些字段不能替代findings和扣分账本。新增漏译源句的ai可在对应addition中提供。
 【提交前的归属检查】所有error和扣分都针对学生draft，绝不针对AI译文。若解释说“原译正确、AI对照反而有误”，该学生finding必须降为study且不扣分，并通过ai/sentenceTranslations修正AI错误；不能保留level=error。反过来，学生和AI同时出现同一误读时，要保留学生error，并同时修正AI对照。例：学生写“B之后A”，AI写“因为B所以A”，原文只说明先后：学生不扣分，修正AI；学生也写“因为B所以A”时才给学生记error。发现现有ai含有已指出的因果/指代/否定误读，必须返回修正后的ai和对应sentenceTranslations，而不是仅修改说明。若idiom/例句与正确解释矛盾，使用clearLearning:true清掉它。
-` + REVIEW_MERGE_RULES + EN2CN_TRANSFER_RULES + EN2CN_SCORE_EVIDENCE_RULES;
+` + REVIEW_MERGE_RULES + CORRECTED_SENTENCE_RULES + EN2CN_TRANSFER_RULES + EN2CN_SCORING_GUIDE;
 
 export function buildEn2cnReviewMessage(data, scoreProblems = []) {
   let index = 0;

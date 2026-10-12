@@ -25,7 +25,7 @@ const mock = http.createServer(async (req, res) => {
     assert.equal(input.source, source); assert.equal(input.draft, draft);
     content = mode === 'failed' ? { invalid: true } : { edits: [], additions: [], overall: ledger(), ai: 'We should foster cooperation.',
       sentenceTranslations: [{ sentenceIndex: 1, ai: 'We should foster cooperation.' }], advancedSentences: [], vocabularyNotes: [] };
-  } else if (system.includes('重做有证据的整体评价')) content = { score: 58 };
+  } else if (system.includes('汉译英翻译导师。请复核')) content = { score: 58 };
   else {
     content = { title: 'T', chinese: 'fabricated source', draft: 'fabricated draft', original: 'fabricated reference', ai: 'It is imperative to strengthen international cooperation.',
       overall: mode === 'failed' ? { score: 58 } : ledger(), sentences: [{ cn: source, draft, ai: 'Unfounded upgrade', findings: [] }] };

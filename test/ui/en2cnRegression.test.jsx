@@ -1,7 +1,7 @@
 import React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { en2cnScoreProblems, EN2CN_DIMENSIONS, EN2CN_MAX, normalizeEn2cnOverall, reconcileEn2cnOverall } from '../../server/en2cnScoring.mjs';
+import { EN2CN_DIMENSIONS, EN2CN_MAX, normalizeEn2cnOverall } from '../../server/en2cnScoring.mjs';
 import { compareWithPrevious, sameLesson } from '../../src/progress.js';
 import { AI_LEVEL_KEYS, buildEn2CnUserMessage, buildOverallRepairMessage, buildGradeMessage } from '../../server/prompt.mjs';
 import { favFromExpression, favFromIdiom } from '../../src/favorites.js';
@@ -20,46 +20,12 @@ const data = () => ({ direction: 'en2cn', title: '测试', chinese: 'Fewer than 
   sentences: [{ findings: [{ category: '误译', level: 'error', from: '五分之一以上', to: '不到五分之一', sourceQuote: 'Fewer than one in five', primaryDimension: '理解准确' }] }] });
 
 describe('英译汉评分归因', () => {
-  it('局部漏增译不能花掉大部分完整性预算，广泛缺失仍可据实扣分', () => {
+  it('账本移除后，模型给出的 overall 原样展示，不做校验拦截', () => {
     const d = data();
-    d.chinese += ' Additional details remain fully translated.'.repeat(20);
-    const f = d.sentences[0].findings[0]; f.category = '漏译'; f.primaryDimension = '完整性';
     d.overall.score = 79; d.overall.scoreBreakdown[4].score = 4;
-    d.overall.scoreBreakdown[4].deductions = [{ sourceQuote: f.sourceQuote, from: f.from, points: 21 }];
-    expect(en2cnScoreProblems(d).join(';')).toContain('局部漏增译');
-    expect(reconcileEn2cnOverall(d).scoringVersion).toBeUndefined();
-    d.overall.scoreBreakdown[4].score = 20; d.overall.scoreBreakdown[4].deductions[0].points = 5; d.overall.score = 95;
-    expect(en2cnScoreProblems(d)).toEqual([]);
-    f.sourceQuote = d.chinese; d.overall.scoreBreakdown[4].deductions[0].sourceQuote = d.chinese;
-    d.overall.scoreBreakdown[4].score = 4; d.overall.scoreBreakdown[4].deductions[0].points = 21; d.overall.score = 79;
-    expect(en2cnScoreProblems(d)).toEqual([]);
-  });
-  it('复核可补唯一初稿片段的引用，但不能接受歧义、伪造引用或跨项点评', () => {
-    const d = data(); const f = d.sentences[0].findings[0]; delete f.sourceQuote; delete f.primaryDimension;
-    d.overall.scoreBreakdown[0].deductions = [{ sourceQuote: 'Fewer than one in five', from: f.from, points: 4 }];
-    d.overall.scoreBreakdown[4].comment = '数字译反导致全部信息丢失';
-    const checked = reconcileEn2cnOverall(d);
-    expect(checked.score).toBe(96); expect(checked.scoringVersion).toBe('en2cn-evidence-v4');
-    expect(checked.scoreBreakdown[4].comment).not.toContain('数字译反');
-    d.overall.scoreBreakdown[0].deductions[0].sourceQuote = 'invented';
-    expect(en2cnScoreProblems(d)).toContain('扣分片段不能在原文和初稿中核验');
-    d.sentences[0].findings.push({ ...f });
-    expect(reconcileEn2cnOverall(d).scoringVersion).toBeUndefined();
-  });
-  it('由真实错误的扣分账本加总，丢弃润色扣分和跨维度重复扣分，不能掩盖无依据引用', () => {
-    const d = data();
-    d.sentences[0].findings.push({ from: '居民', to: '民众', level: 'improve', sourceQuote: 'residents', primaryDimension: '表达地道' });
-    d.overall.scoreBreakdown[0].deductions = [{ findingIndex: 1, points: 4 }];
-    d.overall.scoreBreakdown[1].deductions = [{ findingIndex: 2, points: 2 }];
-    d.overall.scoreBreakdown[3].deductions = [{ findingIndex: 1, points: 1 }];
-    const checked = reconcileEn2cnOverall(d);
-    expect(checked.score).toBe(96);
-    expect(checked.scoreBreakdown[1].score).toBe(15); expect(checked.scoreBreakdown[3].score).toBe(10);
-    expect(en2cnScoreProblems({ ...d, overall: checked })).toEqual([]);
-    d.overall.scoreBreakdown[0].deductions = [{ findingIndex: 88, points: 3 }];
-    expect(reconcileEn2cnOverall(d).scoringVersion).toBeUndefined();
-    d.overall = scores();
-    expect(en2cnScoreProblems(d)).toContain('真实错误未体现于扣分依据');
+    expect(normalizeEn2cnOverall({ overall: d.overall }).score).toBe(79);
+    const noScore = { ...d, overall: { scoreBreakdown: [] } };
+    expect(normalizeEn2cnOverall(noScore.overall).scoreBreakdown).toEqual([]);
   });
   it('不同方向与不同评分规则不能制造虚假成绩提升', () => {
     expect(sameLesson({ lessonKey: 'lesson:2-1', direction: 'cn2en' }, { lessonKey: 'lesson:2-1', direction: 'en2cn' })).toBe(false);
@@ -67,46 +33,12 @@ describe('英译汉评分归因', () => {
     const old = { ...current, overall: { score: 58 }, attemptTime: 100 };
     expect(compareWithPrevious({ result: current, history: [{ jobId: 'old', time: 100 }], readResult: () => old, now: 300 }).score).toBeNull();
   });
-  it('事实误译只扣理解准确，真正漏译才扣完整性', () => {
+  it('评分表对象形状也能归一为数组（旧数据兼容）', () => {
     const d = data();
-    d.overall.score = 96;
-    d.overall.scoreBreakdown[0].score = 36;
-    d.overall.scoreBreakdown[0].deductions = [{ findingIndex: 1, points: 4 }];
-    expect(en2cnScoreProblems(d)).toEqual([]);
-    d.overall.score = 92;
-    d.overall.scoreBreakdown[4].score = 21;
-    d.overall.scoreBreakdown[4].deductions = [{ findingIndex: 1, points: 4 }];
-    expect(en2cnScoreProblems(d)).toContain('同一信息重复扣分');
-    expect(en2cnScoreProblems(d)).toContain('事实误译应归理解准确');
-  });
-  it('不允许可选同义改写扣理解分或无依据的语体失分', () => {
-    const d = data();
-    d.sentences[0].findings[0].level = 'improve';
-    d.overall.scoreBreakdown[0].score = 39;
-    d.overall.scoreBreakdown[0].deductions = [{ findingIndex: 1, points: 1 }];
-    expect(en2cnScoreProblems(d)).toContain('理解准确引用了非错误或无效扣分');
-    d.overall = scores(); d.overall.score = 93; d.overall.scoreBreakdown[2].score = 3;
-    expect(en2cnScoreProblems(d)).toContain('语体得当分数与依据不一致');
-  });
-  it('拒绝伪造引用、不同 finding 对同一事实重复扣分及总分不相符', () => {
-    const d = data();
-    d.sentences[0].findings.push({ ...d.sentences[0].findings[0] });
-    d.overall.scoreBreakdown[0].score = 36;
-    d.overall.scoreBreakdown[0].deductions = [{ findingIndex: 1, points: 2 }, { findingIndex: 2, points: 2 }];
-    expect(en2cnScoreProblems(d)).toContain('同一信息重复扣分');
-    d.sentences[0].findings[0].sourceQuote = 'invented';
-    expect(en2cnScoreProblems(d)).toContain('扣分片段不能在原文和初稿中核验');
-    expect(en2cnScoreProblems(d)).toContain('总分与分项不一致');
-  });
-  it('按源文引用对应错误，避免可选建议插入后编号错位；兼容评分表对象但不补造扣分', () => {
-    const d = data();
-    d.sentences[0].findings.unshift({ level: 'improve', from: '居民', to: '民众' });
-    d.overall.score = 96; d.overall.scoreBreakdown[0].score = 36;
-    d.overall.scoreBreakdown[0].deductions = [{ sourceQuote: 'Fewer than one in five', from: '五分之一以上', points: 4 }];
-    expect(en2cnScoreProblems(d)).toEqual([]);
     const map = Object.fromEntries(d.overall.scoreBreakdown.map(({ label, ...row }) => [label, row]));
     const normalized = normalizeEn2cnOverall({ overall: { ...d.overall, scoreBreakdown: map } });
-    expect(en2cnScoreProblems({ ...d, overall: normalized })).toEqual([]);
+    expect(Array.isArray(normalized.scoreBreakdown)).toBe(true);
+    expect(normalized.score).toBe(100);
   });
   it('全部等级使用中文译法规则；复核能看到全文末尾的已译信息', () => {
     for (const level of AI_LEVEL_KEYS) {

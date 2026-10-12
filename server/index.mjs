@@ -1,8 +1,8 @@
 import { localOverall } from './gradingFallback.mjs';
-import { en2cnScoreProblems, EN2CN_SCORE_EVIDENCE_RULES, normalizeEn2cnOverall, reconcileEn2cnOverall } from './en2cnScoring.mjs';
+import { normalizeEn2cnOverall } from './en2cnScoring.mjs';
 import { needsEn2cnReview, EN2CN_REVIEW_PROMPT, buildEn2cnReviewMessage, applyEn2cnReview } from './en2cnReview.mjs';
 import { needsCn2enReview, CN2EN_REVIEW_PROMPT, buildCn2enReviewMessage, applyCn2enReview } from './cn2enReview.mjs';
-import { dedupeExactErrors, EVIDENCE_POLICY } from './scoringEvidence.mjs';
+import { dedupeExactErrors } from './scoringEvidence.mjs';
 import { normalizeEn2cnFeedback } from './en2cnFeedback.mjs';
 import { answerLanguage } from '../src/learningLanguage.js';
 import http from 'node:http';
@@ -1049,18 +1049,6 @@ async function callLLMStream({ baseUrl, model, apiKey, messages }, { onDelta, ti
 function normalizeEvidenceFor(direction, overall) {
   return direction === 'en2cn' ? normalizeEn2cnOverall(overall) : sanitizeOverall(overall);
 }
-function reconcileEvidenceFor(data) {
-  // 汉译英不使用扣分账本（真模型下账本校验长期失败导致"评分暂不可用"），
-  // 分数由模型按五维权重直接给出，分项求和的合理性由 prompt 约定。
-  return data.direction === 'en2cn' ? reconcileEn2cnOverall(data) : data.overall;
-}
-function evidenceProblemsFor(data) {
-  return data.direction === 'en2cn' ? en2cnScoreProblems(data) : [];
-}
-/** 修复轮也必须带上对应方向的扣分账本规则，否则重建的账本必然与校验规则不符。 */
-function evidenceRulesFor(direction) {
-  return direction === 'en2cn' ? EN2CN_SCORE_EVIDENCE_RULES : '';
-}
 
 function buildAnalyzeData({ parsed, dir, title, chinese, draft, original, level, lesson, lessonNo }) {
   // 清洗 findings：丢掉「went → went」这类无意义对照（模型偶尔会为凑数而生造），
@@ -1076,7 +1064,6 @@ function buildAnalyzeData({ parsed, dir, title, chinese, draft, original, level,
     draft,
     ai: parsed.ai || '',
     original,
-    gradingPolicyVersion: EVIDENCE_POLICY,
     aiLevel: level || DEFAULT_AI_LEVEL,
     overall: sanitizeOverall(normalizeEvidenceFor(dir, parsed.overall)),
     sentences: cleanedSentences.list,
@@ -1104,7 +1091,7 @@ async function runAnalyzeJob(jobId, { title, chinese, draft, original, lesson, l
     // 流式时在系统提示词后面追加"一行一段"的格式说明（内容要求原样保留，只换输出格式）
     const messages = dir === 'en2cn'
       ? [
-        { role: 'system', content: EN2CN_SYSTEM_PROMPT + (stream ? streamFormatRules(dir) : '') + SCORING_RULES + EN2CN_SCORE_EVIDENCE_RULES },
+        { role: 'system', content: EN2CN_SYSTEM_PROMPT + (stream ? streamFormatRules(dir) : '') + SCORING_RULES },
         { role: 'user', content: buildEn2CnUserMessage({ title, source: chinese, draft, reference: original, level }) },
       ]
       : [
@@ -1162,16 +1149,14 @@ async function runAnalyzeJob(jobId, { title, chinese, draft, original, lesson, l
     job.data = buildAnalyzeData({ parsed, dir, title, chinese, draft, original, level, lesson, lessonNo });
     // 自动去重只处理完全相同的条目，嵌套引文须由语义复核确认根因。
     job.data = dedupeExactErrors(job.data);
-    job.data.overall = reconcileEvidenceFor(job.data);
     if (dir === 'en2cn' ? needsEn2cnReview(job.data) : needsCn2enReview(job.data)) {
       try {
         const reviewed = await callLLM({ baseUrl, model, apiKey, timeoutMs: 45000, messages: [
           { role: 'system', content: dir === 'en2cn' ? EN2CN_REVIEW_PROMPT : CN2EN_REVIEW_PROMPT },
-          { role: 'user', content: (dir === 'en2cn' ? buildEn2cnReviewMessage : buildCn2enReviewMessage)(job.data, evidenceProblemsFor(job.data)) },
+          { role: 'user', content: (dir === 'en2cn' ? buildEn2cnReviewMessage : buildCn2enReviewMessage)(job.data) },
         ] });
         job.data = (dir === 'en2cn' ? applyEn2cnReview : applyCn2enReview)(job.data, parseJsonLoose(reviewed));
         job.data = dedupeExactErrors(job.data);
-        job.data.overall = reconcileEvidenceFor(job.data);
       } catch (e) {
         job.data.translationReview = { status: 'unavailable' };
         console.warn('[analyze/' + dir + '] 语义复核未完成，保留第一轮分析：' + (e && e.message));
@@ -1179,23 +1164,20 @@ async function runAnalyzeJob(jobId, { title, chinese, draft, original, lesson, l
     }
     // 整体评价缺失（模型整块没写 / 只写了占位符）→ 先补一次小请求；仍失败时保留批改但不捏造数值分数。
     // 这两步都只影响"有没有分数和建议"，不改变任何逐句批改内容。
-    // 有分析但没有可用整体评价，或账本证据无效时，最多补救一次。
-    // 没有错误也须有空扣分账本，不能仅凭模型给的总分接受结果。
+    // 评分由模型按各方向权重直接给出，不再做账本校验拦截（真模型下账本门槛
+    // 曾导致大量"评分暂不可用"，2026-10-12 移除）。
     const findingCount = (job.data.sentences || []).reduce((n, x) => n + ((x && Array.isArray(x.findings)) ? x.findings.length : 0), 0);
-    const scoreProblems = evidenceProblemsFor(job.data);
-    if (scoreProblems.length) console.warn('[analyze] 评分账本未通过校验，进入补救：' + scoreProblems.join(' / '));
-    if ((!usableOverall(job.data.overall) && findingCount > 0) || scoreProblems.length) {
+    if (!usableOverall(job.data.overall) && findingCount > 0) {
       try {
-        job.data.overall = await repairOverall({ baseUrl, model, apiKey, data: job.data, scoreProblems });
+        job.data.overall = await repairOverall({ baseUrl, model, apiKey, data: job.data });
         job.overallRepaired = true;
         console.warn('[analyze] 整体评价已通过一次补救复核');
       } catch (e) {
         job.data.overall = localOverall(job.data);
         job.overallRepaired = false;
-        // 脱敏诊断：只记校验问题类型和失败阶段，便于定位"评分暂不可用"，不含用户内容。
-        job.data.scoreIssue = { stage: 'overall-repair', problems: (e.scoreProblems || scoreProblems).slice(0, 8), message: '评分证据未通过复核，已保留逐句批改。' };
-        console.warn('[analyze] 整体评价补救失败，保留分析但暂不评分：' + (e && e.message) +
-          (scoreProblems.length ? '；账本校验问题：' + scoreProblems.join(' / ') : ''));
+        // 脱敏诊断：只记失败阶段和原因类型，便于定位"评分暂不可用"，不含用户内容。
+        job.data.scoreIssue = { stage: 'overall-repair', problems: [], message: String((e && e.message) || e).slice(0, 300) };
+        console.warn('[analyze] 整体评价补救失败，保留分析但暂不评分：' + (e && e.message));
       }
     }
     job.data = normalizeEn2cnFeedback(job.data);
@@ -1369,25 +1351,18 @@ async function runQuizJob(jobId, { points, count, level, baseUrl, model, apiKey,
  * 补不到时保留逐句分析，标注评分暂不可用，不按分析条数推算分数。
  */
 /** 补一次“只问 overall”的请求；失败时由调用方提供无数值的反馈摘要。 */
-async function repairOverall({ baseUrl, model, apiKey, data, scoreProblems = [] }) {
+async function repairOverall({ baseUrl, model, apiKey, data }) {
   const findings = (data.sentences || []).flatMap((x) => (Array.isArray(x.findings) ? x.findings : []));
   const messages = [
-    { role: 'system', content: overallRepairPrompt(data.direction) + evidenceRulesFor(data.direction) },
-    { role: 'user', content: buildOverallRepairMessage({ ...data, findings, scoreProblems }) },
+    { role: 'system', content: overallRepairPrompt(data.direction) },
+    { role: 'user', content: buildOverallRepairMessage({ ...data, findings }) },
   ];
   // 短超时（45 秒）：补救只是"锦上添花"，绝不能因为它把任务拖住、占着并发名额
   const raw = await callLLM({ baseUrl, model, apiKey, messages, timeoutMs: 45000 });
   const parsed = parseJsonLoose(raw);
   const unwrapped = parsed && parsed.overall && typeof parsed.overall === 'object' ? parsed.overall : parsed;
-  let overall = sanitizeOverall(normalizeEvidenceFor(data.direction, unwrapped));
-  overall = reconcileEvidenceFor({ ...data, overall });
+  const overall = sanitizeOverall(normalizeEvidenceFor(data.direction, unwrapped));
   if (!usableOverall(overall)) throw new Error('补救请求也没给出可用的整体评价');
-  const problems = evidenceProblemsFor({ ...data, overall });
-  if (problems.length) {
-    const error = new Error('评分依据未通过复核');
-    error.scoreProblems = problems;
-    throw error;
-  }
   return overall;
 }
 
