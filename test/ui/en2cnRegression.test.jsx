@@ -82,7 +82,7 @@ describe('中文收藏与作答', () => {
 });
 
 describe('结果显示和朗读', () => {
-  it('汉译英也等待复核后显示分数，并把完整纠错与关键错误提示保留到PDF', async () => {
+  it('汉译英也等待复核后显示分数，关键错误提示保留到PDF；完整纠错行不再渲染与导出', async () => {
     const correction = 'Only if the review passes may the project continue.';
     const result = { ...data(), direction: 'cn2en', draft: 'As long as the review passes, the project will continue.',
       overall: { ...scores(), score: 58, taskAssessment: { status: 'needs-revision', message: '存在关键条件错误，请先修正相关句。' } },
@@ -92,12 +92,12 @@ describe('结果显示和朗读', () => {
     expect(screen.queryByText('58')).toBeNull();
     expect(screen.getByText('评分核对中')).toBeTruthy();
     view.rerender(<ResultSheet result={result} history={[]} />);
-    expect(screen.getByText('完整纠错版')).toBeTruthy();
+    expect(screen.queryByText('完整纠错版')).toBeNull();
     expect(screen.getByText(result.overall.taskAssessment.message)).toBeTruthy();
     const { reportPdfModel } = await import('../../src/reportPdfLayout.js');
     const model = reportPdfModel({ result }, '', '回归作业');
     const card = model.find((n) => n.continuation === '句群 01');
-    expect(card.children.find((n) => n.label === '完整纠错版').runs[0].text).toBe(correction);
+    expect(card.children.some((n) => n.label === '完整纠错版')).toBe(false);
     const summary = model.find((n) => n.continuation === '综合评价');
     expect(summary.children.some((n) => n.runs?.some((r) => r.text === result.overall.taskAssessment.message))).toBe(true);
   });

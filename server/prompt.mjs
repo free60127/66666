@@ -488,7 +488,6 @@ export const EN2CN_SYSTEM_PROMPT = `你是「回译本」的资深翻译导师�
     {
       "cn": "一句英文原文",
       "draft": "学生译稿中对应的中文句",
-      "correctedSentence": "只改真实错误的完整中文句群，修复否定、条件、指代等联动问题；原句正确时保留",
       "ai": "AI 润色后的对应中文句",
       "original": "参考译文对应句（有则填，无则空字符串）",
       "findings": [

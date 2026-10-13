@@ -116,8 +116,6 @@ export function reportPdfModel(report, className, homeworkTitle) {
     model.push(box([
       rich([{ text: ` ${number} `, badge: C.blue }, { text: '  ' + (sentence.cn || ''), bold: true }], { size: 11, gap: 9, keep: 45 }),
       { kind: 'row', label: result.direction === 'en2cn' ? '我的译稿' : '原稿', runs: markedRuns(sentence.draft, fs), color: C.draft },
-      typeof sentence.correctedSentence === 'string' && sentence.correctedSentence !== sentence.draft && fs.some((f) => f.level === 'error')
-        ? { kind: 'row', label: '完整纠错版', runs: [{ text: sentence.correctedSentence }], color: C.teal } : null,
       { kind: 'row', label: 'AI 提升译文', runs: [{ text: sentence.ai || '（未提供）' }], color: C.teal },
       sentence.original ? { kind: 'row', label: result.direction === 'en2cn' ? '参考译文' : '课文原文', runs: [{ text: sentence.original }], color: C.reference } : null,
       ...fs.map(findingCard), fs.length ? null : text('该句未发现明显问题。', { size: 9, color: C.muted }),

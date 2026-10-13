@@ -32,7 +32,7 @@ const mock = http.createServer(async (req, res) => {
     if (mode === 'semantic') content = { edits: [], additions: [{ sentenceIndex: 1, finding: {
       ...findings[1], explanation: '原文的居民欢迎信息尚未译出。',
     } }], overall: overall(), ai: '不到五分之一的居民使用它。许多居民欢迎这个计划。',
-      sentenceTranslations: [{ sentenceIndex: 1, ai: '不到五分之一的居民使用它。许多居民欢迎这个计划。', correctedSentence: '不到五分之一的居民使用它。许多居民对这个计划表示欢迎。' }],
+      sentenceTranslations: [{ sentenceIndex: 1, ai: '不到五分之一的居民使用它。许多居民欢迎这个计划。', correctedSentence: '不到五分之一的居民使用它。许多居民对这个计划表示欢迎。' }], // 惯性输出也会被剥离
       advancedSentences: ['Fewer than one in five → 不到五分之一 · 中文点拨：保留数量上限。'] };
   } else if (system.includes('英译汉翻译导师。请复核')) {
     content = overall();
@@ -93,7 +93,7 @@ try {
   assert.equal(semantic.overall.score, 91);
   assert.equal(semantic.ai, '不到五分之一的居民使用它。许多居民欢迎这个计划。');
   assert.equal(semantic.sentences[0].ai, semantic.ai, 'corrected teaching survives the HTTP/job pipeline');
-  assert.equal(semantic.sentences[0].correctedSentence, '不到五分之一的居民使用它。许多居民对这个计划表示欢迎。', 'full minimal corrections remain separate from the AI version');
+  assert.equal(semantic.sentences[0].correctedSentence, undefined, 'the full-correction row is stripped even if the review still emits it');
   assert.match(semantic.advancedSentences[0], /保留数量上限/);
   assert.equal(requests.length, 6);
 

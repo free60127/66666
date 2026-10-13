@@ -18,17 +18,13 @@ export const REVIEW_MERGE_RULES = `
 复核重复条目时输出 duplicates:[{"findingIndex":待合并编号,"duplicateOf":保留编号,"reason":"为什么是同一个语义或语法根因"}]。引文嵌套仅用于定位，不是重复的证明；必要条件错误与可能/必然错误、数字与否定等独立根因即使片段嵌套也必须分别保留。同一编号不能既edit又合并，不得形成合并链。保留条目要完整解释共同根因，overall仅引用保留条目并计一次。
 学习材料也逐项核对；存在无依据具体化或语气增强时，返回对应的修正后全部 vocabularyNotes / idiomHighlights / bonusExpressions 或 advancedSentences，可为空，不以高级表达配额补内容。`;
 
-/** 英译汉复核仍要求完整纠错句；汉译英已取消该栏位，不附加本段。 */
-export const CORRECTED_SENTENCE_RULES = `
-sentenceTranslations 须同时输出 correctedSentence（完整纠错句）：只改学生的真实错误，保留正确措辞，正确时保留原句。主AI对照与该句都不得引入新的事实、程度、语气。需要倒装、否定或句式联动时，不要用半截短语替代完整修正。解释应针对学生真正写出的形式，不讨论不存在的错误；语法规则要写清上下文边界。`;
-
 export const EN2CN_REVIEW_PROMPT = `你是英译汉批改的独立语义复核员。重新读完整英文原文和中文译稿，再检查第一轮记录；不要因第一轮已经判定就附和它。仅复核，不另造词汇、习语；只在AI对照译文或句式点拨存在实际误读时修正这些内容。
 重点逐项核对数字/单位/百分比与百分点、否定范围、必要充分条件、比较方向、施事与指代、时间、情态和证据强度。源文和译文双向检查：原文的每个实质信息是否已表达，以及译稿的每个事实是否有原文依据，尤其不要漏掉译稿末尾新增的承诺。
 百分比与百分点、相对降幅与降至某值是不同数量，不是可选润色；改变数值口径应为error。not all表示并非全部，至少一个不是，不保证另有一些是；也不能把它强化成一个都不是。仅与原文不矛盾不等于忠实传达，擅自增加肯定或否定、增强确定性也需指出。未证明A不等于证明非A，未显著不等于零效应，不支持取消不等于赞成继续。
 必须纠正第一轮解释中的不当推导；但不要把合法中文省略、问句正反表达、同义词、拆合句视为错误。不仅要判断level，解释本身也不得额外承诺原文没有的事实。修正后的to必须忠实自然，代入上下文后仍成立。
 真实错误不能连带否定同一片段中的合理译法。例如 adjusted for prior attainment 译成“提高了学生以前的成绩”，错误是把统计调整译成提高；不能因为这个错误就附带宣称“学生的成绩”必然是无依据增译。原文未明确归属，学生既往学业水平是合理语境解释，单独出现时不判error，混在真实error中时也不能在explanation中另列为错误。优先将from/to缩到真正需要修改的动作或关系，保持解释一致；中性的AI对照不意味着学生必须使用同样省略归属的措辞。
 只输出JSON，先检查对照译文，再处理学生finding：
-{"ai":"经核对的完整中文对照译文；输入ai正确则原样保留，有误则修正","sentenceTranslations":[{"sentenceIndex":1,"ai":"经核对的该源句中文对照译文","correctedSentence":"只修正真实错误的完整中文句群"}],"edits":[{"findingIndex":1,"finding":{"category":"误译","level":"error","from":"现有初稿片段","to":"正确中文","explanation":"基于原文的准确说明","sourceQuote":"英文原文逐字引用","primaryDimension":"理解准确"}}],"additions":[{"sentenceIndex":1,"finding":同上}],"overall":完整评分对象或null}
+{"ai":"经核对的完整中文对照译文；输入ai正确则原样保留，有误则修正","sentenceTranslations":[{"sentenceIndex":1,"ai":"经核对的该源句中文对照译文"}],"edits":[{"findingIndex":1,"finding":{"category":"误译","level":"error","from":"现有初稿片段","to":"正确中文","explanation":"基于原文的准确说明","sourceQuote":"英文原文逐字引用","primaryDimension":"理解准确"}}],"additions":[{"sentenceIndex":1,"finding":同上}],"overall":完整评分对象或null}
 ai和sentenceTranslations独立于edits，输入有ai时总是返回完整ai和各源句的sentenceTranslations；即使edits为空也不能跳过此项。输入无ai时可以省略。只纠正实际误读，不做同义改写。
 findingIndex为输入编号，仅用来定位原有条目；每个编号最多一次修改。删除没有学习价值的原可选建议可用{"findingIndex":1,"remove":true,"reason":"理由"}，不得直接删除error；误判的error改为study并说明原译成立。新增只限确实漏判的error，不补同义词润色；新增前先对照全部现有条目，与其他条目构成同一命题重复（即使是更宽片段或不同分类）就不要新增。
 同义例句或idiom中的教学如有无依据推导、与原文矛盾，可在对应edit上加clearLearning:true并在finding.explanation说明依据，清除该条旧学习材料；正确的条目不清除。
@@ -37,14 +33,14 @@ error的from必须逐字存在于完整初稿，sourceQuote必须逐字存在于
 如果修改了error的内容/等级、添加了error，或者输入指出评分需复核，同时给出完整overall；未改变错误也无评分问题则overall=null。overall包括score、scoreBreakdown、summary、highlights、advice、issues；五项名称与满分遵守输入中的权重，分项之和等于总分，点评逐项说明真实错误与扣分理由，不输出deductions数组。亮点只能来自原初稿。评分按全部原有和修订后的error计算，不能只给新增问题扣分。
 复核还要核对输入的句式点拨，不得与修正后的说明矛盾。仅当句式点拨存在事实、关系、立场误读时可额外输出advancedSentences:[修正后全部句式点拨字符串，最多3条]；未修改的句式点拨字段不输出。这些字段不能替代findings和扣分账本。新增漏译源句的ai可在对应addition中提供。
 【提交前的归属检查】所有error和扣分都针对学生draft，绝不针对AI译文。若解释说“原译正确、AI对照反而有误”，该学生finding必须降为study且不扣分，并通过ai/sentenceTranslations修正AI错误；不能保留level=error。反过来，学生和AI同时出现同一误读时，要保留学生error，并同时修正AI对照。例：学生写“B之后A”，AI写“因为B所以A”，原文只说明先后：学生不扣分，修正AI；学生也写“因为B所以A”时才给学生记error。发现现有ai含有已指出的因果/指代/否定误读，必须返回修正后的ai和对应sentenceTranslations，而不是仅修改说明。若idiom/例句与正确解释矛盾，使用clearLearning:true清掉它。
-` + REVIEW_MERGE_RULES + CORRECTED_SENTENCE_RULES + EN2CN_TRANSFER_RULES + EN2CN_SCORING_GUIDE;
+` + REVIEW_MERGE_RULES + EN2CN_TRANSFER_RULES + EN2CN_SCORING_GUIDE;
 
 export function buildEn2cnReviewMessage(data, scoreProblems = []) {
   let index = 0;
   return JSON.stringify({ source: data.chinese, draft: data.draft, aiLevel: data.aiLevel, scoreProblems,
     ai: data.ai, advancedSentences: data.advancedSentences, vocabularyNotes: data.vocabularyNotes,
     idiomHighlights: data.idiomHighlights, bonusExpressions: data.bonusExpressions,
-    sentences: (data.sentences || []).map((s, i) => ({ sentenceIndex: i + 1, source: s.cn, draft: s.draft, ai: s.ai, correctedSentence: s.correctedSentence,
+    sentences: (data.sentences || []).map((s, i) => ({ sentenceIndex: i + 1, source: s.cn, draft: s.draft, ai: s.ai,
       findings: (s.findings || []).map((f) => ({ findingIndex: ++index, category: f.category, level: f.level,
         from: f.from, to: f.to, explanation: f.explanation, sourceQuote: f.sourceQuote, primaryDimension: f.primaryDimension, severity: f.severity,
         examples: f.examples, synonyms: f.synonyms, idiom: f.idiom })) })),
@@ -82,7 +78,6 @@ export function applyTranslationReview(data, review, dimensions) {
       const i = row?.sentenceIndex;
       if (!Number.isInteger(i) || i < 1 || i > sentences.length || seen.has(i)) throw new Error('语义复核译文编号无效');
       seen.add(i); sentences[i - 1].ai = translation(row.ai);
-      if ('correctedSentence' in row) sentences[i - 1].correctedSentence = translation(row.correctedSentence);
     }
   }
   const existing = sentences.flatMap((s) => s.findings.map((f, i) => ({ s, f, i })));
@@ -152,11 +147,10 @@ export function applyTranslationReview(data, review, dimensions) {
     const duplicate = sentences.some((s) => s.findings.some((f) => f && sameError(f, finding)));
     if (!duplicate) { sentence.findings.push(finding); addedCount++; }
   }
-  for (const sentence of sentences) {
-    sentence.findings = sentence.findings.filter(Boolean);
-    // A correct student sentence has no mandatory changes; optional upgrades stay in ai.
-    if (typeof sentence.correctedSentence === 'string' && !sentence.findings.some((f) => f.level === 'error')) sentence.correctedSentence = sentence.draft;
-  }
+  for (const sentence of sentences) sentence.findings = sentence.findings.filter(Boolean);
+  // 完整纠错版已全面取消：无论复核是否惯性输出 correctedSentence，一律剥离。
+  const stripped = sentences.map(({ correctedSentence: _removed, ...rest }) => rest);
+  sentences.splice(0, sentences.length, ...stripped);
   const overall = { ...(review.overall ? normalizeEvidenceOverall(review.overall) : data.overall) };
   if (overall) {
     overall.summary = typeof overall.summary === 'string' ? overall.summary : String(data.overall?.summary || '');

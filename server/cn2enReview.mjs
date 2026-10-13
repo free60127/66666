@@ -6,12 +6,7 @@ export function needsCn2enReview(data) {
   return data?.direction === 'cn2en' && (data.sentences || []).length > 0;
 }
 export const buildCn2enReviewMessage = buildEn2cnReviewMessage;
-export function applyCn2enReview(data, review) {
-  const result = applyTranslationReview(data, review, CN2EN_DIMENSIONS);
-  // 完整纠错版已取消：无论复核输出是否携带 correctedSentence，一律剥离，
-  // 防止模型惯性把该栏位带回来。
-  return { ...result, sentences: result.sentences.map(({ correctedSentence: _removed, ...rest }) => rest) };
-}
+export function applyCn2enReview(data, review) { return applyTranslationReview(data, review, CN2EN_DIMENSIONS); }
 
 export const CN2EN_REVIEW_PROMPT = `你是汉译英批改的独立语义复核员。重新读完整中文原文、学生完整英文，再检查首轮分析和AI译文，不能附和错误的首轮结论。
 首先核对中文的事实、范围、时间、逻辑关系、否定、条件和情态，然后检查英语语法和搭配。只依据真实错误评分，常见词、简单句、合法并列/被动、没有习语都不扣分。AI提升译文需在忠实前提下提供匹配等级的更精准词汇、地道搭配与成熟句式；保留首轮已经成立的高级表达，纠正无依据含义时仍尽量保留表达层次。AI的高级程度不用于扣学生分。

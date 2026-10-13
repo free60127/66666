@@ -20,7 +20,8 @@ const reviewed = applyCn2enReview(ledger, { edits: [], additions: [], ai: correc
 assert.equal(reviewed.sentences[0].correctedSentence, undefined, 'the full-correction row is stripped even if the review still emits it');
 assert.equal(reviewed.chinese, source); assert.equal(reviewed.draft, draft);
 assert.equal(ledger.sentences[0].correctedSentence, undefined, 'review is immutable');
-assert.throws(() => applyCn2enReview(ledger, { edits: [], additions: [], sentenceTranslations: [{ sentenceIndex: 1, ai: correction, correctedSentence: {} }] }), /对照译文无效/);
+const ignored = applyCn2enReview(ledger, { edits: [], additions: [], sentenceTranslations: [{ sentenceIndex: 1, ai: correction, correctedSentence: {} }] });
+assert.equal(ignored.sentences[0].correctedSentence, undefined, 'a malformed correction payload is ignored, not stored');
 assert.equal(ledger.ai, undefined, 'invalid review does not partially apply');
 const styleOnly = applyCn2enReview({ ...ledger, sentences: [{ cn: source, draft, findings: [] }] }, { edits: [], additions: [], ai: correction,
   sentenceTranslations: [{ sentenceIndex: 1, ai: correction }] });
