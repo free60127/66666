@@ -76,6 +76,33 @@ try {
   assert.equal(stats2.body.guests.total, 1, 'same IP is not counted twice');
   assert.equal(stats2.body.grading.total, 2);
 
+  // 注册一个账号：今日新增注册 +1，用户总数 +1
+  const reg = await fetch(origin + '/api/auth/register', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: 'student@test.com', password: 'password123', nickname: '测试' }) });
+  assert.equal(reg.status, 201, JSON.stringify(await reg.json()));
+  const stats3 = await get('/api/admin/stats', { 'x-admin-key': 'secret-key-123' });
+  assert.equal(stats3.body.users.total, 1);
+  assert.equal(stats3.body.users.today, 1, 'today registrations counted');
+
+  // 趋势：批改与新增用户两个序列都包含今天
+  const trends = await get('/api/admin/trends?days=30', { 'x-admin-key': 'secret-key-123' });
+  assert.equal(trends.status, 200);
+  const today = stats3.body.day;
+  const gToday = trends.body.gradings.find((p) => p.day === today);
+  const uToday = trends.body.newUsers.find((p) => p.day === today);
+  assert.ok(gToday && gToday.n >= 2, 'grading trend includes today');
+  assert.ok(uToday && uToday.n >= 1, 'new-user trend includes today');
+  assert.equal(trends.body.gradings.length, 30);
+
+  // 明细：两份批改、方向与分数齐全
+  const gradings = await get('/api/admin/gradings?limit=100', { 'x-admin-key': 'secret-key-123' });
+  assert.equal(gradings.status, 200);
+  assert.equal(gradings.body.total, 2);
+  assert.equal(gradings.body.rows.length, 2);
+  assert.equal(gradings.body.rows[0].d, 'en2cn');
+  assert.equal(gradings.body.rows[0].s, 98);
+  assert.ok(gradings.body.rows[0].t > 0);
+
   // 限流桶正常工作（31 次连续查询后应有一次 429）
   let saw429 = false;
   for (let i = 0; i < 35; i++) {

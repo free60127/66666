@@ -64,6 +64,17 @@ export function createUpstashKv({ url, token }) {
       const v = await cmd(['GET', key]);
       return v === null || v === undefined ? null : String(v);
     },
+    /** 批量取值：返回与 keys 等长的数组，缺失为 null。分批防止单命令过大。 */
+    async mget(keys) {
+      const out = [];
+      for (let i = 0; i < keys.length; i += 200) {
+        const chunk = keys.slice(i, i + 200);
+        if (!chunk.length) continue;
+        const r = await cmd(['MGET', ...chunk]);
+        out.push(...r.map((v) => (v === null || v === undefined ? null : String(v))));
+      }
+      return out;
+    },
     async set(key, val, ttlSec) {
       const c = ['SET', key, String(val)];
       if (ttlSec > 0) c.push('EX', String(Math.ceil(ttlSec)));
@@ -127,6 +138,7 @@ export function createFileKv(dir) {
       return { blocked: 0, counts: counts.map((n) => n + 1) };
     },
     async get(key) { return readEnv(fileOf(key)); },
+    async mget(keys) { return keys.map((k) => readEnv(fileOf(k))); },
     async set(key, val, ttlSec) { writeEnv(fileOf(key), val, ttlSec); },
     async setNx(key, val, ttlSec) {
       const f = fileOf(key);

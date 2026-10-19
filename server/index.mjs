@@ -295,13 +295,23 @@ async function trackGuestOnce(ipHash) {
   } catch { /* 统计失败不影响主流程 */ }
 }
 
-/** 批改计数：任务被受理（额度已预留）即 +1；总量键无 TTL，当日键 35 天后自清。 */
+/** 批改计数：任务被受理（额度已预留）即 +1；日键永久保留（趋势曲线数据源）。 */
 async function trackAnalyze() {
   try {
     await kv.incrBy('bts:stats:analyze:total', 1);
     const dayKey = `bts:stats:analyze:${usageDay()}`;
     const n = await kv.incrBy(dayKey, 1);
-    if (n === 1) await kv.set(dayKey, 1, 35 * 86400);
+    await kv.set(dayKey, n, 0); // 无 TTL：覆盖旧值的同时清掉早期版本设置过的 35 天过期
+  } catch { /* 统计失败不影响主流程 */ }
+}
+
+/** 注册计数：新账号（含教师注册）按日累计，永久保留。 */
+async function trackReg() {
+  try {
+    await kv.incrBy('bts:stats:regs:total', 1);
+    const dayKey = `bts:stats:regs:${usageDay()}`;
+    const n = await kv.incrBy(dayKey, 1);
+    await kv.set(dayKey, n, 0);
   } catch { /* 统计失败不影响主流程 */ }
 }
 
@@ -312,6 +322,39 @@ function adminCheck(req) {
   const a = createHash('sha256').update(supplied).digest();
   const b = createHash('sha256').update(ADMIN_KEY).digest();
   return timingSafeEqual(a, b) ? { ok: true } : { ok: false, status: 403, message: '管理密钥不正确' };
+}
+
+/** 载入全部保留的批改作业（文件驱动的键名经消毒，统一还原为冒号形式再比对/读取）。 */
+async function loadAnalyzeJobs(maxKeys = 5000) {
+  const keys = (await kv.scanKeys('bts:job:', maxKeys).catch(() => []))
+    .map((k) => k.replace(/_/g, ':'))
+    .filter((k) => /^bts:job:[0-9a-f-]+$/.test(k));
+  const values = await kv.mget(keys).catch(() => []);
+  const jobs = [];
+  values.forEach((v) => {
+    if (!v) return;
+    try {
+      const j = JSON.parse(v);
+      if (j && j.kind === 'analyze') jobs.push(j);
+    } catch { /* 跳过坏行 */ }
+  });
+  jobs.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  return jobs;
+}
+
+/** 把 KV 里的"日键: 计数"聚合成 {day: count}。exclude 指定要跳过的键（如 total）。 */
+async function dailySeries(prefix, { exclude = [], mgetLimit = 5000 } = {}) {
+  const keys = (await kv.scanKeys(prefix, mgetLimit).catch(() => []))
+    .map((k) => k.replace(/_/g, ':'))
+    .filter((k) => !exclude.some((e) => k.startsWith(e)));
+  const values = await kv.mget(keys).catch(() => []);
+  const byDay = {};
+  keys.forEach((k, i) => {
+    const day = k.slice(prefix.length);
+    const n = Number(values[i]);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(day) && Number.isFinite(n)) byDay[day] = (byDay[day] || 0) + n;
+  });
+  return byDay;
 }
 
 
@@ -1669,6 +1712,7 @@ const server = http.createServer(async (req, res) => {
       }
       const r = await handlers();
       if (!r.ok) return json(res, r.status || 400, { error: r.error });
+      if (action === 'register' || action === 'teacher-register') await trackReg();
       let legacyPending = Boolean(r.sync);
       let migrationError = '';
       if (r.sync && ['login', 'register', 'teacher-register'].includes(action)) {
@@ -1744,7 +1788,7 @@ const server = http.createServer(async (req, res) => {
       ]);
       return json(res, 200, {
         day,
-        users: { total: userKeys.length },
+        users: { total: userKeys.length, today: Number(await kv.get(`bts:stats:regs:${day}`).catch(() => 0)) || 0 },
         guests: {
           today: guestIpKeys.filter((k) => k.endsWith(':' + day) || k.endsWith('_' + day)).length,
           todayByMarker: Number(guestsToday) || 0,
@@ -1760,6 +1804,63 @@ const server = http.createServer(async (req, res) => {
         usage: { serverKeyToday: await usageToday(), budget: DAILY_SERVER_BUDGET },
         storage: { keys: await kv.dbSize().catch(() => 0), kind: kv.kind },
       });
+    }
+    if (p === '/api/admin/trends') {
+      const auth = adminCheck(req);
+      if (!auth.ok) return json(res, auth.status, { error: auth.message });
+      const days = Math.min(365, Math.max(7, Number(new URL(req.url, 'http://x').searchParams.get('days')) || 90));
+      const day = usageDay();
+      // 批改：永久日计数为准；保留作业补齐计数上线前的历史（淘汰开始后自然由计数接管）
+      const [counter, guestDays, jobs] = await Promise.all([
+        dailySeries('bts:stats:analyze:', { exclude: ['bts:stats:analyze:total'] }),
+        dailySeries('bts:stats:guests:', { exclude: ['bts:stats:guests:total'] }),
+        loadAnalyzeJobs().catch(() => []),
+      ]);
+      const byJob = {};
+      for (const j of jobs) {
+        if (!j.createdAt) continue;
+        const k = new Date(j.createdAt + 8 * 3600e3).toISOString().slice(0, 10);
+        byJob[k] = (byJob[k] || 0) + 1;
+      }
+      const merged = { ...byJob };
+      for (const [k, v] of Object.entries(counter)) merged[k] = Math.max(merged[k] || 0, v);
+      // 新增用户：按账号 createdAt 聚合（完整历史）
+      const userKeys = (await kv.scanKeys('bts:acct:user:', 5000).catch(() => []));
+      const userVals = await kv.mget(userKeys).catch(() => []);
+      const regs = {};
+      userVals.forEach((v) => {
+        if (!v) return;
+        try {
+          const u = JSON.parse(v);
+          if (u.createdAt) {
+            const k = new Date(u.createdAt + 8 * 3600e3).toISOString().slice(0, 10);
+            regs[k] = (regs[k] || 0) + 1;
+          }
+        } catch { /* 跳过坏行 */ }
+      });
+      const series = (obj) => {
+        const out = [];
+        const end = new Date(day + 'T00:00:00Z').getTime();
+        for (let i = days - 1; i >= 0; i--) {
+          const k = new Date(end - i * 86400e3).toISOString().slice(0, 10);
+          out.push({ day: k, n: obj[k] || 0 });
+        }
+        return out;
+      };
+      return json(res, 200, { day, days, gradings: series(merged), newUsers: series(regs), guests: series(guestDays),
+        note: '批改/新增用户含全历史（作业受 2000 条滚动保留限制，最旧一段由计数键补齐）；游客自统计上线起' });
+    }
+    if (p === '/api/admin/gradings') {
+      const auth = adminCheck(req);
+      if (!auth.ok) return json(res, auth.status, { error: auth.message });
+      const limit = Math.min(1000, Math.max(10, Number(new URL(req.url, 'http://x').searchParams.get('limit')) || 300));
+      const jobs = await loadAnalyzeJobs().catch(() => []);
+      const rows = jobs.slice(0, limit).map((j) => ({
+        t: j.createdAt || 0, d: j.direction || '', lvl: (j.data && j.data.aiLevel) || '',
+        s: (j.data && j.data.overall && Number.isFinite(Number(j.data.overall.score)) ? Number(j.data.overall.score) : null),
+        title: String(j.title || '').slice(0, 60), status: j.status || '',
+      }));
+      return json(res, 200, { total: jobs.length, rows });
     }
     if (p === '/api/health') return json(res, 200, { ok: true });
     if (p === '/api/status') {
