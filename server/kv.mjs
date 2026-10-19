@@ -79,6 +79,17 @@ export function createUpstashKv({ url, token }) {
     async incrBy(key, n) { return Number(await cmd(['INCRBY', key, String(n)])); },
     /** 键总数：用来在启动日志里给出"离存储上限还有多远"的量级（免费额度按 256MB 计） */
     async dbSize() { return Number(await cmd(['DBSIZE'])) || 0; },
+    /** 前缀枚举（管理统计用，低频）。Upstash 的 SCAN 按命令计费，调用方必须给 limit。 */
+    async scanKeys(prefix, limit = 5000) {
+      const keys = [];
+      let cursor = '0';
+      do {
+        const result = await cmd(['SCAN', cursor, 'MATCH', prefix + '*', 'COUNT', '500']);
+        cursor = String(result[0]);
+        for (const key of result[1]) if (!keys.includes(key)) keys.push(key);
+      } while (cursor !== '0' && keys.length < limit);
+      return keys;
+    },
   };
 }
 
@@ -138,6 +149,16 @@ export function createFileKv(dir) {
     /** 键总数（本地就是文件个数）；顺带能给出占用字节，用于日志里的量级提示 */
     async dbSize() {
       try { return fs.readdirSync(dir).filter((n) => n.endsWith('.json')).length; } catch { return 0; }
+    },
+    /** 前缀枚举（本地文件版）：键名经 fileOf 同样的消毒后做前缀匹配，返回消毒后的键名。 */
+    async scanKeys(prefix, limit = 5000) {
+      const safe = String(prefix).replace(/[^A-Za-z0-9._-]/g, '_');
+      try {
+        return fs.readdirSync(dir)
+          .filter((n) => n.endsWith('.json') && n.startsWith(safe))
+          .slice(0, limit)
+          .map((n) => n.slice(0, -'.json'.length));
+      } catch { return []; }
     },
   };
 }

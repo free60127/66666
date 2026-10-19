@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex, nofollow" />
+<title>运营统计 · 回译本</title>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: "Microsoft YaHei", system-ui, sans-serif; background: #f4f6fa; color: #1c2333; }
+  .wrap { max-width: 720px; margin: 0 auto; padding: 28px 16px 48px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color: #7a8399; font-size: 13px; margin-bottom: 20px; }
+  .gate { background: #fff; border: 1px solid #e3e8f0; border-radius: 12px; padding: 22px; }
+  .gate input { width: 100%; padding: 10px 12px; font-size: 15px; border: 1px solid #cfd6e4; border-radius: 8px; }
+  .gate button { margin-top: 12px; width: 100%; padding: 10px; font-size: 15px; border: 0; border-radius: 8px; background: #2b5cff; color: #fff; cursor: pointer; }
+  .gate .err { color: #c0392b; font-size: 13px; margin-top: 10px; min-height: 18px; }
+  .cards { display: none; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+  .card { background: #fff; border: 1px solid #e3e8f0; border-radius: 12px; padding: 16px 18px; }
+  .card .label { color: #7a8399; font-size: 13px; }
+  .card .num { font-size: 32px; font-weight: 700; margin: 4px 0 2px; }
+  .card .note { color: #98a1b3; font-size: 12px; line-height: 1.5; }
+  .row { grid-column: 1 / -1; background: #fff; border: 1px solid #e3e8f0; border-radius: 12px; padding: 14px 18px; font-size: 13px; color: #4a5568; line-height: 1.9; }
+  .row b { color: #1c2333; }
+  .refresh { margin: 14px 0 0; padding: 8px 18px; font-size: 14px; border: 1px solid #cfd6e4; border-radius: 8px; background: #fff; cursor: pointer; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>运营统计</h1>
+  <div class="sub">仅限管理员 · 密钥在服务器 .env 的 ADMIN_KEY</div>
+
+  <div class="gate" id="gate">
+    <input id="key" type="password" placeholder="管理密钥（ADMIN_KEY）" autocomplete="off" />
+    <button id="go">查看统计</button>
+    <div class="err" id="err"></div>
+  </div>
+
+  <div class="cards" id="cards">
+    <div class="card"><div class="label">注册用户</div><div class="num" id="users">–</div><div class="note">账号总数（bts:acct:user）</div></div>
+    <div class="card"><div class="label">累计游客（去重 IP）</div><div class="num" id="guestsTotal">–</div><div class="note">自统计上线起累计</div></div>
+    <div class="card"><div class="label">今日游客</div><div class="num" id="guestsToday">–</div><div class="note">当日用公共额度的去重 IP</div></div>
+    <div class="card"><div class="label">今日批改</div><div class="num" id="gradingToday">–</div><div class="note">全部方向，含自带 Key</div></div>
+    <div class="card"><div class="label">累计批改</div><div class="num" id="gradingTotal">–</div><div class="note">自统计上线起累计</div></div>
+    <div class="card"><div class="label">站内保留作业</div><div class="num" id="retained">–</div><div class="note">当前 KV 中保留的任务</div></div>
+    <div class="row" id="meta"></div>
+    <button class="refresh" id="refresh">刷新</button>
+  </div>
+</div>
+<script>
+(function () {
+  var KEY = 'bt-admin-key';
+  var input = document.getElementById('key');
+  var err = document.getElementById('err');
+  var gate = document.getElementById('gate');
+  var cards = document.getElementById('cards');
+  try { input.value = localStorage.getItem(KEY) || ''; } catch (e) {}
+
+  function render(d) {
+    document.getElementById('users').textContent = d.users.total;
+    document.getElementById('guestsTotal').textContent = d.guests.total;
+    document.getElementById('guestsToday').textContent = d.guests.today;
+    document.getElementById('gradingToday').textContent = d.grading.today;
+    document.getElementById('gradingTotal').textContent = d.grading.total;
+    document.getElementById('retained').textContent = d.jobs.retained;
+    document.getElementById('meta').innerHTML =
+      '统计日：<b>' + d.day + '</b>　·　今日站点 Key 代跑 <b>' + d.usage.serverKeyToday + '</b> / ' + d.usage.budget +
+      '　·　历史任务总数（含OCR/出题/素材）<b>' + d.jobs.allTimeTasks + '</b>' +
+      '　·　存储 <b>' + d.storage.kind + '</b>（' + d.storage.keys + ' 键）' +
+      '<br>口径说明：' + d.guests.note + '；' + d.grading.note;
+    gate.style.display = 'none';
+    cards.style.display = 'grid';
+  }
+
+  function load(key) {
+    err.textContent = '';
+    return fetch('/api/admin/stats', { headers: { 'x-admin-key': key } }).then(function (r) {
+      return r.json().then(function (j) { return { ok: r.status === 200, status: r.status, body: j }; });
+    }).then(function (r) {
+      if (!r.ok) {
+        gate.style.display = 'block'; cards.style.display = 'none';
+        err.textContent = r.body.error || ('请求失败 ' + r.status);
+        return false;
+      }
+      render(r.body);
+      try { localStorage.setItem(KEY, key); } catch (e) {}
+      return true;
+    }).catch(function (e) { err.textContent = '网络错误：' + e.message; return false; });
+  }
+
+  document.getElementById('go').addEventListener('click', function () { load(input.value.trim()); });
+  input.addEventListener('keydown', function (e) { if (e.key === 'Enter') load(input.value.trim()); });
+  document.getElementById('refresh').addEventListener('click', function () {
+    var k = ''; try { k = localStorage.getItem(KEY) || ''; } catch (e) {}
+    load(k);
+  });
+  var saved = ''; try { saved = localStorage.getItem(KEY) || ''; } catch (e) {}
+  if (saved) load(saved);
+})();
+</script>
+</body>
+</html>

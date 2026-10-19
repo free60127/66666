@@ -8,7 +8,7 @@ import { answerLanguage } from '../src/learningLanguage.js';
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
-import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { promises as dnsLookup } from 'node:dns';
 import { SYSTEM_PROMPT, buildUserMessage, EN2CN_SYSTEM_PROMPT, buildEn2CnUserMessage, MATERIAL_PROMPT, buildMaterialMessage, QUIZ_PROMPT, buildQuizMessage, DRILL_PROMPT, buildDrillMessage, GRADE_PROMPT, GRADE_STREAM_PROMPT, buildGradeMessage, buildOverallRepairMessage, AI_LEVEL_KEYS, DEFAULT_AI_LEVEL, normalizeLevel } from './prompt.mjs';
@@ -20,7 +20,7 @@ import { createResultReader, finalizeResult, SEGMENT_LABEL, usableOverall } from
 import { recognizeImage, validateImage } from './ocr.mjs';
 import { MAX_SNAPSHOT_BYTES, createSyncStore } from './sync.mjs';
 import { createAccountData, openLegacySync } from './account-data.mjs';
-import { createUpstashKv, createFileKv } from './kv.mjs';
+import { createUpstashKv, createFileKv, rateLimit } from './kv.mjs';
 import { usageDay, reserveDailyQuota } from './usage.mjs';
 import { resolveClientIp, trustProxyHops, trustCloudflareHeader } from './client-ip.mjs';
 import { createAccounts } from './accounts.mjs';
@@ -279,6 +279,40 @@ const FREE_DAILY_ACCOUNT = posInt(process.env.FREE_DAILY_ACCOUNT, 3);
 const FREE_DAILY_IP = posInt(process.env.FREE_DAILY_IP, 2);
 const DAILY_SERVER_BUDGET = posInt(process.env.DAILY_SERVER_BUDGET, 300);
 const CLASS_KEY_DAILY = posInt(process.env.CLASS_KEY_DAILY, 300);
+
+/** 管理面板密钥：只在服务器 .env 配置，不进仓库。未配置时 /api/admin/* 全部拒绝。 */
+const ADMIN_KEY = String(process.env.ADMIN_KEY || '').trim();
+
+/** 游客去重标记：首次出现（按 IP 哈希）时记一笔，用于"累计游客"统计。IP 本身不落盘。 */
+async function trackGuestOnce(ipHash) {
+  try {
+    const day = usageDay();
+    const created = await kv.setNx(`bts:stats:guest:${ipHash}`, '1', 0);
+    if (created) {
+      await kv.incrBy('bts:stats:guests:total', 1);
+      await kv.incrBy(`bts:stats:guests:${day}`, 1);
+    }
+  } catch { /* 统计失败不影响主流程 */ }
+}
+
+/** 批改计数：任务被受理（额度已预留）即 +1；总量键无 TTL，当日键 35 天后自清。 */
+async function trackAnalyze() {
+  try {
+    await kv.incrBy('bts:stats:analyze:total', 1);
+    const dayKey = `bts:stats:analyze:${usageDay()}`;
+    const n = await kv.incrBy(dayKey, 1);
+    if (n === 1) await kv.set(dayKey, 1, 35 * 86400);
+  } catch { /* 统计失败不影响主流程 */ }
+}
+
+/** 管理接口鉴权：x-admin-key 头或 ?key=，sha256 后恒定长度比较。 */
+function adminCheck(req) {
+  if (!ADMIN_KEY) return { ok: false, status: 503, message: '服务器未配置 ADMIN_KEY，管理面板不可用' };
+  const supplied = String(req.headers['x-admin-key'] || new URL(req.url, 'http://x').searchParams.get('key') || '').trim();
+  const a = createHash('sha256').update(supplied).digest();
+  const b = createHash('sha256').update(ADMIN_KEY).digest();
+  return timingSafeEqual(a, b) ? { ok: true } : { ok: false, status: 403, message: '管理密钥不正确' };
+}
 
 
 /** 今日站点 Key 代跑次数（与闸门用同一个 KV 计数器；读失败按 0 算）。 */
@@ -588,6 +622,7 @@ async function gateServerKeyUsage({ req, ep }) {
       pool = me?.ok ? 'account' : 'ip';
       limit = me?.ok ? FREE_DAILY_ACCOUNT : FREE_DAILY_IP;
       key = me?.ok ? `bts:quota:acct:${me.user.id}:${day}` : `bts:quota:ip:${clientIp(req)}:${day}`;
+      if (pool === 'ip') await trackGuestOnce(createHash('sha256').update(clientIp(req)).digest('hex').slice(0, 16));
     }
     const pools = [{ key, limit }];
     if (ep.keySource === 'server') pools.push({ key: 'bts:quota:global:' + day, limit: DAILY_SERVER_BUDGET });
@@ -1691,6 +1726,41 @@ const server = http.createServer(async (req, res) => {
       const { status, ...data } = result;
       return json(res, status || 200, data);
     }
+    if (p === '/api/admin/stats') {
+      const auth = adminCheck(req);
+      if (!auth.ok) return json(res, auth.status, { error: auth.message });
+      try {
+        const limited = await rateLimit(kv, 'bts:admin:' + clientIp(req), 60, 30);
+        if (limited.over) return json(res, 429, { error: '查询过于频繁，请稍后再试' });
+      } catch { /* 限流失败不作为拒绝理由：已有密钥门槛 */ }
+      const day = usageDay();
+      const [userKeys, guestIpKeys, guestsTotal, guestsToday, analyzeTotal, analyzeToday] = await Promise.all([
+        kv.scanKeys('bts:acct:user:', 5000).catch(() => []),
+        kv.scanKeys('bts:quota:ip:', 5000).catch(() => []),
+        kv.get('bts:stats:guests:total').catch(() => null),
+        kv.get(`bts:stats:guests:${day}`).catch(() => null),
+        kv.get('bts:stats:analyze:total').catch(() => null),
+        kv.get(`bts:stats:analyze:${day}`).catch(() => null),
+      ]);
+      return json(res, 200, {
+        day,
+        users: { total: userKeys.length },
+        guests: {
+          today: guestIpKeys.filter((k) => k.endsWith(':' + day) || k.endsWith('_' + day)).length,
+          todayByMarker: Number(guestsToday) || 0,
+          total: Number(guestsTotal) || 0,
+          note: 'today 按当日 IP 额度键计数（含上线前的历史）；todayByMarker 与 total 为去重游客，自统计上线（2026-10-12）起累计',
+        },
+        grading: {
+          today: Number(analyzeToday) || 0,
+          total: Number(analyzeTotal) || 0,
+          note: '批改次数自统计上线起累计，含全部方向；自带 Key 也计入',
+        },
+        jobs: { retained: Math.max(0, jobSeq - jobEvicted), allTimeTasks: jobSeq, note: 'allTimeTasks 含批改/OCR/出题/素材全部任务种类' },
+        usage: { serverKeyToday: await usageToday(), budget: DAILY_SERVER_BUDGET },
+        storage: { keys: await kv.dbSize().catch(() => 0), kind: kv.kind },
+      });
+    }
     if (p === '/api/health') return json(res, 200, { ok: true });
     if (p === '/api/status') {
       return json(res, 200, {
@@ -1773,7 +1843,6 @@ const server = http.createServer(async (req, res) => {
       if (!apiKey) return json(res, 400, { error: '未配置 AI_API_KEY：请复制 .env.example 为 .env 并填写，或在设置面板填入 API Key' });
       const gate = await gateServerKeyUsage({ req, ep });
       if (gate.blocked) return json(res, gate.status, { error: gate.message });
-
       const jobId = randomUUID();
       saveJob({ jobId, kind: 'material', title: '素材：' + topic, status: 'pending', createdAt: Date.now(), data: null, error: null });
       registerJob(jobId); // 登记序号 + 超上限时淘汰最旧的任务
@@ -1911,7 +1980,6 @@ const server = http.createServer(async (req, res) => {
       if (!apiKey) return json(res, 400, { error: '未配置 AI_API_KEY：请复制 .env.example 为 .env 并填写，或在设置面板填入 API Key' });
       const gate = await gateServerKeyUsage({ req, ep });
       if (gate.blocked) return json(res, gate.status, { error: gate.message });
-
       const jobId = randomUUID();
       saveJob({ jobId, kind: 'quiz', title: (drill ? '错误训练 · ' : '自测题 · ') + count + ' 题', status: 'pending', createdAt: Date.now(), data: null, error: null });
       registerJob(jobId);
@@ -2013,6 +2081,7 @@ const server = http.createServer(async (req, res) => {
       if (!apiKey) return json(res, 400, { error: '未配置 AI_API_KEY：请复制 .env.example 为 .env 并填写，或在设置面板填入 API Key' });
       const gate = await gateServerKeyUsage({ req, ep });
       if (gate.blocked) return json(res, gate.status, { error: gate.message });
+      await trackAnalyze();
 
       const jobId = randomUUID();
       // 删除凭据：分享链接是「可读」能力，不该顺带给出删除权，所以删除要另配一个只发一次的 token。
