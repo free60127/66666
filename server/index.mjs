@@ -2,7 +2,7 @@ import { localOverall } from './gradingFallback.mjs';
 import { normalizeEn2cnOverall } from './en2cnScoring.mjs';
 import { needsEn2cnReview, EN2CN_REVIEW_PROMPT, buildEn2cnReviewMessage, applyEn2cnReview } from './en2cnReview.mjs';
 import { needsCn2enReview, CN2EN_REVIEW_PROMPT, buildCn2enReviewMessage, applyCn2enReview } from './cn2enReview.mjs';
-import { dedupeExactErrors } from './scoringEvidence.mjs';
+import { dedupeExactErrors, propagateRepeats } from './scoringEvidence.mjs';
 import { normalizeEn2cnFeedback } from './en2cnFeedback.mjs';
 import { answerLanguage } from '../src/learningLanguage.js';
 import http from 'node:http';
@@ -1235,6 +1235,7 @@ async function runAnalyzeJob(jobId, { title, chinese, draft, original, lesson, l
         ] });
         job.data = (dir === 'en2cn' ? applyEn2cnReview : applyCn2enReview)(job.data, parseJsonLoose(reviewed));
         job.data = dedupeExactErrors(job.data);
+        job.data = propagateRepeats(job.data);
       } catch (e) {
         job.data.translationReview = { status: 'unavailable' };
         console.warn('[analyze/' + dir + '] 语义复核未完成，保留第一轮分析：' + (e && e.message));

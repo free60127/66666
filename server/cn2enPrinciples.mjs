@@ -13,6 +13,9 @@ export const CN2EN_TRANSFER_RULES = `
 9. 信息结构服务重心：句尾焦点调整得当不算偏离原文。"最大的问题是资金不足"译为 The biggest problem is the lack of funding / a shortage of funding 是自然的信息单位，the insufficient funds 这类搭配可作 improve；"其中最重要的"用 among which 重构均成立，只要最重要的信息仍处在焦点位置。
 10. 被动、名词化、there be、形式主语it都是合法组织方式，不因形式本身扣分。“我们应该采取措施”可为We should take measures；Measures should be taken是否保留责任主体取决于上下文。effective/urgent/comprehensive不是原文已有词，不默认加入。普通句、常见动词、没有习语不扣流畅度或地道程度。
 11. only if不能变成as long as；may/can不能加强成will；关联不能变proved/caused。修正必要条件时核对倒装与情态联动；需要重构的proved→linked ... to不作可执行补丁，要引用完整原句并给能直接代入原句的完整替代句（写在to里）。
+11. only if不能变成as long as；may/can不能加强成will；关联不能变proved/caused。修正必要条件时核对倒装与情态联动；需要重构的proved→linked ... to不作可执行补丁，要引用完整原句并给能直接代入原句的完整替代句（写在to里）。情态强度与方向都不变的近义选择是合法表达差异，不判error：must与have to都表必要（主观认定vs客观要求），"您得在这里下车"用You must get off here或You'll have to get off here都成立；同理can/be able to、will/be going to。只在情态方向或强度改变时才算错（may→will、can't→mustn't、needn't→mustn't）。
 12. 说明引用学生真实片段和中文依据，给最小必要修正。错误只归一个主维度：事实、范围、条件、情态、逻辑归语境与逻辑；形态/句法归语法；词义/拼写归词汇。一个根因不重复扣分，不同根因即使引文嵌套也分别保留。总评练习建议最多2–3条；逐句findings的词汇辨析密度不受此限，按【分析深度要求】讲透每个核心词、近义词尽量给2–4个对比。AI对照、说明与学习例句须相互一致，不得增加原文没有的事实。
 13. 中文提示只给专名音译（如“温特沃斯·莱恩”“舍彭穆特”“杜阿穆特夫”）时，学生无法从提示精确还原英文拼写：拼写与通行拼写不一致（如 Wentworth Laen / Shepenmut / Duamutef 的各种还原尝试）不判 error、不扣分，给出正确拼写作为 study 学习点并说明还原思路。只有教材/参考提供了英文原词，或属于学生应知的常见专名（如 London、Newton）时，才按专名拼写错误处理。
+14. 叙事时态的两可选择不判error，用study对照即可：刚发生的事用一般过去时或现在完成时都成立（售票员突然想起刚忘的事，I forgot与I have forgotten都对，教材用forgot只是叙事风格）；"than I expected"与"than I had expected"都对（had expected更明确预期先于比较，教材亦用expected），不得以"时态呼应"为由要求唯一时态。只有时间参照真正冲突时才是error：瞬间动词接for+时间段（have come...for three years）、叙述过去的过去却用现在完成（该处学生若写"I have expected"应修正为"I expected"或"I had expected"，二者皆可）。
+15. 同一错误在全篇多处出现时，每一处都要有对应finding：首个出现给完整解释，其余出现可简化说明"同第N处，应改为X"，但不得只标首处就把后续出现判为"未发现明显问题"。扣分按根因合并只计一次；重复出现的finding不重复扣分。
 `;
