@@ -154,4 +154,56 @@ assert.equal((await rooms.saveApiKey(teacher.token, advanced.id, 'sk-new')).stat
 assert.equal((await rooms.updateHomework(teacher.token, advanced.id, homework.id, { title: '归档后改名' })).status, 400);
 assert.equal((await rooms.removeCorpusLesson(teacher.token, advanced.id, 'a'.repeat(24))).status, 400);
 assert.equal((await rooms.exportHomework(teacher.token, advanced.id, homework.id)).reports.length, 1);
-console.log('✅ 教师班级阶段 1–3：权限、邀请、作业、共享语料、协作教师、评语、错题汇总测试通过');
+
+/* ---------- 阶段 4：写作作业（创建 → 写作提交上报 → 方向/题目不一致拒收） ---------- */
+// 前面的阶段已把「协作班级」归档（归档后一切写操作关闭），写作链路用全新班级验证
+const wClass = (await rooms.create(teacher.token, '写作班')).class;
+const wPupil = await rooms.join({ code: wClass.inviteCode, name: '小写', studentNo: '401', ip: 'w0' });
+const writingDue = Date.now() + 86400000;
+const writingHw = (await rooms.createHomework(teacher.token, wClass.id, {
+  title: '议论文 · 谦逊与雄心', type: 'writing',
+  prompt: 'Read carefully the following two excerpts on humility and ambition, and then write your response.',
+  material: 'Excerpt 1 ...', imageDesc: '', targetWords: 300, dueAt: writingDue,
+})).homework;
+assert.equal(writingHw.type, 'writing');
+assert.equal(writingHw.targetWords, 300);
+assert.equal(writingHw.material, 'Excerpt 1 ...');
+assert.equal((await rooms.createHomework(teacher.token, wClass.id, { title: '词数非法', type: 'writing', prompt: '题目', targetWords: 5, dueAt: writingDue })).status, 400);
+assert.equal((await rooms.createHomework(teacher.token, wClass.id, { title: '无题目', type: 'writing', prompt: '', dueAt: writingDue })).status, 400);
+assert.equal((await rooms.createHomework(teacher.token, wClass.id, { title: '材料超长', type: 'writing', prompt: '题目', material: 'x'.repeat(8001), dueAt: writingDue })).status, 400);
+
+const writingJobId = '12345678-1234-1234-1234-123456789def';
+jobs.set(writingJobId, {
+  jobId: writingJobId, kind: 'analyze', status: 'done', deleteToken: 'wtok12345', title: '写作作业',
+  direction: 'writing', prompt: writingHw.prompt,
+  data: { title: '谦逊与雄心', overall: { score: 88, scoreBreakdown: [{ label: '内容与任务', score: 26, max: 30 }] }, sentences: [] },
+  finishedAt: Date.now(),
+});
+const writingSub = { classId: wClass.id, studentKey: wPupil.studentKey, jobId: writingJobId, deleteToken: 'wtok12345', hwId: writingHw.id, ip: 'w1' };
+assert.equal((await rooms.submit(writingSub)).submission.score, 88);
+assert.equal((await rooms.submit(writingSub)).duplicate, true);
+// 用翻译方向提交写作作业 → 拒收
+const wrongDirId = '12345678-1234-1234-1234-123456789abf';
+jobs.set(wrongDirId, { ...jobs.get(writingJobId), jobId: wrongDirId, deleteToken: 'wtok12446', direction: 'cn2en' });
+assert.equal((await rooms.submit({ classId: wClass.id, studentKey: wPupil.studentKey, jobId: wrongDirId, deleteToken: 'wtok12446', hwId: writingHw.id, ip: 'w2' })).status, 400);
+// 题目被改动 → 拒收（prompt 逐字一致是上报的前提）
+const tamperedId = '12345678-1234-1234-1234-123456789abe';
+jobs.set(tamperedId, { ...jobs.get(writingJobId), jobId: tamperedId, deleteToken: 'wtok12447', prompt: writingHw.prompt + ' (edited)' });
+assert.equal((await rooms.submit({ classId: wClass.id, studentKey: wPupil.studentKey, jobId: tamperedId, deleteToken: 'wtok12447', hwId: writingHw.id, ip: 'w3' })).status, 400);
+// 教师端：作业列表带 type/targetWords，成绩记录的「课文」列显示英语作文
+const writingDetail = await rooms.detail(teacher.token, wClass.id);
+const writingHwView = writingDetail.homeworks.find((hw) => hw.id === writingHw.id);
+assert.equal(writingHwView.type, 'writing');
+assert.equal(writingHwView.targetWords, 300);
+const writingStudentRow = writingDetail.students.find((s) => s.studentNo === '401');
+assert.equal(writingStudentRow.subs.find((sub) => sub.hwId === writingHw.id).lesson, '英语作文');
+// 写作作业 PDF 导出可用（复用同一条导出链路）
+const writingExport = await rooms.exportHomework(teacher.token, wClass.id, writingHw.id);
+assert.equal(writingExport.reports.length, 1);
+assert.equal(writingExport.reports[0].result.overall.score, 88);
+// 学生仪表盘能看到写作作业的题目与材料（认题与守卫的数据来源）
+const writingDashboard = await rooms.studentDashboard(wClass.id, wPupil.studentKey);
+const dashHw = writingDashboard.homeworks.find((hw) => hw.id === writingHw.id);
+assert.equal(dashHw.prompt, writingHw.prompt);
+assert.equal(dashHw.material, 'Excerpt 1 ...');
+console.log('✅ 教师班级阶段 4：写作作业创建、方向/题目校验、上报与导出测试通过');

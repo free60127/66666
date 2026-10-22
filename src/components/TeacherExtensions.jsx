@@ -1,12 +1,14 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { getLessons, getStatus } from '../api.js';
+import { WRITING_EXAM_BANK, WRITING_EXAM_META } from '../writingExamBank.js';
+import { WRITING_TOPICS } from '../writingTopics.js';
 
 const localDateTime = (value) => {
   const date = new Date(value);
   return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
 };
 const dateText = (value) => value ? new Date(value).toLocaleString('zh-CN') : '—';
-const initialHomework = () => ({ title: '', type: 'free', prompt: '', reference: '', book: 10, lessonNo: 1, sharedLessonId: '', dueAt: localDateTime(Date.now() + 86400000) });
+const initialHomework = () => ({ title: '', type: 'free', prompt: '', reference: '', book: 10, lessonNo: 1, sharedLessonId: '', writingTopicId: '', writingCustom: '', dueAt: localDateTime(Date.now() + 86400000) });
 
 export function TeacherHomeworkPanel({ detail, token, request, onChanged, onError, resultUrl }) {
   const [form, setForm] = useState(initialHomework);
@@ -71,11 +73,38 @@ export function TeacherHomeworkPanel({ detail, token, request, onChanged, onErro
       .finally(() => { if (active) setCatalogBusy(false); });
     return () => { active = false; };
   }, [form.type, form.book, onError]);
+  /* 写作作业：解析教师选中的题目（题库真题 / 自编 / 自定义粘贴），
+     prompt 会逐字下发给守卫与上报校验，所以必须取原始文本、不能在这里改写。 */
+  const writingTopic = useMemo(() => {
+    if (form.type !== 'writing') return null;
+    if (form.writingTopicId === 'custom') {
+      const q = form.writingCustom.trim();
+      return q ? { zh: '自定义题目', question: q, words: null, material: '', imageDesc: '', image: null } : null;
+    }
+    if (!form.writingTopicId) return null;
+    const exam = WRITING_EXAM_BANK.find((t) => t.id === form.writingTopicId);
+    if (exam) return exam;
+    const own = WRITING_TOPICS.find((t) => 'own-' + t.id === form.writingTopicId);
+    return own ? { ...own, id: 'own-' + own.id, label: '精选自编', words: null, material: '', imageDesc: '' } : null;
+  }, [form.type, form.writingTopicId, form.writingCustom]);
   const submit = async (event) => {
     event.preventDefault();
     setBusy(true);
     try {
-      await request('/' + room.id + '/homeworks', token, 'POST', { ...form, dueAt: new Date(form.dueAt).getTime() });
+      const payload = {
+        title: form.title, type: form.type, dueAt: new Date(form.dueAt).getTime(),
+        book: form.book, lessonNo: form.lessonNo, sharedLessonId: form.sharedLessonId,
+        prompt: form.prompt, reference: form.reference,
+      };
+      if (form.type === 'writing') {
+        if (!writingTopic?.question?.trim()) throw new Error(form.writingTopicId === 'custom' ? '请填写作文题目' : '请先选择写作题目');
+        Object.assign(payload, {
+          prompt: writingTopic.question.trim(), reference: '',
+          material: writingTopic.material || '', imageDesc: writingTopic.imageDesc || '',
+          targetWords: writingTopic.words || null,
+        });
+      }
+      await request('/' + room.id + '/homeworks', token, 'POST', payload);
       setForm(initialHomework());
       await onChanged();
     } catch (error) { onError(error.message); }
@@ -90,10 +119,36 @@ export function TeacherHomeworkPanel({ detail, token, request, onChanged, onErro
   return <section className="card teacher-extension"><h2>布置作业</h2>
     {!room.archivedAt && <form className="teacher-form" onSubmit={submit}>
       <label>作业标题<input required maxLength={80} value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} placeholder="例如：Lesson 18 回译" /></label>
-      <label>内容来源<select value={form.type} onChange={(event) => setForm({ ...form, type: event.target.value })}><option value="free">自由题目</option><option value="builtin">内置课文</option><option value="shared">班级共享课文</option></select></label>
+      <label>内容来源<select value={form.type} onChange={(event) => setForm({ ...form, type: event.target.value })}><option value="free">自由题目（翻译）</option><option value="builtin">内置课文</option><option value="shared">班级共享课文</option><option value="writing">写作题目（作文批改）</option></select></label>
       {form.type === 'builtin' && <><div className="teacher-form-pair"><label>课文库<select required value={form.book} onChange={(event) => setForm({ ...form, book: Number(event.target.value), lessonNo: '' })}>{books.map((book) => <option key={book.book} value={book.book}>{book.label}（{book.lessons} 课）</option>)}</select></label><label>选择课文<select required value={form.lessonNo} disabled={catalogBusy || !lessons.length} onChange={(event) => setForm({ ...form, lessonNo: Number(event.target.value) })}><option value="">请选择课文</option>{lessons.map((lesson) => <option key={lesson.lesson} value={lesson.lesson}>第 {lesson.lesson} 课 · {lesson.title_cn || lesson.title_en || '未命名课文'}{lesson.title_cn && lesson.title_en ? ` / ${lesson.title_en}` : ''}</option>)}</select></label></div>{!catalogBusy && !books.length && <p className="teacher-muted">暂无可选的内置课文，请先选择其他内容来源。</p>}</>}
       {form.type === 'shared' && <label>共享课文<select required value={form.sharedLessonId} onChange={(event) => setForm({ ...form, sharedLessonId: event.target.value })}><option value="">请选择</option>{detail.corpus.map((lesson) => <option key={lesson.id} value={lesson.id}>{lesson.title}</option>)}</select></label>}
       {form.type === 'free' && <><label>中文提示<textarea required maxLength={8000} value={form.prompt} onChange={(event) => setForm({ ...form, prompt: event.target.value })} placeholder="学生将根据这段中文完成回译" /></label><label>英文参考（可选）<textarea maxLength={8000} value={form.reference} onChange={(event) => setForm({ ...form, reference: event.target.value })} /></label></>}
+      {form.type === 'writing' && <>
+        <label>写作题目<select required value={form.writingTopicId} onChange={(event) => setForm({ ...form, writingTopicId: event.target.value })}>
+          <option value="">请选择题目</option>
+          {Object.keys(WRITING_EXAM_META).map((exam) => (
+            <optgroup key={exam} label={WRITING_EXAM_META[exam].name + '真题'}>
+              {WRITING_EXAM_BANK.filter((t) => t.exam === exam).map((t) => <option key={t.id} value={t.id}>{t.label} · {t.zh}</option>)}
+            </optgroup>
+          ))}
+          <optgroup label="精选自编">
+            {WRITING_TOPICS.map((t) => <option key={t.id} value={'own-' + t.id}>{t.zh}（{t.topic} · {t.level}）</option>)}
+          </optgroup>
+          <option value="custom">自定义题目（粘贴）</option>
+        </select></label>
+        {form.writingTopicId === 'custom' && <label>作文题目<textarea required maxLength={8000} value={form.writingCustom} onChange={(event) => setForm({ ...form, writingCustom: event.target.value })} placeholder="粘贴英语作文题目（英文），学生将在写作模式里按此题目写作并提交批改" /></label>}
+        {writingTopic?.question ? <div className="teacher-writing-preview">
+          {writingTopic.image && <img src={writingTopic.image} alt="题目配图" />}
+          <p className="teacher-writing-q">{writingTopic.question}</p>
+          <p className="teacher-muted">
+            建议词数：{writingTopic.words || 180} 词
+            {writingTopic.material ? ' · 含写作材料' : ''}
+            {writingTopic.imageDesc ? ' · 含配图说明' : ''}
+            {writingTopic.level ? ` · 难度 ${writingTopic.level}` : ''}
+          </p>
+        </div> : null}
+        <p className="teacher-muted">学生会在「写作模式」里看到这份作业并锁定题目；完成后按内容、结构、词汇、语法四维批改并自动计入完成情况。</p>
+      </>}
       <label>截止时间<input type="datetime-local" required value={form.dueAt} onChange={(event) => setForm({ ...form, dueAt: event.target.value })} /></label>
       <button className="teacher-primary" disabled={busy || (form.type === 'builtin' && (catalogBusy || !lessons.length))}>{busy ? '保存中…' : '发布作业'}</button>
     </form>}
@@ -108,7 +163,7 @@ export function TeacherHomeworkPanel({ detail, token, request, onChanged, onErro
         navigator.clipboard?.writeText(text).then(() => onError('未交名单已复制'), () => {});
       };
       return <details className="teacher-hw" key={hw.id}><summary><strong>{hw.title}</strong><span>{completed}/{detail.students.length} 已交 · 截止 {dateText(hw.dueAt)}{hw.closedAt ? ' · 已结束' : ''}</span></summary>
-        <div className="teacher-hw-inner"><p>{hw.type === 'builtin' ? `内置课文：${hw.lessonTitle || `第 ${hw.book} 库 · 第 ${hw.lessonNo} 课`}` : hw.type === 'shared' ? '班级共享课文' : '自由题目'} · {hw.prompt.slice(0, 100)}{hw.prompt.length > 100 ? '…' : ''}</p>
+        <div className="teacher-hw-inner"><p>{hw.type === 'builtin' ? `内置课文：${hw.lessonTitle || `第 ${hw.book} 库 · 第 ${hw.lessonNo} 课`}` : hw.type === 'shared' ? '班级共享课文' : hw.type === 'writing' ? '写作作业' : '自由题目'} · {hw.prompt.slice(0, 100)}{hw.prompt.length > 100 ? '…' : ''}{hw.type === 'writing' && hw.targetWords ? `（建议 ${hw.targetWords} 词）` : ''}</p>
           {!missing.length ? <p className="teacher-hw-missing ok">全班都已提交。</p>
             : <p className="teacher-hw-missing">未交（{missing.length} 人）：{missing.map((s) => s.name).join('、')} <button type="button" onClick={copyMissing}>复制名单</button></p>}
           <div className="teacher-actions">

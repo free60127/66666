@@ -42,7 +42,7 @@ const emptyFilters = { exam: 'all', topic: 'all', level: 'all', q: '' };
 export function WritingStudio({
   busy, polishLevel, settings, aliveRef,
   timer, hasElapsed, toggleTimer,
-  onSubmit, onOcrImages, onTopicChange,
+  onSubmit, onOcrImages, onTopicChange, assignedTopic,
 }) {
   const stored = useRef(loadWritingState());
   const [view, setView] = useState(() => stored.current?.topic ? 'write' : 'bank');
@@ -152,6 +152,21 @@ export function WritingStudio({
     });
   }, [filters]);
 
+  /* ---------- 班级写作作业：锁定教师布置的题目 ----------
+   * assignedTopic 来自进行中的班级任务（App 在认题/刷新时下发）。
+   * 锁定后不进题库、不能换题 —— 服务端按「题目逐字一致」校验上报，换题会被整篇拒收。 */
+  const assignedTopicObj = useMemo(() => {
+    const q = String(assignedTopic?.question || '').trim();
+    if (!q) return null;
+    return {
+      id: 'assigned', exam: 'assigned', label: assignedTopic.label || '班级作业',
+      zh: assignedTopic.title || '班级写作作业', topic: '班级作业', level: '中级', qtype: '命题作文',
+      question: q, material: assignedTopic.material || '', imageDesc: assignedTopic.imageDesc || '',
+      words: assignedTopic.words || null, image: null,
+    };
+  }, [assignedTopic]);
+  const topicLocked = Boolean(assignedTopicObj);
+
   /* ---------- 动作 ---------- */
   const startTopic = useCallback((t) => {
     saveCurrent();
@@ -174,6 +189,16 @@ export function WritingStudio({
     setView('write');
     window.scrollTo({ top: 0 });
   }, [saveCurrent]);
+
+  // 应用班级作业题目（放在 startTopic 之后声明，依赖它加载该题的历史草稿）
+  const appliedAssignedRef = useRef('');
+  useEffect(() => {
+    if (!assignedTopicObj) { appliedAssignedRef.current = ''; return; }
+    const key = writingTopicKey(assignedTopicObj);
+    if (appliedAssignedRef.current === key) return;
+    appliedAssignedRef.current = key;
+    startTopic(assignedTopicObj);
+  }, [assignedTopicObj, startTopic]);
 
   const switchMode = (next) => {
     if (next === mode) return;
@@ -258,7 +283,7 @@ export function WritingStudio({
     setLocalError('');
     saveCurrent();
     onSubmit({
-      topic: topic.question,
+      topic: topic.question.trim(),
       material,
       imageDesc: topic.imageDesc || '',
       essay: text,
@@ -273,7 +298,7 @@ export function WritingStudio({
     : '草稿会自动保存';
 
   /* ---------- 题库页 ---------- */
-  if (view === 'bank') {
+  if (view === 'bank' && !topicLocked) {
     return (
       <div className="ws">
         <div className="ws-bank-head">
@@ -363,7 +388,9 @@ export function WritingStudio({
   return (
     <div className="ws">
       <div className="ws-topbar">
-        <button className="ghost-btn sm" onClick={() => setView('bank')}><ArrowLeft size={14} />返回题库</button>
+        {topicLocked
+          ? <span className="ws-chip" title="班级作业期间不能更换题目：批改上报要求题目与教师布置的完全一致">{topic ? topic.label : '班级作业'} · 题目已锁定</span>
+          : <button className="ghost-btn sm" onClick={() => setView('bank')}><ArrowLeft size={14} />返回题库</button>}
         <div className="ws-topbar-meta">
           <span className="ws-chip">{topic ? topic.label : ''}</span>
           {topic && topic.zh ? <b className="ws-topbar-zh">{topic.zh}</b> : null}

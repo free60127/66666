@@ -254,6 +254,10 @@ export function createClassrooms({ kv, accounts, findJob, lessonLookup }) {
       let lessonNo = null;
       let lessonTitle = '';
       let sharedLessonId = null;
+      // 写作作业专属：题目要求的阅读材料、配图文字描述与建议词数（随作业下发给学生端与批改）
+      let material = '';
+      let imageDesc = '';
+      let targetWords = null;
       if (type === 'builtin') {
         book = Number(payload.book);
         lessonNo = Number(payload.lessonNo);
@@ -269,13 +273,19 @@ export function createClassrooms({ kv, accounts, findJob, lessonLookup }) {
         prompt = lesson.chinese;
         reference = lesson.english;
         lessonTitle = lesson.title;
+      } else if (type === 'writing') {
+        material = String(payload.material || '').trim();
+        imageDesc = String(payload.imageDesc || '').trim();
+        targetWords = Number(payload.targetWords) || null;
+        if (material.length > 8000 || imageDesc.length > 8000) return fail(400, '写作材料最多 8000 字');
+        if (targetWords !== null && (targetWords < 20 || targetWords > 1000)) return fail(400, '建议词数应在 20–1000 之间');
       } else if (type !== 'free') return fail(400, '作业类型不正确');
-      if (!prompt || prompt.length > 8000 || reference.length > 8000) return fail(400, '中文提示必填，内容最多 8000 字');
+      if (!prompt || prompt.length > 8000 || reference.length > 8000) return fail(400, type === 'writing' ? '作文题目必填，内容最多 8000 字' : '中文提示必填，内容最多 8000 字');
       return serial('homeworks:' + id, async () => {
         const countKey = P + id + ':hw-count';
         const count = Number(await kv.get(countKey)) || 0;
         if (count >= 100) return fail(400, '每班最多布置 100 份作业');
-        const hw = { id: randomBytes(12).toString('hex'), title, type, prompt, reference, book, lessonNo, lessonTitle, sharedLessonId, dueAt, createdAt: Date.now(), teacherUserId: access.user.id, closedAt: 0 };
+        const hw = { id: randomBytes(12).toString('hex'), title, type, prompt, reference, book, lessonNo, lessonTitle, sharedLessonId, material, imageDesc, targetWords, dueAt, createdAt: Date.now(), teacherUserId: access.user.id, closedAt: 0 };
         await kv.set(P + id + ':hw:' + hw.id, JSON.stringify(hw));
         await kv.set(P + id + ':hw-slot:' + (count + 1), hw.id);
         await kv.set(countKey, String(count + 1));
@@ -423,7 +433,9 @@ export function createClassrooms({ kv, accounts, findJob, lessonLookup }) {
       if (hwId && !hw) return fail(400, '这份作业不存在');
       const job = await findJob(jobId);
       if (!job || job.kind !== 'analyze' || job.status !== 'done' || !job.data || !job.deleteToken || !matchSecret(job.deleteToken, deleteToken)) return fail(403, '需要本次已完成练习的创建凭据');
-      if (hw && (job.prompt !== hw.prompt || job.direction !== 'cn2en' || job.createdAt < hw.createdAt)) return fail(400, '这次练习与指定作业不一致');
+      // 写作作业要求 direction=writing 且题目逐字一致；翻译类作业（老作业没有 type 之外的差别）仍要求 cn2en
+      const expectedDirection = hw?.type === 'writing' ? 'writing' : 'cn2en';
+      if (hw && (job.prompt !== hw.prompt || job.direction !== expectedDirection || job.createdAt < hw.createdAt)) return fail(400, '这次练习与指定作业不一致');
       if (hw?.closedAt && job.createdAt > hw.closedAt) return fail(400, '这份作业已结束');
       // 「课文」列的教师视角标题：作业提交用作业名；共享课文提交须验证课文确实在班里、
       // 且练习内容与课文一致（防冒名），才用课文名；其余（自由练习）才用 AI 生成的标题。
@@ -440,7 +452,7 @@ export function createClassrooms({ kv, accounts, findJob, lessonLookup }) {
         if (student.subs.some((sub) => sub.jobId === jobId)) return ok({ duplicate: true });
         const rawScore = job.data.overall?.score;
         const score = rawScore == null || rawScore === '' ? NaN : Number(rawScore);
-        const sub = { jobId, title, lesson: String(job.meta?.lessonId || job.data.lessonNo || '').slice(0, 40), score: Number.isFinite(score) ? score : null, at: Number(job.finishedAt || job.updatedAt || Date.now()), hwId: hw?.id || null, late: Boolean(hw && job.createdAt > hw.dueAt) };
+        const sub = { jobId, title, lesson: job.direction === 'writing' ? '英语作文' : String(job.meta?.lessonId || job.data.lessonNo || '').slice(0, 40), score: Number.isFinite(score) ? score : null, at: Number(job.finishedAt || job.updatedAt || Date.now()), hwId: hw?.id || null, late: Boolean(hw && job.createdAt > hw.dueAt) };
         const findings = (Array.isArray(job.data.sentences) ? job.data.sentences : []).flatMap((sentence) => Array.isArray(sentence.findings) ? sentence.findings : []);
         student.errorCategories ||= [];
         student.errorPatterns ||= [];

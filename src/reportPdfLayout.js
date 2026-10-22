@@ -115,8 +115,8 @@ export function reportPdfModel(report, className, homeworkTitle) {
     const fs = arr(sentence.findings), number = String(i + 1).padStart(2, '0');
     model.push(box([
       rich([{ text: ` ${number} `, badge: C.blue }, { text: '  ' + (sentence.cn || ''), bold: true }], { size: 11, gap: 9, keep: 45 }),
-      { kind: 'row', label: result.direction === 'en2cn' ? '我的译稿' : '原稿', runs: markedRuns(sentence.draft, fs), color: C.draft },
-      { kind: 'row', label: 'AI 提升译文', runs: [{ text: sentence.ai || '（未提供）' }], color: C.teal },
+      { kind: 'row', label: result.direction === 'en2cn' ? '我的译稿' : result.direction === 'writing' ? '原句' : '原稿', runs: markedRuns(sentence.draft, fs), color: C.draft },
+      { kind: 'row', label: result.direction === 'writing' ? 'AI 提升句' : 'AI 提升译文', runs: [{ text: sentence.ai || '（未提供）' }], color: C.teal },
       sentence.original ? { kind: 'row', label: result.direction === 'en2cn' ? '参考译文' : '课文原文', runs: [{ text: sentence.original }], color: C.reference } : null,
       ...fs.map(findingCard), fs.length ? null : text('该句未发现明显问题。', { size: 9, color: C.muted }),
     ], { fill: C.white, continuation: `句群 ${number}` }));

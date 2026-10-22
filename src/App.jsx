@@ -50,7 +50,7 @@ import MoreMenu from './components/MoreMenu.jsx'
 import ClassJoinModal from './components/ClassJoinModal.jsx'
 import AssignmentReminder from './components/AssignmentReminder.jsx'
 import OnboardingGoal from './components/OnboardingGoal.jsx'
-import { activateHomework, clearActiveHomework, memberships, pendingAssignments, studentDashboard } from './classroom.js'
+import { activateHomework, activeHomework, clearActiveHomework, memberships, pendingAssignments, studentDashboard } from './classroom.js'
 import LessonEditModal from './components/modals/LessonEditModal.jsx'
 import WritingStudio from './components/WritingStudio/index.jsx'
 const AI_LEVELS = ['小初', '高考英语', '四六级', '考研/专四', '专八'];
@@ -186,6 +186,19 @@ function Studio() {
   const selectWritingTopic = useCallback((topic) => {
     setWritingKey(writingTopicKey(topic));
     setWritingTitle(topic?.zh || '');
+  }, []);
+  // 班级写作作业：教师布置的题目（学生端锁定，不能换题）。
+  // 刷新后从进行中的班级任务里重水合 —— 否则写作页显示的是上次的自由题目，
+  // 而提交守卫会按作业原题提交，界面和实际提交就不一致了。
+  const [writingTask, setWritingTask] = useState(null);
+  useEffect(() => {
+    const active = activeHomework();
+    if (active?.kind === 'writing' && active.prompt) {
+      setWritingTask({
+        question: active.prompt, material: active.material || '', imageDesc: active.imageDesc || '',
+        words: null, title: active.title || '班级写作作业', label: '班级作业',
+      });
+    }
   }, []);
   // 生成链路的繁忙/进度/计时（hooks/useJobRunner.js）；变量名沿用原来的，调用点不用改
   const {
@@ -494,10 +507,32 @@ function Studio() {
   const pickLesson = useCallback((b, l) => { if (!writingOpen && !draftGuardConfirm()) return; setWritingOpen(false); clearActiveHomework(); initialLessonCancelledRef.current = true; setDraftRestored(null); setView('editor'); setDocxChoice(null); selectLesson(b, l); }, [selectLesson, draftGuardConfirm, writingOpen]);
   const pickMyLesson = useCallback((libId, l) => { if (!writingOpen && !draftGuardConfirm()) return; setWritingOpen(false); clearActiveHomework(); initialLessonCancelledRef.current = true; setDraftRestored(null); setView('editor'); setDocxChoice(null); selectMyLesson(libId, l); }, [selectMyLesson, draftGuardConfirm, writingOpen]);
   const startClassTask = (task) => {
-    setWritingOpen(false);
     initialLessonCancelledRef.current = true;
     cancelPendingLesson();
     clearActiveHomework();
+    // 写作作业：激活任务后直接进写作模式并锁定教师布置的题目
+    //（材料/配图说明/词数随作业下发；题目逐字一致才能通过服务端的上报校验）。
+    if (task.type === 'writing') {
+      if (task.classId) activateHomework(task.classId, task.hwId, {
+        title: task.title, prompt: task.prompt, kind: 'writing',
+        material: task.material || '', imageDesc: task.imageDesc || '',
+      });
+      setWritingTask({
+        question: task.prompt || '',
+        material: task.material || '',
+        imageDesc: task.imageDesc || '',
+        words: task.targetWords || null,
+        title: task.title || '班级写作作业',
+        label: '班级作业' + (task.className ? ' · ' + task.className : ''),
+      });
+      setClassJoinOpen(false);
+      setError('');
+      setView('editor');
+      setWritingOpen(true);
+      window.scrollTo({ top: 0 });
+      return;
+    }
+    setWritingOpen(false);
     // 进行中的班级任务整份记录（含标题/提示词/共享课文 ID）：上报时服务端要据此
     // 把"课文"列归一成教师认得的名字，失败提示要能说出是哪份作业。
     if (task.classId) activateHomework(task.classId, task.hwId, { title: task.title, prompt: task.prompt, sharedLessonId: task.sharedLessonId });
@@ -1769,6 +1804,7 @@ function Studio() {
                 onSubmit={submitWriting}
                 onOcrImages={ocrWritingImages}
                 onTopicChange={selectWritingTopic}
+                assignedTopic={writingTask}
               />
             ) : (
               <>

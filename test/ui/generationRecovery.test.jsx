@@ -10,7 +10,7 @@ vi.mock('../../src/api.js', () => ({ analyze: vi.fn(), getAnalyzeJob: vi.fn(), d
 vi.mock('../../src/constants.js', () => ({ POLL_ANALYZE_MS: 1, TIMEOUT_ANALYZE_MS: 2000 }));
 vi.mock('../../src/classroom.js', () => ({ activeHomework: vi.fn(() => null), clearActiveHomework: vi.fn(), reportCompletedJob: vi.fn(), retryClassReports: vi.fn() }));
 import { analyze, getAnalyzeJob } from '../../src/api.js';
-import { activeHomework } from '../../src/classroom.js';
+import { activeHomework, reportCompletedJob } from '../../src/classroom.js';
 const complete = { title: '模型标题', chinese: '题目', draft: '初稿', ai: '润色', overall: { score: 85 }, sentences: [] };
 function useHarness(streamResults = false) {
   const runner = useJobRunner();
@@ -38,7 +38,6 @@ describe('generation recovery', () => {
       draft: 'My essay', material: 'Mandatory reading', targetWords: 300, book: undefined, lessonId: undefined, original: undefined }));
     expect(loadHistory()[0].lessonKey).toBe('writing:tem8-2025');
     expect(loadHistory()[0].classHomework).toBeFalsy();
-    expect(activeHomework).not.toHaveBeenCalled();
     expect(result.current.result.direction).toBe('writing');
     expect(result.current.result.lessonKey).toBe('writing:tem8-2025');
     const writeText = vi.fn().mockResolvedValue();
@@ -48,6 +47,23 @@ describe('generation recovery', () => {
     expect(writeText.mock.calls[0][0]).toContain('【写作材料】\nMandatory reading');
     expect(writeText.mock.calls[0][0]).toContain('【高分范文】');
     expect(writeText.mock.calls[0][0]).not.toContain('【中文译文】');
+  });
+  it('attaches an active writing-kind homework to writing submissions', async () => {
+    activeHomework.mockReturnValue({ classId: 'writing-class', hwId: 'writing-task', kind: 'writing', prompt: 'Essay question', title: '班级写作作业' });
+    analyze.mockResolvedValue({ jobId: 'writing-job-2', deleteToken: 'delete-token-2' });
+    getAnalyzeJob.mockResolvedValue({ job: { status: 'done', data: { ...complete, direction: 'writing' } } });
+    const { result } = renderHook(() => useHarness());
+    await act(async () => { await result.current.runGenerate(undefined, {
+      direction: 'writing', chinese: 'Essay question', draft: 'My essay', title: 'Essay title', lessonKey: 'writing',
+    }); });
+    // 写作作业随写作提交上报：上报调用要带上班级任务定位（hwId），完成后清掉进行中任务
+    expect(reportCompletedJob).toHaveBeenCalledWith('writing-job-2', 'delete-token-2',
+      expect.objectContaining({ classId: 'writing-class', hwId: 'writing-task' }));
+    // 题目被改动时提交守卫会按作业原题提交（服务端逐字校验的前提）
+    await act(async () => { await result.current.runGenerate(undefined, {
+      direction: 'writing', chinese: 'Essay question (edited)', draft: 'My essay again', lessonKey: 'writing',
+    }); });
+    expect(analyze).toHaveBeenLastCalledWith(expect.objectContaining({ chinese: 'Essay question' }));
   });
   it('does not replace completed history with a stale pending record during account sync', () => {
     const pending = { jobId: 'same-job', title: '同一作业', time: 1234, status: 'pending', deleteToken: 'token' };

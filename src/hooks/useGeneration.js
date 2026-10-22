@@ -299,7 +299,10 @@ export function useGeneration({
 
   const runGenerate = async (overrideLessonId, overrides = {}) => {
     const dir = normalizeDirection(overrides.direction ?? directionRef.current);
-    const classHomework = dir === 'writing' ? null : activeHomework();
+    const active = activeHomework();
+    // 班级任务与方向必须同类：写作作业只跟随写作提交，翻译类作业只跟随翻译提交。
+    // 老的进行中任务没有 kind 字段，视为翻译任务 —— 与历史行为一致。
+    const classHomework = active && (active.kind === 'writing') === (dir === 'writing') ? active : null;
     const attemptLessonKey = dir === 'writing' ? overrides.lessonKey || lessonKey : lessonKey;
     const id = overrideLessonId ?? lessonId;
     // overrides：写作模式等"提交时内容不在共享 state 里"的场景传入（chinese/draft/title/reference）
@@ -312,10 +315,16 @@ export function useGeneration({
     let cn = (ovChinese ?? chinese).trim();
     // 班级任务的提示词不可改：OCR/DOCX/手滑都可能把它改掉，而服务端会因 prompt 不一致
     // 拒绝上报 —— 学生得整篇重做。提交前自动恢复原提示词，把陷阱消掉。
-    if (classHomework?.prompt && dir === 'cn2en' && cn && cn !== classHomework.prompt) {
-      setChinese(classHomework.prompt);
-      cn = classHomework.prompt;
-      flashTip(setToast, '班级作业的中文提示不能修改，已自动恢复', 4200);
+    // （写作作业同理：题目必须与教师布置的逐字一致，改动会被拒收。）
+    if (classHomework?.prompt && (dir === 'cn2en' || dir === 'writing') && cn && cn !== classHomework.prompt) {
+      if (dir === 'writing') {
+        cn = classHomework.prompt;
+        flashTip(setToast, '班级写作作业的题目不能修改，已按原题提交', 4200);
+      } else {
+        setChinese(classHomework.prompt);
+        cn = classHomework.prompt;
+        flashTip(setToast, '班级作业的中文提示不能修改，已自动恢复', 4200);
+      }
     }
     const df = (ovDraft ?? draft).trim();
     // 提示语跟着方向走：英译汉时源栏装的是英文原文、初稿栏是中文译稿

@@ -23,12 +23,17 @@ export const activeHomework = () => {
     return task;
   } catch { return null; }
 };
-/** 记录进行中的班级任务（作业带 hwId；共享课文练习带 sharedLessonId；title/prompt 用于守卫与上报标识）。 */
+/** 记录进行中的班级任务（作业带 hwId；共享课文练习带 sharedLessonId；title/prompt 用于守卫与上报标识）。
+ * 写作作业额外带 kind:'writing' + material/imageDesc：认题、提交守卫与方向校验都靠 kind 区分。 */
 export const activateHomework = (classId, hwId, extra = {}) => {
   localStorage.setItem(ACTIVE_HW_KEY, JSON.stringify({
     classId, hwId: hwId || null,
     title: String(extra.title || '').slice(0, 120), prompt: String(extra.prompt || '').slice(0, 8000),
-    sharedLessonId: extra.sharedLessonId || null, at: Date.now(),
+    sharedLessonId: extra.sharedLessonId || null,
+    kind: extra.kind === 'writing' ? 'writing' : null,
+    material: String(extra.material || '').slice(0, 8000),
+    imageDesc: String(extra.imageDesc || '').slice(0, 8000),
+    at: Date.now(),
   }));
 };
 export const clearActiveHomework = () => localStorage.removeItem(ACTIVE_HW_KEY);
