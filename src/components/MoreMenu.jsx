@@ -15,7 +15,7 @@ import { BookOpen, Download, Flame, FolderPlus, GraduationCap, History, MoreVert
  * 导入 DOCX）一律留在正文，不藏。
  */
 export default function MoreMenu({
-  view, historyCount, favCount, dueCount,
+  view, writingMode = false, historyCount, favCount, dueCount,
   ocrMode, onOcrMode,
   onBackToEditor, onOpenQuiz, hasQuiz,
   onOpenHistory, onOpenFavs, onStartReview,
@@ -68,7 +68,7 @@ export default function MoreMenu({
           <Item icon={<Star size={15} />} label="收藏夹" count={favCount} onClick={onOpenFavs} />
           <Item icon={<Flame size={15} />} label="今日待复习" count={dueCount} onClick={onStartReview}
             title="按间隔重复安排：打开今天该复习的收藏" />
-          {view === 'editor' ? (
+          {view === 'editor' && !writingMode ? (
             <>
               <div className="more-sep" />
               <Item icon={<Sparkles size={15} />} label="AI 生成训练素材" disabled={materialBusy}

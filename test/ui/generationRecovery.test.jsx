@@ -8,8 +8,9 @@ import { mergeHistory } from '../../src/syncMerge.js';
 
 vi.mock('../../src/api.js', () => ({ analyze: vi.fn(), getAnalyzeJob: vi.fn(), deleteAnalyzeJob: vi.fn() }));
 vi.mock('../../src/constants.js', () => ({ POLL_ANALYZE_MS: 1, TIMEOUT_ANALYZE_MS: 2000 }));
-vi.mock('../../src/classroom.js', () => ({ activeHomework: () => null, clearActiveHomework: vi.fn(), reportCompletedJob: vi.fn(), retryClassReports: vi.fn() }));
+vi.mock('../../src/classroom.js', () => ({ activeHomework: vi.fn(() => null), clearActiveHomework: vi.fn(), reportCompletedJob: vi.fn(), retryClassReports: vi.fn() }));
 import { analyze, getAnalyzeJob } from '../../src/api.js';
+import { activeHomework } from '../../src/classroom.js';
 const complete = { title: '模型标题', chinese: '题目', draft: '初稿', ai: '润色', overall: { score: 85 }, sentences: [] };
 function useHarness(streamResults = false) {
   const runner = useJobRunner();
@@ -22,8 +23,32 @@ function useHarness(streamResults = false) {
     setHistoryOpen: vi.fn(), setChinese: vi.fn(), flashTip: vi.fn(), setToast: vi.fn() });
   return { ...generation, view, error, busy: runner.busy };
 }
-beforeEach(() => { localStorage.clear(); window.history.replaceState(null, '', '/'); vi.clearAllMocks(); });
+beforeEach(() => { localStorage.clear(); window.history.replaceState(null, '', '/'); vi.clearAllMocks(); activeHomework.mockReturnValue(null); });
 describe('generation recovery', () => {
+  it('submits writing content without attaching an active translation homework', async () => {
+    activeHomework.mockReturnValue({ classId: 'translation-class', hwId: 'translation-task', prompt: '班级翻译题' });
+    analyze.mockResolvedValue({ jobId: 'writing-job', deleteToken: 'delete-token' });
+    getAnalyzeJob.mockResolvedValue({ job: { status: 'done', data: { ...complete, direction: 'writing', material: 'Mandatory reading', imageDesc: 'Chart' } } });
+    const { result } = renderHook(() => useHarness());
+    await act(async () => { await result.current.runGenerate(undefined, {
+      direction: 'writing', chinese: 'Essay question', draft: 'My essay', material: 'Mandatory reading',
+      imageDesc: 'Chart', targetWords: 300, title: 'Essay title', lessonKey: 'writing:tem8-2025',
+    }); });
+    expect(analyze).toHaveBeenCalledWith(expect.objectContaining({ direction: 'writing', chinese: 'Essay question',
+      draft: 'My essay', material: 'Mandatory reading', targetWords: 300, book: undefined, lessonId: undefined, original: undefined }));
+    expect(loadHistory()[0].lessonKey).toBe('writing:tem8-2025');
+    expect(loadHistory()[0].classHomework).toBeFalsy();
+    expect(activeHomework).not.toHaveBeenCalled();
+    expect(result.current.result.direction).toBe('writing');
+    expect(result.current.result.lessonKey).toBe('writing:tem8-2025');
+    const writeText = vi.fn().mockResolvedValue();
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+    await act(async () => result.current.copyAll());
+    expect(writeText.mock.calls[0][0]).toContain('【作文题目】');
+    expect(writeText.mock.calls[0][0]).toContain('【写作材料】\nMandatory reading');
+    expect(writeText.mock.calls[0][0]).toContain('【高分范文】');
+    expect(writeText.mock.calls[0][0]).not.toContain('【中文译文】');
+  });
   it('does not replace completed history with a stale pending record during account sync', () => {
     const pending = { jobId: 'same-job', title: '同一作业', time: 1234, status: 'pending', deleteToken: 'token' };
     const done = { jobId: 'same-job', time: 1234, status: 'done' };

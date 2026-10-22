@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 440" role="img" aria-labelledby="title desc"><title id="title">2017年某市消费者选择餐厅时的关注因素</title><desc id="desc">特色：36.3%；服务：26.8%；环境：23.8%；价格：8.4%；其他：4.7%</desc><rect width="760" height="440" rx="12" fill="#fff"/><g font-family="Arial,Microsoft YaHei,sans-serif" fill="#243b53">
+<text x="380" y="48" text-anchor="middle" font-size="23" font-weight="bold">2017年某市消费者选择餐厅时的关注因素</text>
+<path d="M220 235 L220.000 105.000 A130 130 0 0 1 318.587 319.738 Z" fill="#3977b8" stroke="white" stroke-width="2"/>
+<rect x="420" y="115" width="20" height="20" rx="4" fill="#3977b8"/><text x="454" y="132" font-size="20">特色</text><text x="690" y="132" text-anchor="end" font-size="20" font-weight="bold">36.3%</text>
+<path d="M220 235 L318.587 319.738 A130 130 0 0 1 124.677 323.394 Z" fill="#ed9a38" stroke="white" stroke-width="2"/>
+<rect x="420" y="161" width="20" height="20" rx="4" fill="#ed9a38"/><text x="454" y="178" font-size="20">服务</text><text x="690" y="178" text-anchor="end" font-size="20" font-weight="bold">26.8%</text>
+<path d="M220 235 L124.677 323.394 A130 130 0 0 1 124.677 146.606 Z" fill="#5aa794" stroke="white" stroke-width="2"/>
+<rect x="420" y="207" width="20" height="20" rx="4" fill="#5aa794"/><text x="454" y="224" font-size="20">环境</text><text x="690" y="224" text-anchor="end" font-size="20" font-weight="bold">23.8%</text>
+<path d="M220 235 L124.677 146.606 A130 130 0 0 1 182.165 110.627 Z" fill="#d5646a" stroke="white" stroke-width="2"/>
+<rect x="420" y="253" width="20" height="20" rx="4" fill="#d5646a"/><text x="454" y="270" font-size="20">价格</text><text x="690" y="270" text-anchor="end" font-size="20" font-weight="bold">8.4%</text>
+<path d="M220 235 L182.165 110.627 A130 130 0 0 1 220.000 105.000 Z" fill="#8d7fc1" stroke="white" stroke-width="2"/>
+<rect x="420" y="299" width="20" height="20" rx="4" fill="#8d7fc1"/><text x="454" y="316" font-size="20">其他</text><text x="690" y="316" text-anchor="end" font-size="20" font-weight="bold">4.7%</text>
+<text x="380" y="413" text-anchor="middle" fill="#66788a" font-size="14">根据题目所列数据重绘</text></g></svg>

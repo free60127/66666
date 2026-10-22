@@ -7,7 +7,8 @@ import { parseDocxText, textSimilarity, REFERENCE_SIM_THRESHOLD } from './docxPa
 import { getOcrJob, getStatus, loadSettings, matchLesson, ocr, saveSettings } from './api.js'
 import { DELETED_FAVORITES_LIMIT, DELETED_LIBRARIES_LIMIT, DELETED_LESSONS_LIMIT, applyLibraryTombstones, mergeDeleted, mergeHistory } from './sync.js'
 import { mergeFavorites, saveFavorites } from './favorites.js'
-import { DIRECTION_KEY, DIRECTIONS, directionMeta, directionText, normalizeDirection } from './direction.js'
+import { DIRECTION_KEY, TRANSLATION_DIRECTIONS, directionMeta, directionText, normalizeDirection } from './direction.js'
+import { loadWritingState, writingTopicKey } from './writing.js'
 import {
   lessonTombstoneKey, loadDeletedFavorites, loadDeletedLibraries, loadDeletedLessons,
   loadDrillUsed, loadResultCache, loadHistory, markDrillUsed, safeGet, safeSet, saveDeletedFavorites,
@@ -51,6 +52,7 @@ import AssignmentReminder from './components/AssignmentReminder.jsx'
 import OnboardingGoal from './components/OnboardingGoal.jsx'
 import { activateHomework, clearActiveHomework, memberships, pendingAssignments, studentDashboard } from './classroom.js'
 import LessonEditModal from './components/modals/LessonEditModal.jsx'
+import WritingStudio from './components/WritingStudio/index.jsx'
 const AI_LEVELS = ['小初', '高考英语', '四六级', '考研/专四', '专八'];
 const DEFAULT_AI_LEVEL = '四六级';
 const LEVEL_KEY = 'bt-polish-level';
@@ -146,7 +148,7 @@ function Studio() {
    * 原来第一次访问要弹一页"今天想练哪个方向"，用户明确说这页可以删了 ——
    * 想换方向用编辑器里的「练习方向」开关，一个按钮的事，没必要当门神。 */
   const [direction, setDirection] = useState(() => normalizeDirection(safeGet(DIRECTION_KEY, '')));
-  const dir = normalizeDirection(direction);
+  const dir = direction === 'writing' ? 'cn2en' : normalizeDirection(direction);
   const dt = directionText(dir);
   const chooseDirection = useCallback((next) => {
     const v = normalizeDirection(next);
@@ -175,6 +177,16 @@ function Studio() {
   const closeAuthRef = useRef(null);
   const [status, setStatus] = useState(null);
   const [mode, setMode] = useState('lesson');
+  // 写作模式：独立 UI（题库/写作/提交批改），不改 mode/dir 的任何翻译状态；
+  // 提交时才把 direction='writing' 连同题目/作文一起传给 useGeneration（见 submitWriting）
+  const [writingOpen, setWritingOpen] = useState(() => safeGet('bt-writing-open', '') === '1');
+  const [writingKey, setWritingKey] = useState(() => writingTopicKey(loadWritingState()?.topic));
+  const [writingTitle, setWritingTitle] = useState(() => loadWritingState()?.topic?.zh || '');
+  useEffect(() => { safeSet('bt-writing-open', writingOpen ? '1' : '0'); }, [writingOpen]);
+  const selectWritingTopic = useCallback((topic) => {
+    setWritingKey(writingTopicKey(topic));
+    setWritingTitle(topic?.zh || '');
+  }, []);
   // 生成链路的繁忙/进度/计时（hooks/useJobRunner.js）；变量名沿用原来的，调用点不用改
   const {
     busy, step: progressStep, message: progressMsg, elapsed,
@@ -479,9 +491,10 @@ function Studio() {
    * 修法放在这一层（而不是 useLessons 内部）：首屏自动选课也走 selectLesson，
    * 那种情况绝不能抢视图 —— 否则用 #job=xxx 分享链接打开时，
    * 迟到几秒的自动选课会把刚恢复出来的结果页顶掉。 */
-  const pickLesson = useCallback((b, l) => { if (!draftGuardConfirm()) return; clearActiveHomework(); initialLessonCancelledRef.current = true; setDraftRestored(null); setView('editor'); setDocxChoice(null); selectLesson(b, l); }, [selectLesson, draftGuardConfirm]);
-  const pickMyLesson = useCallback((libId, l) => { if (!draftGuardConfirm()) return; clearActiveHomework(); initialLessonCancelledRef.current = true; setDraftRestored(null); setView('editor'); setDocxChoice(null); selectMyLesson(libId, l); }, [selectMyLesson, draftGuardConfirm]);
+  const pickLesson = useCallback((b, l) => { if (!writingOpen && !draftGuardConfirm()) return; setWritingOpen(false); clearActiveHomework(); initialLessonCancelledRef.current = true; setDraftRestored(null); setView('editor'); setDocxChoice(null); selectLesson(b, l); }, [selectLesson, draftGuardConfirm, writingOpen]);
+  const pickMyLesson = useCallback((libId, l) => { if (!writingOpen && !draftGuardConfirm()) return; setWritingOpen(false); clearActiveHomework(); initialLessonCancelledRef.current = true; setDraftRestored(null); setView('editor'); setDocxChoice(null); selectMyLesson(libId, l); }, [selectMyLesson, draftGuardConfirm, writingOpen]);
   const startClassTask = (task) => {
+    setWritingOpen(false);
     initialLessonCancelledRef.current = true;
     cancelPendingLesson();
     clearActiveHomework();
@@ -521,7 +534,9 @@ function Studio() {
 
   // 自建课文的 key 用**稳定 id**（lid）而不是序号：序号用户随时会改，
   // 而 key 决定了「同一课的两次练习对比」和计时归属 —— 用序号的话一改就断链。
-  const lessonKey = mode !== 'lesson' ? 'free'
+  // 写作模式的计时/进度独立归属（不与自由模式互串）。
+  const lessonKey = writingOpen ? writingKey
+    : mode !== 'lesson' ? 'free'
     : (myLibId && matchedLesson && matchedLesson.book === 'my' && matchedLesson.lid
       ? `lesson:my-${myLibId}-${matchedLesson.lid}`
       : `lesson:${book}-${lessonId}`);
@@ -529,8 +544,9 @@ function Studio() {
   /* ---------- 草稿本（src/draftBox.js）----------
    * 三条写入路径：防抖自动保存（打字随时落盘）/「存草稿」按钮（给用户确定性）/
    * pagehide·visibilitychange 兜底（手机切后台、直接杀进程没有任何退出事件）。
-   * 恢复在选同一课时自动发生（useLessons），恢复后横幅给「丢弃」入口。 */
-  draftSnapshotRef.current = {
+   * 恢复在选同一课时自动发生（useLessons），恢复后横幅给「丢弃」入口。
+   * 写作模式自己管草稿（WritingStudio 内部持久化），这里置空防止把翻译残留写进 writing 槽。 */
+  draftSnapshotRef.current = writingOpen ? null : {
     key: lessonKey,
     snap: { title, chinese, draft, manualOriginal, generatedOriginal, materialKeywords, direction: dir },
   };
@@ -629,7 +645,7 @@ function Studio() {
     runGenerate, cancelGenerate, openHistoryModal, loadHistoryJob,
     shareResult, copyAll, loadDemo,
   } = useGeneration({
-    direction: dir, view,
+    direction: writingOpen ? 'writing' : dir, view,
     title, chinese, draft, manualOriginal, generatedOriginal,
     mode, book, lessonId, myLibId, matchedLesson, lessonKey,
     settings, polishLevel, streamResults, runJob, busy, cancelProgress, elapsedMsNow, initialLessonCancelledRef,
@@ -637,6 +653,40 @@ function Studio() {
     setView, setError, setHistoryOpen, setChinese,
     flashTip, setToast, runGenerateRef,
   });
+
+  /* ---------- 写作模式：提交批改 + 拍照识别 ----------
+   * 写作内容不在共享 state 里（WritingStudio 自己持久化），提交时经 overrides 传给生成链路；
+   * OCR 复用同一条 /api/ocr 识别链路，识别英文（作文纸/题目截图），文本回填交给 Studio。 */
+  const submitWriting = useCallback(({ topic, material, imageDesc, essay, title, topicId, targetWords }) => {
+    initialLessonCancelledRef.current = true;
+    runGenerate(undefined, { direction: 'writing', chinese: topic, draft: essay, title: writingTitle.trim() || title, material, imageDesc, lessonKey: topicId, targetWords });
+  }, [runGenerate, initialLessonCancelledRef, writingTitle]);
+
+  const ocrWritingImages = useCallback(async (files) => {
+    const list = Array.from(files || []).filter((f) => f && /^image\//i.test(f.type || ''));
+    if (!list.length) throw new Error('请选择图片文件（JPG / PNG / WEBP 等）');
+    const texts = [];
+    for (let i = 0; i < list.length; i += 1) {
+      const image = await prepareImage(list[i], ocrMode);
+      const outcome = await submitAndPoll({
+        submit: () => ocr({
+          image, side: 'english', mode: ocrMode,
+          baseUrl: settings.baseUrl, model: settings.model, apiKey: settings.apiKey,
+          visionModel: settings.visionModel,
+        }),
+        fetchJob: getOcrJob,
+        intervalMs: POLL_OCR_MS,
+        timeoutMs: TIMEOUT_OCR_MS,
+        maxFailures: 8,
+        netError: '网络不稳定，暂时无法获取识别结果，请重试',
+        timeoutError: '识别超时（超过 3 分钟），请换更清晰的照片重试',
+        isAlive: () => aliveRef.current,
+      });
+      const text = (outcome.data && outcome.data.text) || '';
+      if (text) texts.push(text);
+    }
+    return texts.join('\n\n');
+  }, [settings, aliveRef, ocrMode]);
 
 
   // 分享链接 #job=xxx 的结果恢复归 useGeneration（连"打不开时怎么提示"一起搬过去了）
@@ -806,6 +856,7 @@ function Studio() {
 
   /** 真正开一份空白作业（调用前请先处理"当前作业要不要保存"）。 */
   const doStartNewJob = (closeSidebar) => {
+    setWritingOpen(false);
     clearActiveHomework();
     initialLessonCancelledRef.current = true;
     genTokenRef.current += 1;
@@ -1519,11 +1570,11 @@ function Studio() {
               历史结果 / 收藏夹 / 今日待复习 / 编辑器 四个次级入口全部收进 ⋮（手机端一直如此，桌面端现在统一）。 */}
           <input
             className="topbar-title"
-            value={title}
+            value={writingOpen ? writingTitle : title}
             maxLength={60}
-            disabled={lessonLoading}
-            onChange={(e) => { initialLessonCancelledRef.current = true; setTitle(e.target.value); }}
-            placeholder={mode === 'lesson' ? '课文回译训练 · 作业标题' : '自由回译训练 · 作业标题'}
+            disabled={!writingOpen && lessonLoading}
+            onChange={(e) => { initialLessonCancelledRef.current = true; if (writingOpen) setWritingTitle(e.target.value); else setTitle(e.target.value); }}
+            placeholder={writingOpen ? '英语写作 · 作业标题' : mode === 'lesson' ? '课文回译训练 · 作业标题' : '自由回译训练 · 作业标题'}
             aria-label="作业标题"
             title="作业标题"
           />
@@ -1537,6 +1588,7 @@ function Studio() {
           {/* 全端统一的 ⋮ 菜单：低频入口都在这里（桌面端不再平铺那四个按钮） */}
           <MoreMenu
             view={view}
+            writingMode={writingOpen}
             historyCount={historyList.length}
             favCount={favorites.length}
             dueCount={favDueCount}
@@ -1571,7 +1623,7 @@ function Studio() {
 
         {view === 'editor' ? (
           <section className="editor">
-            {!guideDone && historyList.length === 0 ? (
+            {!writingOpen && !guideDone && historyList.length === 0 ? (
               <div className="start-guide" role="note">
                 <div className="start-guide-main">
                   <span className="start-guide-title">三步开始</span>
@@ -1590,8 +1642,10 @@ function Studio() {
             <div className="modebar">
               <input ref={fileRef} type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden onChange={handleDocx} />
               <div className="modebar-seg" role="group" aria-label="练习模式">
-                <button className={mode === 'lesson' ? 'active' : ''} onClick={() => {
+                <button className={!writingOpen && mode === 'lesson' ? 'active' : ''} onClick={() => {
+                  if (writingOpen && busy) cancelGenerate();
                   initialLessonCancelledRef.current = true;
+                  setWritingOpen(false);
                   // 自由→课文：先把自由内容存进草稿本（free 键），再干净载入当前课文。
                   // 原来只 setMode('lesson')，会留下"空标题+自由草稿残留"的杂交状态，
                   // 且再切回自由时因内容非空触发确认清空，草稿就此不可达。
@@ -1604,31 +1658,43 @@ function Studio() {
                   }
                   setMode('lesson');
                 }}>课文模式</button>
-                <button className={mode === 'free' ? 'active' : ''} onClick={switchToFreeMode} title="清空当前内容，从空白开始写">自由模式</button>
+                <button className={!writingOpen && mode === 'free' ? 'active' : ''} onClick={() => { if (writingOpen && busy) cancelGenerate(); setWritingOpen(false); switchToFreeMode(); }} title="清空当前内容，从空白开始写">自由模式</button>
+                <button className={writingOpen ? 'active' : ''} onClick={() => {
+                  if (!writingOpen && busy) cancelGenerate();
+                  const { key, snap } = draftSnapshotRef.current || {};
+                  if (key && snap) saveDraft(key, snap);
+                  initialLessonCancelledRef.current = true;
+                  cancelPendingLesson();
+                  setError('');
+                  setWritingOpen(true);
+                }} title="独立写作区：题库选题 → 直接开写或按段带写 → 提交批改">写作模式</button>
               </div>
-              {/* 练习方向：换方向会把编辑区的三栏标签一起换掉（见 switchDirection） */}
-              <div className="modebar-seg" role="group" aria-label="练习方向">
-                {DIRECTIONS.map((d) => (
-                  <button
-                    key={d}
-                    className={dir === d ? 'active' : ''}
-                    onClick={() => switchDirection(d)}
-                    title={directionMeta(d).blurb}
-                  >{directionMeta(d).name}</button>
-                ))}
-              </div>
+              {/* 练习方向：换方向会把编辑区的三栏标签一起换掉（见 switchDirection）。
+                  写作模式是独立板块，方向组先收起——写作的 direction 在提交时才传入 */}
+              {!writingOpen && (
+                <div className="modebar-seg" role="group" aria-label="练习方向">
+                  {TRANSLATION_DIRECTIONS.map((d) => (
+                    <button
+                      key={d}
+                      className={dir === d ? 'active' : ''}
+                      onClick={() => switchDirection(d)}
+                      title={directionMeta(d).blurb}
+                    >{directionMeta(d).name}</button>
+                  ))}
+                </div>
+              )}
               <label className="modebar-field" title="AI 润色版、高级句式与推荐表达都会匹配该考试难度">
                 难度
                 <select className="modebar-select" value={polishLevel} onChange={(e) => { setPolishLevel(e.target.value); safeSet(LEVEL_KEY, e.target.value); }}>
                   {AI_LEVELS.map((lv) => <option key={lv} value={lv}>{lv}</option>)}
                 </select>
               </label>
-              <button className="ghost-btn sm" onClick={() => fileRef.current?.click()} disabled={parsing}
+              {!writingOpen && <button className="ghost-btn sm" onClick={() => fileRef.current?.click()} disabled={parsing}
                 title={fileName ? `已导入：${fileName}` : '从 Word 文档导入作业（自动识别标题、中文与英文初稿）'}>
                 {parsing ? <LoaderCircle className="spin" size={14} /> : <Upload size={14} />}导入 DOCX
-              </button>
+              </button>}
             </div>
-            {matchedLesson && (
+            {!writingOpen && matchedLesson && (
               <div className={'match-banner' + (mode === 'free' ? ' weak' : '')}>
                 <BookOpen size={15} />
                 {matchedLesson.book === 'my' ? (
@@ -1681,15 +1747,31 @@ function Studio() {
                 </div>
               </div>
             )}
-            {generatedOriginal && <div className="match-banner"><Sparkles size={15} />已载入 AI 原创训练素材（无教材版权）：{title}{materialKeywords.length ? ` · 建议词汇：${materialKeywords.join('、')}` : ''}，请根据中文提示写出你的英文初稿</div>}
-            {lessonLoading && <div className="match-banner" role="status">课文加载中，请稍候…</div>}
-            {draftRestored && draftRestored.lessonKey === lessonKey && (
+            {!writingOpen && generatedOriginal && <div className="match-banner"><Sparkles size={15} />已载入 AI 原创训练素材（无教材版权）：{title}{materialKeywords.length ? ` · 建议词汇：${materialKeywords.join('、')}` : ''}，请根据中文提示写出你的英文初稿</div>}
+            {!writingOpen && lessonLoading && <div className="match-banner" role="status">课文加载中，请稍候…</div>}
+            {!writingOpen && draftRestored && draftRestored.lessonKey === lessonKey && (
               <div className="match-banner draft-banner" role="status">
                 已恢复上次草稿（{draftAgeText(draftRestored.savedAt)}保存）
                 {!draftRestored.sameDir ? ' · 练习方向已改变，仅恢复初稿' : ''}
                 <button className="link" onClick={discardDraft} title="删除这份草稿并清空初稿">丢弃</button>
               </div>
             )}
+            {/* 写作模式：独立 UI 接管编辑区（题库/写作/提交批改），翻译编辑器整块让位 */}
+            {writingOpen ? (
+              <WritingStudio
+                busy={busy}
+                polishLevel={polishLevel}
+                settings={settings}
+                aliveRef={aliveRef}
+                timer={timer}
+                hasElapsed={hasElapsed}
+                toggleTimer={toggleTimer}
+                onSubmit={submitWriting}
+                onOcrImages={ocrWritingImages}
+                onTopicChange={selectWritingTopic}
+              />
+            ) : (
+              <>
             <div className="editor-grid">
               <div
                 className={'panel' + (dragOver === 'chinese' ? ' drag-on' : '')}
@@ -1802,7 +1884,9 @@ function Studio() {
               <input ref={originalCamRef} type="file" accept="image/*" capture="environment" hidden onChange={(e) => { const f = Array.from(e.target.files || []); e.target.value = ''; handleUserOcrFiles('original', f); }} />
               <input ref={originalFileRef} type="file" accept="image/*" multiple hidden onChange={(e) => { const f = Array.from(e.target.files || []); e.target.value = ''; handleUserOcrFiles('original', f); }} />
             </div>
-            {error && <div className="error-banner" role="alert"><Flame size={15} /><span className="error-text">{error}</span><button className="link" onClick={loadDemo}>查看离线示例</button><button className="icon-btn err-close" onClick={() => setError('')} aria-label="关闭提示"><X size={15} /></button></div>}
+              </>
+            )}
+            {error && <div className="error-banner" role="alert"><Flame size={15} /><span className="error-text">{error}</span>{!writingOpen && <button className="link" onClick={loadDemo}>查看离线示例</button>}<button className="icon-btn err-close" onClick={() => setError('')} aria-label="关闭提示"><X size={15} /></button></div>}
             {/* 没有 Key 时不只是一句"未配置"，而是说清楚为什么需要、去哪弄、以及不配也能干什么 */}
             {!hasAiKey && !busy && (
               <div className="key-hint" role="note">
@@ -1826,11 +1910,6 @@ function Studio() {
                 : `免费 AI 任务：${account ? '每账号' : '每访客 IP'}每日 ${account ? status.usage.freePerAccount : status.usage.freePerIp} 次。`}
               批改、拍照识别、素材和自测共用次数，北京时间零点重置。
             </p>}
-            <label className="generation-preference">
-              <input type="checkbox" checked={streamResults} disabled={busy} onChange={(event) => { setStreamResults(event.target.checked); safeSet('bt-stream-analysis', event.target.checked ? '1' : '0'); }} />
-              边生成边显示（可选）
-              <span className="muted small">默认等待完整批改后一次性显示结果。</span>
-            </label>
             {busy && (
               <div className="progress-box">
                 <div className="progress-steps">
@@ -1855,7 +1934,9 @@ function Studio() {
             )}
             {/* 方案A：吸底动作条。生成按钮 + 计时器常驻底部（桌面端随编辑器滚动、手机端随页面滚动），
                 写到哪都能直接生成 —— 原来「生成」距首屏约 4 屏，关键动作埋得最深。
-                常驻的"生成顺序…"提示文字已删（结果页本身就有完整的四段对照）。 */}
+                常驻的"生成顺序…"提示文字已删（结果页本身就有完整的四段对照）。
+                写作模式有自己的动作条（WritingStudio 的 ws-dock），这里整块让位。 */}
+            {!writingOpen && (
             <div className="action-dock">
               <button className="primary-btn big" onClick={() => runGenerate()} disabled={busy || parsing}>
                 {busy ? <LoaderCircle className="spin" size={17} /> : <WandSparkles size={17} />}
@@ -1871,6 +1952,7 @@ function Studio() {
                 <button className="ghost-btn sm" onClick={resetTimer} disabled={!hasElapsed}>重置</button>
               </div>
             </div>
+            )}
           </section>
         ) : view === 'quiz' ? (
           <section className="result">
@@ -2132,6 +2214,11 @@ function Studio() {
             <label>API Key<input type="password" value={settings.apiKey || ''} onChange={(e) => setSettings({ ...settings, apiKey: e.target.value })} placeholder="sk-..." /></label>
             <label className="remember-key"><input type="checkbox" checked={Boolean(settings.rememberKey)} onChange={(e) => setSettings({ ...settings, rememberKey: e.target.checked })} /> 在本机记住 Key（关闭浏览器后仍保留）</label>
             <p className="muted small">默认只保留到<b>关闭标签页</b>为止——Key 存在浏览器会话存储里，不长期落盘；勾选上面的选项才会长期保存（换设备 / 换浏览器需重填）。Key 只会发给你自己部署的这个后端，由它转发给模型接口；<b>自定义 Base URL 时必须同时填该接口的 Key</b>，否则服务端会拒绝（避免把你的密钥发给陌生地址）。想让所有访问者免填 Key，请在部署平台的环境变量里配置 AI_API_KEY / AI_VISION_MODEL。</p>
+            <label className="generation-preference settings-generation-preference">
+              <input type="checkbox" checked={streamResults} disabled={busy} onChange={(event) => { setStreamResults(event.target.checked); safeSet('bt-stream-analysis', event.target.checked ? '1' : '0'); }} />
+              <span>边生成边显示（可选）</span>
+              <span className="muted small">开启后逐步显示批改内容；默认等待完整批改后一次性显示结果。选择会自动记住。</span>
+            </label>
             {/* 离线示例的入口**不能只挂在"没配 Key"上**：服务端配了 Key 的站点里，
                 hasAiKey 恒为真，那个按钮根本不渲染 —— 想零成本先看看成品长什么样的人
                 就没有任何入口了（实测在真站上找不到）。这里补一个常驻入口。 */}

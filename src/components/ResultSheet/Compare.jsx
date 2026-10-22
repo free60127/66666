@@ -41,7 +41,7 @@ function PracticeCompareImpl({ result, history, jobId }) {
     <section className="sheet-section practice-compare">
       <div className="section-heading">
         <span className="label-dot" />
-        <h2>同一课文 · 与上次对比</h2>
+        <h2>{result.direction === 'writing' ? '同一题目' : '同一课文'} · 与上次对比</h2>
         <span className="muted small">上次练习：{when}{cmp.prev.title ? ' · ' + cmp.prev.title : ''}</span>
       </div>
       <div className="pc-grid">

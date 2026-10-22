@@ -3,7 +3,8 @@ import { analyze, deleteAnalyzeJob, getAnalyzeJob } from '../api.js'
 import { activeHomework, clearActiveHomework, reportCompletedJob, retryClassReports } from '../classroom.js'
 import { DEMO_LESSON_18 } from '../demo.js'
 import { formatDuration } from '../format.js'
-import { normalizeDirection } from '../direction.js'
+import { normalizeDirection, directionText } from '../direction.js'
+import { formatWritingMaterialText } from '../writingMaterial.js'
 import { hasMorphology, morphologyText } from '../favorites.js'
 import {
   DELETED_HISTORY_MAX, loadDeletedHistory, loadHistory, loadResultCache,
@@ -296,11 +297,19 @@ export function useGeneration({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 只在首屏跑一次（与迁移前一致）
   }, []);
 
-  const runGenerate = async (overrideLessonId) => {
-    const classHomework = activeHomework();
+  const runGenerate = async (overrideLessonId, overrides = {}) => {
+    const dir = normalizeDirection(overrides.direction ?? directionRef.current);
+    const classHomework = dir === 'writing' ? null : activeHomework();
+    const attemptLessonKey = dir === 'writing' ? overrides.lessonKey || lessonKey : lessonKey;
     const id = overrideLessonId ?? lessonId;
-    const dir = normalizeDirection(directionRef.current);
-    let cn = chinese.trim();
+    // overrides：写作模式等"提交时内容不在共享 state 里"的场景传入（chinese/draft/title/reference）
+    const ovChinese = typeof overrides.chinese === 'string' ? overrides.chinese : null;
+    const ovDraft = typeof overrides.draft === 'string' ? overrides.draft : null;
+    const ovTitle = typeof overrides.title === 'string' ? overrides.title : null;
+    const ovReference = typeof overrides.reference === 'string' ? overrides.reference : null;
+    const ovMaterial = typeof overrides.material === 'string' ? overrides.material : null;
+    const ovImageDesc = typeof overrides.imageDesc === 'string' ? overrides.imageDesc : null;
+    let cn = (ovChinese ?? chinese).trim();
     // 班级任务的提示词不可改：OCR/DOCX/手滑都可能把它改掉，而服务端会因 prompt 不一致
     // 拒绝上报 —— 学生得整篇重做。提交前自动恢复原提示词，把陷阱消掉。
     if (classHomework?.prompt && dir === 'cn2en' && cn && cn !== classHomework.prompt) {
@@ -308,10 +317,10 @@ export function useGeneration({
       cn = classHomework.prompt;
       flashTip(setToast, '班级作业的中文提示不能修改，已自动恢复', 4200);
     }
-    const df = draft.trim();
+    const df = (ovDraft ?? draft).trim();
     // 提示语跟着方向走：英译汉时源栏装的是英文原文、初稿栏是中文译稿
-    if (!cn) { setError(dir === 'en2cn' ? '请先填入要翻译的英文原文（或上传含英文的 DOCX）' : '请先上传包含中文提示的 DOCX，或填入中文提示'); return; }
-    if (!df) { setError(dir === 'en2cn' ? '请先写下你的中文翻译' : '请先上传包含英文初稿的 DOCX，或填入英文初稿'); return; }
+    if (!cn) { setError(dir === 'writing' ? '请先在题库选一道题目，或粘贴自定义题目' : dir === 'en2cn' ? '请先填入要翻译的英文原文（或上传含英文的 DOCX）' : '请先上传包含中文提示的 DOCX，或填入中文提示'); return; }
+    if (!df) { setError(dir === 'writing' ? '请先写下你的作文（可直接开写或按段带写）' : dir === 'en2cn' ? '请先写下你的中文翻译' : '请先上传包含英文初稿的 DOCX，或填入英文初稿'); return; }
     setError('');
     cancelGenRef.current = false; // 新的生成开始，清掉上一次的取消标记
     streamSegsRef.current = [];
@@ -325,11 +334,15 @@ export function useGeneration({
       await runJob({
         submit: async () => {
           const resp = await analyze({
-          title: title.trim(), chinese: cn, draft: df,
+          title: (ovTitle ?? title).trim(), chinese: cn, draft: df,
           direction: dir,   // 服务端据此选 prompt；结果里也会带回来，供结果页决定标签
-          book: mode === 'lesson' && !myLibId ? book : undefined,
-          lessonId: mode === 'lesson' && !myLibId ? id : undefined,
-          original: currentOriginal || undefined,
+          book: dir === 'writing' ? undefined : (mode === 'lesson' && !myLibId ? book : undefined),
+          lessonId: dir === 'writing' ? undefined : (mode === 'lesson' && !myLibId ? id : undefined),
+          // 写作：范文槽由模型生成，只有用户显式给了对标范文才传；翻译：维持原优先级
+          original: dir === 'writing' ? (ovReference || undefined) : (currentOriginal || undefined),
+          material: ovMaterial || undefined,
+          imageDesc: ovImageDesc || undefined,
+          targetWords: dir === 'writing' ? overrides.targetWords : undefined,
           level: polishLevel,
           // 流式：服务端一行一段地往外写，前端边收边画（见下面的 stream 配置）。
           // 服务端不认识这个字段时会忽略它 —— 老后端 + 新前端也不会出错。
@@ -360,7 +373,7 @@ export function useGeneration({
             const sentences = partial.sentences.length;
             setStreamNote((payload.label || SEGMENT_LABEL[payload.seg && payload.seg.t] || '解析')
               + (payload.seg && payload.seg.t === 'sentence' ? ' · 第 ' + sentences + ' 句' : ''));
-            setResult(normalizeResult({ ...partial, generating: true, direction: dir, aiLevel: polishLevel, durationMs, lessonKey, attemptTime: Date.now() }));
+            setResult(normalizeResult({ ...partial, generating: true, direction: dir, aiLevel: polishLevel, durationMs, lessonKey: attemptLessonKey, attemptTime: Date.now() }));
             // 用户在等待期间切过课 / 点过「取消等待」就不抢视图（与 onData 的规则一致）
             if (!streamViewRef.current && !cancelGenRef.current && myToken === genTokenRef.current) {
               streamViewRef.current = true;
@@ -370,8 +383,9 @@ export function useGeneration({
         } : undefined,
         onJobId: (id2) => {
           jobId = id2;
-          const pending = { jobId, title: title.trim() || matchedLesson?.title || '翻译批改', time: Date.now(),
-            status: 'pending', durationMs, lessonKey, direction: dir, deleteToken,
+          const pendingTitle = (ovTitle ?? title).trim() || (dir === 'writing' ? '英语写作' : matchedLesson?.title || '翻译批改');
+          const pending = { jobId, title: pendingTitle, time: Date.now(),
+            status: 'pending', durationMs, lessonKey: attemptLessonKey, direction: dir, deleteToken,
             classHomework: classHomework ? { classId: classHomework.classId, hwId: classHomework.hwId, title: classHomework.title, sharedLessonId: classHomework.sharedLessonId } : null };
           const next = [pending, ...loadHistory().filter((h) => h.jobId !== jobId)].slice(0, 20);
           saveHistory(next); setHistoryList(next);
@@ -391,9 +405,9 @@ export function useGeneration({
           // （从历史里点开旧作业时，比它更晚的练习不能算"上次"）。
           // workTitle：用户在顶栏写的作业标题优先展示（AI 起的 title 作副行），
           // 历史列表也用它——否则用户改过标题的那篇在历史里根本找不到。
-          const workTitle = (title || '').trim() || (data && data.title) || '';
+          const workTitle = ((ovTitle ?? title) || '').trim() || (data && data.title) || '';
           const stored = loadHistory().find((h) => h.jobId === jobId);
-          const enriched = { ...(data || {}), workTitle, durationMs, lessonKey, attemptTime: stored?.time || Date.now() };
+          const enriched = { ...(data || {}), workTitle, durationMs, lessonKey: attemptLessonKey, attemptTime: stored?.time || Date.now() };
           if (myToken === genTokenRef.current) {
             setResult(normalizeResult(enriched));
             if (jobId) setCurrentJobId(jobId);
@@ -408,7 +422,7 @@ export function useGeneration({
             addToHistory(jobId, workTitle, enriched, durationMs, deleteToken);
             void reportCompletedJob(jobId, deleteToken, classHomework);
             if (classHomework && activeHomework()?.classId === classHomework.classId && activeHomework()?.hwId === classHomework.hwId) clearActiveHomework();
-            if (stored?.status !== 'done') { bumpProgress(lessonKey, enriched, durationMs); bumpStudyDay(); }
+            if (stored?.status !== 'done') { bumpProgress(attemptLessonKey, enriched, durationMs); bumpStudyDay(); }
             if (myToken === genTokenRef.current) window.history.replaceState(null, '', '#job=' + jobId);
           }
           if (cancelled) flashTip(setToast, '刚才那篇已经生成好，存进「历史结果」了', 6000);
@@ -463,16 +477,19 @@ export function useGeneration({
 
   const copyAll = async () => {
     if (!result) return;
+    const headers = directionText(result.direction).copyHeaders;
     const text = [
       result.workTitle || result.title,
       result.aiLevel ? '润色等级：' + result.aiLevel : '',
-      result.durationMs ? '本次练习用时：' + formatDuration(result.durationMs) : '', '', '【中文译文】', result.chinese, '', '【原稿】', result.draft, '',
-      '【AI 修正版】', result.ai, '', '【课文原文】', result.original, '',
+      result.durationMs ? '本次练习用时：' + formatDuration(result.durationMs) : '', '', '【' + headers.source + '】', result.chinese,
+      ...(result.direction === 'writing' && result.material ? ['【写作材料】', formatWritingMaterialText(result.material)] : []),
+      ...(result.direction === 'writing' && result.imageDesc ? ['【题目配图文字说明】', result.imageDesc] : []),
+      '', '【' + headers.draft + '】', result.draft, '', '【' + headers.ai + '】', result.ai, '', '【' + headers.reference + '】', result.original, '',
       '【逐句解析】', result.overall?.summary || '', '',
       '【分项得分】', ...(result.overall?.scoreBreakdown || []).map((b) => '· ' + b.label + '：' + b.score + '/' + (b.max || 20) + (b.comment ? '（' + b.comment + '）' : '')), '',
       ...(result.sentences || []).flatMap((s, i) => [
-        String(i + 1) + '. ' + s.cn, '原稿：' + s.draft, 'AI 修正版：' + s.ai,
-        '原文：' + s.original, ...(s.findings || []).map((f) => {
+        String(i + 1) + '. ' + s.cn, headers.draft + '：' + s.draft, headers.ai + '：' + s.ai,
+        ...(s.original ? [headers.reference + '：' + s.original] : []), ...(s.findings || []).map((f) => {
           const dims = Array.isArray(f.dimensions) && f.dimensions.length ? '（维度：' + f.dimensions.join('、') + '）' : '';
           const syns = Array.isArray(f.synonyms) && f.synonyms.length ? '；近义词：' + f.synonyms.map((s) => typeof s === 'string' ? s : (s.word + (s.meaning ? ' ' + s.meaning : ''))).join(' / ') : '';
           const idiom = f.idiom ? '；习语：' + f.idiom : '';

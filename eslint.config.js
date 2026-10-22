@@ -15,7 +15,7 @@ import reactHooks from 'eslint-plugin-react-hooks';
 import react from 'eslint-plugin-react';
 
 export default [
-  { ignores: ['dist/**', 'node_modules/**', 'remotion-demo/**', 'tools/shotter/**', 'auth-worker/node_modules/**', '.dsh-recover/**'] },
+  { ignores: ['dist/**', 'node_modules/**', 'tmp/**', 'remotion-demo/**', 'tools/shotter/**', 'auth-worker/node_modules/**', '.dsh-recover/**'] },
   js.configs.recommended,
   {
     files: ['**/*.{js,jsx,mjs}'],

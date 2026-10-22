@@ -17,14 +17,17 @@ describe('账号本机缓存隔离', () => {
   });
   it('退出与换账号切换课文、草稿、Key 和班级，重新登录恢复各自缓存', () => {
     switchDataOwner('alice');
-    for (const key of ['bt-lesson-libraries', 'bt-drafts', 'bt-studio-settings-key', 'bts-class-memberships', 'bt-result-job1']) localStorage.setItem(key, 'alice-data');
+    for (const key of ['bt-lesson-libraries', 'bt-drafts', 'bt-writing-studio', 'bt-writing-open', 'bt-studio-settings-key', 'bts-class-memberships', 'bt-result-job1']) localStorage.setItem(key, 'alice-data');
     switchDataOwner('');
     expect(localStorage.getItem('bt-drafts')).toBeNull();
+    expect(localStorage.getItem('bt-writing-studio')).toBeNull();
+    expect(localStorage.getItem('bt-writing-open')).toBeNull();
     switchDataOwner('bob');
     expect(localStorage.getItem('bts-class-memberships')).toBeNull();
     localStorage.setItem('bt-drafts', 'bob-draft');
     switchDataOwner('alice');
     expect(localStorage.getItem('bt-drafts')).toBe('alice-data');
+    expect(localStorage.getItem('bt-writing-studio')).toBe('alice-data');
     expect(localStorage.getItem('bt-studio-settings-key')).toBe('alice-data');
     switchDataOwner('bob');
     expect(localStorage.getItem('bt-drafts')).toBe('bob-draft');

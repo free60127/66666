@@ -11,7 +11,7 @@ import path from 'node:path';
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { promises as dnsLookup } from 'node:dns';
-import { SYSTEM_PROMPT, buildUserMessage, EN2CN_SYSTEM_PROMPT, buildEn2CnUserMessage, MATERIAL_PROMPT, buildMaterialMessage, QUIZ_PROMPT, buildQuizMessage, DRILL_PROMPT, buildDrillMessage, GRADE_PROMPT, GRADE_STREAM_PROMPT, buildGradeMessage, buildOverallRepairMessage, AI_LEVEL_KEYS, DEFAULT_AI_LEVEL, normalizeLevel } from './prompt.mjs';
+import { SYSTEM_PROMPT, buildUserMessage, EN2CN_SYSTEM_PROMPT, buildEn2CnUserMessage, MATERIAL_PROMPT, buildMaterialMessage, QUIZ_PROMPT, buildQuizMessage, DRILL_PROMPT, buildDrillMessage, GRADE_PROMPT, GRADE_STREAM_PROMPT, buildGradeMessage, buildOverallRepairMessage, AI_LEVEL_KEYS, DEFAULT_AI_LEVEL, normalizeLevel, WRITING_SYSTEM_PROMPT, buildWritingUserMessage, WRITING_SCORING_RULES, WRITING_BRIEF_PROMPT, buildWritingBriefMessage } from './prompt.mjs';
 import { MAX_DRILL_COUNT, MAX_DRILL_POINTS, MAX_GRADE_ITEMS } from './limits.mjs';
 import { SCORING_RULES, overallRepairPrompt, streamFormatRules } from './prompt.mjs';
 import { sanitizeGrades, sanitizeQuestions } from './questionShape.mjs';
@@ -29,6 +29,7 @@ import { sanitizeOverall, sanitizeSentences } from './resultShape.mjs';
 import { staleMsFor } from './job-stale.mjs';
 // 方向常量与前端共用一份（src/direction.js 是纯常量模块，不碰 DOM）
 import { normalizeDirection } from '../src/direction.js';
+import { hasWritingBrief, normalizeWritingBrief } from '../src/writingGuidance.js';
 import { sendMail } from './mailer.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -1128,7 +1129,7 @@ function normalizeEvidenceFor(direction, overall) {
   return direction === 'en2cn' ? normalizeEn2cnOverall(overall) : sanitizeOverall(overall);
 }
 
-function buildAnalyzeData({ parsed, dir, title, chinese, draft, original, level, lesson, lessonNo }) {
+function buildAnalyzeData({ parsed, dir, title, chinese, draft, original, level, lesson, lessonNo, material, imageDesc, targetWords }) {
   // 清洗 findings：丢掉「went → went」这类无意义对照（模型偶尔会为凑数而生造），
   // 丢了多少条打进日志 —— 数量长期偏高就说明 prompt 需要再收一收。
   const cleanedSentences = sanitizeSentences(parsed.sentences);
@@ -1140,8 +1141,11 @@ function buildAnalyzeData({ parsed, dir, title, chinese, draft, original, level,
     title: parsed.title || title,
     chinese,
     draft,
+    ...(dir === 'writing' ? { material, imageDesc, targetWords } : {}),
     ai: parsed.ai || '',
-    original,
+    // 写作方向：范文由模型按题目生成（original 槽），不再由语料注入；
+    // 翻译方向维持原行为——original 只认语料/用户输入，防止模型捏造"课文原文"。
+    original: dir === 'writing' ? (parsed.original || original || '') : original,
     aiLevel: level || DEFAULT_AI_LEVEL,
     overall: sanitizeOverall(normalizeEvidenceFor(dir, parsed.overall)),
     sentences: cleanedSentences.list,
@@ -1153,7 +1157,7 @@ function buildAnalyzeData({ parsed, dir, title, chinese, draft, original, level,
   };
 }
 
-async function runAnalyzeJob(jobId, { title, chinese, draft, original, lesson, lessonNo, baseUrl, model, apiKey, level, direction, stream = false }) {
+async function runAnalyzeJob(jobId, { title, chinese, draft, original, lesson, lessonNo, baseUrl, model, apiKey, level, direction, stream = false, material = '', imageDesc = '', targetWords = null }) {
   const job = await findJob(jobId);
   if (!job) return;
   job.status = 'running';
@@ -1162,12 +1166,18 @@ async function runAnalyzeJob(jobId, { title, chinese, draft, original, lesson, l
   job.segments = [];              // 流式过程中逐步长出来的段（内存里读给 SSE 用）
   saveJob(job);
   try {
-    // 两个方向共用同一套 JSON 字段（见 src/direction.js 的说明），只是 prompt 不同：
+    // 三个方向共用同一套 JSON 字段（见 src/direction.js 的说明），只是 prompt 不同：
     // 汉译英把 chinese 当"中文提示"、original 当"英文原文"；
-    // 英译汉把 chinese 当"英文原文"、original 当"参考译文"。
+    // 英译汉把 chinese 当"英文原文"、original 当"参考译文"；
+    // 写作把 chinese 当"作文题目"、original 当"高分范文"（模型生成，见 buildAnalyzeData）。
     const dir = normalizeDirection(direction);
     // 流式时在系统提示词后面追加"一行一段"的格式说明（内容要求原样保留，只换输出格式）
-    const messages = dir === 'en2cn'
+    const messages = dir === 'writing'
+      ? [
+        { role: 'system', content: WRITING_SYSTEM_PROMPT + (stream ? streamFormatRules(dir) : '') + WRITING_SCORING_RULES },
+        { role: 'user', content: buildWritingUserMessage({ title, topic: chinese, draft, reference: original, material, imageDesc, level, targetWords }) },
+      ]
+      : dir === 'en2cn'
       ? [
         { role: 'system', content: EN2CN_SYSTEM_PROMPT + (stream ? streamFormatRules(dir) : '') + SCORING_RULES },
         { role: 'user', content: buildEn2CnUserMessage({ title, source: chinese, draft, reference: original, level }) },
@@ -1224,7 +1234,7 @@ async function runAnalyzeJob(jobId, { title, chinese, draft, original, lesson, l
         throw new Error('模型返回不是有效 JSON，请重试或换模型');
       }
     }
-    job.data = buildAnalyzeData({ parsed, dir, title, chinese, draft, original, level, lesson, lessonNo });
+    job.data = buildAnalyzeData({ parsed, dir, title, chinese, draft, original, level, lesson, lessonNo, material, imageDesc, targetWords });
     // 自动去重只处理完全相同的条目，嵌套引文须由语义复核确认根因。
     job.data = dedupeExactErrors(job.data);
     if (dir === 'en2cn' ? needsEn2cnReview(job.data) : needsCn2enReview(job.data)) {
@@ -1246,7 +1256,7 @@ async function runAnalyzeJob(jobId, { title, chinese, draft, original, lesson, l
     // 评分由模型按各方向权重直接给出，不再做账本校验拦截（真模型下账本门槛
     // 曾导致大量"评分暂不可用"，2026-10-12 移除）。
     const findingCount = (job.data.sentences || []).reduce((n, x) => n + ((x && Array.isArray(x.findings)) ? x.findings.length : 0), 0);
-    if (!usableOverall(job.data.overall) && findingCount > 0) {
+    if (!usableOverall(job.data.overall) && (findingCount > 0 || dir === 'writing')) {
       try {
         job.data.overall = await repairOverall({ baseUrl, model, apiKey, data: job.data });
         job.overallRepaired = true;
@@ -1317,6 +1327,45 @@ async function runMaterialJob(jobId, { topic, level, style, baseUrl, model, apiK
     job.updatedAt = Date.now();
   saveJob(job);
     scheduleForget(jobId); // 只清内存，KV 那份按 JOB_TTL 长期保留（分享链接靠它）
+  }
+}
+
+/* ---------- 写作指导任务（AI 带写：审题/段落安排/避坑/句式） ----------
+ * 与素材任务同构：提交即返回 jobId，前端轮询取结果。 */
+async function runWritingBriefJob(jobId, { topic, material, imageDesc, level, angle, targetWords, baseUrl, model, apiKey }) {
+  const job = await findJob(jobId);
+  if (!job) return;
+  job.status = 'running';
+  job.startedAt = Date.now();
+  job.updatedAt = Date.now();
+  saveJob(job);
+  try {
+    const messages = [
+      { role: 'system', content: WRITING_BRIEF_PROMPT },
+      { role: 'user', content: buildWritingBriefMessage({ topic, material, imageDesc, level, angle, targetWords }) },
+    ];
+    const raw = await callLLM({ baseUrl, model, apiKey, messages });
+    let parsed;
+    try {
+      parsed = parseJsonLoose(raw);
+    } catch (e) {
+      throw new Error('模型返回不是有效 JSON，请重试或换模型');
+    }
+    job.data = normalizeWritingBrief(parsed, angle);
+    if (!hasWritingBrief(job.data)) throw new Error('模型返回的写作指导不完整，请重试');
+    job.status = 'done';
+    job.updatedAt = Date.now();
+    saveJob(job);
+  } catch (e) {
+    job.status = 'error';
+    job.error = e.message || '写作指导生成失败，请重试';
+    job.updatedAt = Date.now();
+    saveJob(job);
+  } finally {
+    job.finishedAt = Date.now();
+    job.updatedAt = Date.now();
+    saveJob(job);
+    scheduleForget(jobId);
   }
 }
 
@@ -1624,7 +1673,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     // 会调用模型的接口先过限流，避免被脚本批量刷（也防匿名白嫖服务端 key）
-    if (req.method === 'POST' && ['/api/analyze', '/api/ocr', '/api/quiz', '/api/generate-material', '/api/match'].includes(p) && rateLimited(req)) {
+    if (req.method === 'POST' && ['/api/analyze', '/api/ocr', '/api/quiz', '/api/generate-material', '/api/writing-brief', '/api/match'].includes(p) && rateLimited(req)) {
       return json(res, 429, { error: '请求过于频繁，请稍后再试（每分钟上限 ' + RATE_MAX + ' 次）' });
     }
 
@@ -1960,6 +2009,37 @@ const server = http.createServer(async (req, res) => {
         job: { jobId: job.jobId, status: job.status, data: job.data || null, error: job.error || null },
       });
     }
+    if (p === '/api/writing-brief' && req.method === 'POST') {
+      const body = await readBody(req, MAX_SMALL_BYTES);
+      const topic = String(body.topic || '').trim();
+      if (!topic) return json(res, 400, { error: '缺少作文题目' });
+      const level = normalizeLevel(body.level);
+      const material = String(body.material || '').trim();
+      const imageDesc = String(body.imageDesc || '').trim();
+      const angle = String(body.angle || '').trim().slice(0, 400);
+      const targetWords = Math.min(3000, Math.max(0, Math.round(Number(body.targetWords) || 0)));
+      const ep = await resolveEndpointFor(body);
+      if (ep.error) return json(res, 400, { error: ep.error });
+      const model = ep.classKey ? 'deepseek-chat' : String(body.model || '').trim() || stat.model();
+      const { baseUrl, apiKey } = ep;
+      if (!apiKey) return json(res, 400, { error: '未配置 AI_API_KEY：请复制 .env.example 为 .env 并填写，或在设置面板填入 API Key' });
+      const gate = await gateServerKeyUsage({ req, ep });
+      if (gate.blocked) return json(res, gate.status, { error: gate.message });
+      const jobId = randomUUID();
+      saveJob({ jobId, kind: 'writing-brief', title: '写作指导：' + topic.slice(0, 40), status: 'pending', createdAt: Date.now(), data: null, error: null });
+      registerJob(jobId);
+      safeRun('writing-brief', jobId, () => runWritingBriefJob(jobId, { topic, material, imageDesc, level, angle, targetWords, baseUrl, model, apiKey }));
+      return json(res, 200, { ok: true, jobId, status: 'pending' });
+    }
+    const briefMatch = p.match(/^\/api\/writing-brief\/([A-Za-z0-9-]{8,64})$/);
+    if (briefMatch && req.method === 'GET') {
+      const job = await findJob(briefMatch[1]);
+      if (!job || job.kind !== 'writing-brief') return json(res, 404, { error: '任务不存在或已过期，请重新生成' });
+      return json(res, 200, {
+        ok: true,
+        job: { jobId: job.jobId, status: job.status, data: job.data || null, error: job.error || null },
+      });
+    }
     if (p === '/api/phonetic' && req.method === 'GET') {
       // 独立限流：这个端点会代表服务器去打第三方词典接口，单独给一个宽松但不设限的桶
       if (rateLimited(req, 'phonetic', PHONETIC_RATE_MAX)) return json(res, 429, { error: '音标查询太频繁，请稍后再试' });
@@ -2163,16 +2243,25 @@ const server = http.createServer(async (req, res) => {
     }
     if (p === '/api/analyze' && req.method === 'POST') {
       const body = await readBody(req, MAX_TEXT_BYTES);
+      const direction = normalizeDirection(body.direction);
       const chinese = String(body.chinese || '').trim();
       const draft = String(body.draft || '').trim();
-      if (!chinese || !draft) return json(res, 400, { error: '缺少中文提示或英文初稿' });
+      if (!chinese || !draft) return json(res, 400, { error: direction === 'writing' ? '缺少作文题目或作文正文' : '缺少中文提示或英文初稿' });
 
-      // 练习方向：汉译英（默认）/ 英译汉。脏值静默回落默认方向，与 level 的处理一致。
-      const direction = normalizeDirection(body.direction);
+      // 练习方向：汉译英（默认）/ 英译汉 / 写作。脏值静默回落默认方向，与 level 的处理一致。
       const userOriginal = String(body.original || '').trim();
-      const lessonNo = body.lessonId != null ? Number(body.lessonId) : null;
-      const lesson = userOriginal ? null : resolveLesson({ book: body.book, lessonId: lessonNo, title: body.title, chinese, direction });
-      const title = body.title || (lesson ? 'Lesson ' + lesson.lesson + ' · ' + (lesson.title_en || lesson.title_cn) : '自由回译训练');
+      const lessonNo = direction !== 'writing' && body.lessonId != null ? Number(body.lessonId) : null;
+      // 写作方向没有"课文"概念：范文由模型生成（original 槽），绝不从语料里猜一篇来当范文
+      const lesson = direction === 'writing' || userOriginal
+        ? null
+        : resolveLesson({ book: body.book, lessonId: lessonNo, title: body.title, chinese, direction });
+      const title = body.title || (lesson ? 'Lesson ' + lesson.lesson + ' · ' + (lesson.title_en || lesson.title_cn)
+        : direction === 'writing' ? '英语写作训练' : '自由回译训练');
+      // 写作方向专属：题目要求的阅读材料（专四/专八节选）与配图的文字描述
+      const material = direction === 'writing' ? String(body.material || '').trim() : '';
+      const imageDesc = direction === 'writing' ? String(body.imageDesc || '').trim() : '';
+      const targetWords = direction === 'writing' && Number.isFinite(Number(body.targetWords)) && Number(body.targetWords) > 0
+        ? Math.min(2000, Math.round(Number(body.targetWords))) : null;
       // 润色等级：小初 / 高考英语 / 四六级 / 考研·专四 / 专八
       const level = normalizeLevel(body.level);
 
@@ -2197,7 +2286,7 @@ const server = http.createServer(async (req, res) => {
       // 立即返回任务号，后台再调用模型；手机端/弱网不会因长时间占用请求而卡死
       safeRun('analyze', jobId, () => runAnalyzeJob(jobId, {
         title, chinese, draft, original: lesson ? (direction === 'en2cn' ? lesson.chinese : lesson.english) : userOriginal,
-        lesson, lessonNo, baseUrl, model, apiKey, level, direction, stream,
+        lesson, lessonNo, baseUrl, model, apiKey, level, direction, stream, material, imageDesc, targetWords,
       }));
       return json(res, 200, { ok: true, jobId, status: 'pending', deleteToken, stream });
     }

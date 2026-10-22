@@ -71,7 +71,7 @@ export function normalizeLessonKey(key) {
   const k = String(key == null ? '' : key).trim();
   if (!k) return '';
   if (k === 'free' || k === 'demo') return k;
-  return /^lesson:[\w-]+$/.test(k) ? k : '';
+  return /^(?:lesson|writing):[\w-]+$/.test(k) ? k : '';
 }
 
 const LESSON_TITLE_RE = /^lesson\s*\d+/i;

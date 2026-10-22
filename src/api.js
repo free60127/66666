@@ -104,6 +104,9 @@ export const deleteAnalyzeJob = (jobId, deleteToken) => api(
 );
 export const generateMaterial = (payload) => aiRequest('/api/generate-material', payload);
 export const getMaterialJob = (jobId) => api('/api/generate-material/' + jobId, {}, TIMEOUT.fast);
+// 写作指导（AI 带写：审题/段落安排/避坑/句式）——提交 → 轮询，与素材任务同构
+export const writingBrief = (payload) => aiRequest('/api/writing-brief', payload);
+export const getWritingBriefJob = (jobId) => api('/api/writing-brief/' + jobId, {}, TIMEOUT.fast);
 // 拍照 / 图片识别：提交图片 → 轮询识别结果（要上传 base64 图片，给更长的超时）
 export const ocr = (payload) => aiRequest('/api/ocr', payload, TIMEOUT.upload);
 export const getOcrJob = (jobId) => api('/api/ocr/' + jobId, {}, TIMEOUT.fast);

@@ -11,6 +11,7 @@ import { AlertTriangle, ArrowLeft, CheckCircle2, ChevronDown, ClipboardCopy, Dow
 import { DraftText } from './bits.jsx';
 import { ErrorProfile, Section, SentenceCard, VocabularyNotes, IdiomHighlights, SummaryBlock } from './cards.jsx';
 import { PracticeCompare } from './Compare.jsx';
+import WritingMaterial from '../WritingMaterial.jsx';
 
 /** 平滑跳到结果页里的某个区块（.result 是滚动容器，scrollIntoView 会找最近的祖先） */
 const jumpTo = (sel) => {
@@ -68,7 +69,11 @@ function ReferenceBlocks({ result, allFindings }) {
         原因：手机端默认折叠时若用条件渲染，用户直接「导出 PDF」会丢掉这四段材料 ——
         打印样式里再想显示就来不及了（DOM 里根本没有）。 */}
       <div className="refs-body">
-        <Section label={dt.sectionSource} tone="cn"><p>{result.chinese}</p></Section>
+        <Section label={dt.sectionSource} tone="cn">
+          <p>{result.chinese}</p>
+          {result.direction === 'writing' && result.imageDesc ? <><h3>题目配图文字说明</h3><p>{result.imageDesc}</p></> : null}
+          {result.direction === 'writing' && result.material ? <><h3>写作材料</h3><WritingMaterial text={result.material} className="writing-reading" /></> : null}
+        </Section>
         <Section label={dt.sectionDraft} tone="draft" note={dt.draftMarkNote}><p><DraftText text={result.draft} findings={allFindings} /></p></Section>
         <Section label={dt.sectionAi} tone="ai"><p>{result.ai}</p></Section>
         <Section label={dt.sectionReference} tone="original"><p>{result.original || dt.emptyReference}</p></Section>

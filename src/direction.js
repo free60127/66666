@@ -6,13 +6,13 @@
  * 结果里还是那四个槽（`chinese` / `draft` / `ai` / `original`），只是每个槽的**角色**
  * 随方向解释：
  *
- * | 槽位       | 汉译英 cn2en          | 英译汉 en2cn          |
- * | ---------- | --------------------- | --------------------- |
- * | `chinese`  | 中文提示（题目）      | 英文原文（题目）      |
- * | `draft`    | 学生的英文初稿        | 学生的中文初稿        |
- * | `ai`       | AI 修正版（英文）     | AI 润色译文（中文）   |
- * | `original` | 课文原文（英文答案）  | 参考译文（中文答案）  |
- * | `sentences[].cn/draft/ai/original` | 逐句的四栏，同上 | 同上 |
+ * | 槽位       | 汉译英 cn2en          | 英译汉 en2cn          | 写作 writing                  |
+ * | ---------- | --------------------- | --------------------- | ----------------------------- |
+ * | `chinese`  | 中文提示（题目）      | 英文原文（题目）      | 英文作文题目                   |
+ * | `draft`    | 学生的英文初稿        | 学生的中文初稿        | 学生的英文作文                  |
+ * | `ai`       | AI 修正版（英文）     | AI 润色译文（中文）   | AI 提升版作文（英文）            |
+ * | `original` | 课文原文（英文答案）  | 参考译文（中文答案）  | 高分范文（AI 按题目生成）        |
+ * | `sentences[].cn/draft/ai/original` | 逐句的四栏，同上 | 同上 | cn=该句中文大意，original 留空 |
  *
  * 这么做是为了让**历史记录 / 收藏夹 / 云同步 / 分享链接 / 打印 / 自测题 / 同课对比**
  * 这些依赖结果结构的下游**一处都不用改** —— 它们只认字段名，不关心字段的角色。
@@ -28,16 +28,19 @@
  */
 
 export const DIRECTION_KEY = 'bt-direction';
-export const DIRECTIONS = ['cn2en', 'en2cn'];
+export const DIRECTIONS = ['cn2en', 'en2cn', 'writing'];
+/** 模式条上的「练习方向」组只列两个翻译方向：写作是独立模式，不进这组（见 App.jsx 的写作模式） */
+export const TRANSLATION_DIRECTIONS = ['cn2en', 'en2cn'];
 export const DEFAULT_DIRECTION = 'cn2en';
 
 export const isDirection = (v) => DIRECTIONS.includes(v);
 /** 脏值一律回落默认方向：老数据没有这个字段时也要能正常渲染 */
 export const normalizeDirection = (v) => (isDirection(v) ? v : DEFAULT_DIRECTION);
 
-/** 方向影响"哪一栏是哪种语言"——OCR 与选课映射都要用 */
+/** 方向影响"哪一栏是哪种语言"——OCR 与选课映射都要用；写作四个槽全是英文 */
 export const slotLanguage = (direction, side) => {
   const dir = normalizeDirection(direction);
+  if (dir === 'writing') return 'english';
   if (dir === 'en2cn') return side === 'chinese' ? 'english' : 'chinese'; // 源栏英文，初稿/参考译文中文
   return side === 'chinese' ? 'chinese' : 'english';
 };
@@ -146,6 +149,59 @@ export const DIRECTION_META = {
       emptyReference: '（自由模式：未填参考译文）',
       sentencesTitle: '逐句解析与译文对比',
       copyHeaders: { source: '英文原文', draft: '我的译稿', ai: 'AI 提升译文', reference: '参考译文' },
+    },
+  },
+
+  writing: {
+    id: 'writing',
+    name: '写作',
+    short: '写作',
+    tagline: '写英语作文，AI 逐句批改',
+    blurb: '从题库选一道题目（或自定义题目），独立成文；AI 按内容、结构、词汇、语法四维批改并给高分范文。',
+    flow: ['英文题目', '你的作文', 'AI 提升版', '高分范文对照'],
+    sampleFrom: 'Some people think students should have less homework. Do you agree?',
+    sampleTo: 'Homework has long been a topic of debate in education.',
+    sampleFromLang: '题目',
+    sampleToLang: 'EN',
+    text: {
+      freeTitle: '英语写作训练',
+      eyebrow: 'WRITING PRACTICE · 写作批改作业',
+      generateBtn: '提交批改',
+      generateHint: '生成顺序：题目 → 你的作文 → AI 提升版 → 高分范文 → 逐句解析',
+      guideSteps: [
+        '在写作模式里选一道题目，或粘贴自己的题目',
+        '在「我的作文」里写完整篇作文（可按段带写）',
+        '点「提交批改」，AI 按四维评分并给高分范文',
+      ],
+
+      sourceTitle: '作文题目',
+      sourceOcrTitle: '调用摄像头拍照并识别作文题目',
+      sourceOcrDone: '已填入作文题目',
+      sourcePlaceholder: '把英语作文题目粘贴到这里（如 Some people think that … Do you agree?）；也可拍照识别',
+      sourceNote: '支持：拍照 / 导入图片 / 电脑端拖入图片；这是本次写作的题目',
+
+      draftTitle: '我的作文',
+      draftOcrTitle: '调用摄像头拍照并识别英文作文',
+      draftOcrDone: '已追加到作文',
+      draftPlaceholder: 'Start writing your essay here... 在这里写下你的英文作文；手写稿可以拍照或导入图片识别',
+      draftNote: '支持：拍照 / 导入图片；手写体建议把「识别模式」切到「手写体优先」',
+
+      referenceTitle: '对标范文（可选）',
+      referenceOcrTitle: '调用摄像头拍照并识别范文',
+      referenceOcrDone: '已追加到范文',
+      referencePlaceholder: '可选：把你要对标的范文粘贴到这里；留空则由 AI 按题目和你的水平生成一篇高分范文供对照。',
+      referenceNote: '支持：拍照 / 导入图片 / 电脑端把图片拖进这一栏',
+      referenceHint: '留空时 AI 会按题目生成一篇高分范文',
+
+      refsHint: '题目 / 我的作文 / AI 提升版 / 高分范文',
+      sectionSource: '题目',
+      sectionDraft: '我的作文',
+      sectionAi: 'AI 提升版',
+      sectionReference: '高分范文',
+      draftMarkNote: '红色标记 = 必须修正的错误（润色建议不标线，在逐句解析里对照学习）',
+      emptyReference: '（未提供对标范文：结果里的高分范文由 AI 依据题目生成）',
+      sentencesTitle: '逐句解析与提升对照',
+      copyHeaders: { source: '作文题目', draft: '我的作文', ai: 'AI 提升版', reference: '高分范文' },
     },
   },
 };

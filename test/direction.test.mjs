@@ -12,6 +12,8 @@ import {
   DEFAULT_DIRECTION, DIRECTIONS, DIRECTION_META, directionMeta, directionText,
   isDirection, normalizeDirection, slotLanguage,
 } from '../src/direction.js';
+import { WRITING_EXAM_BANK } from '../src/writingExamBank.js';
+import { existsSync } from 'node:fs';
 
 const results = [];
 const check = (name, ok, detail = '') => {
@@ -23,13 +25,13 @@ console.log('=== 练习方向测试 ===\n');
 
 /* ---------- 1. 归一化：脏值一律回落默认，不能让界面拿到 undefined ---------- */
 {
-  check('两个方向都在注册表里', DIRECTIONS.length === 2 && DIRECTIONS.includes('cn2en') && DIRECTIONS.includes('en2cn'), DIRECTIONS.join(','));
+  check('三个方向都在注册表里', DIRECTIONS.length === 3 && DIRECTIONS.includes('cn2en') && DIRECTIONS.includes('en2cn') && DIRECTIONS.includes('writing'), DIRECTIONS.join(','));
   check('默认方向是汉译英（老数据没有这个字段时的行为）', DEFAULT_DIRECTION === 'cn2en');
-  check('合法值原样返回', normalizeDirection('en2cn') === 'en2cn');
+  check('合法值原样返回', normalizeDirection('en2cn') === 'en2cn' && normalizeDirection('writing') === 'writing');
   for (const bad of [undefined, null, '', 'EN2CN', 'en->cn', 0, {}, [], 'cn2en ']) {
     check(`脏值 ${JSON.stringify(bad)} 回落默认方向`, normalizeDirection(bad) === DEFAULT_DIRECTION);
   }
-  check('isDirection 只认白名单', isDirection('cn2en') && isDirection('en2cn') && !isDirection('nope'));
+  check('isDirection 只认白名单', isDirection('cn2en') && isDirection('en2cn') && isDirection('writing') && !isDirection('nope'));
 }
 
 /* ---------- 2. 槽位 → 语言：OCR 靠它选"识别中文还是英文" ---------- */
@@ -43,13 +45,17 @@ console.log('=== 练习方向测试 ===\n');
   check('英译汉：初稿栏识别中文', slotLanguage('en2cn', 'english') === 'chinese');
   check('英译汉：参考译文栏识别中文', slotLanguage('en2cn', 'original') === 'chinese');
   check('方向是脏值时按默认方向取语言', slotLanguage('乱写', 'chinese') === 'chinese');
+  // 写作：四个槽全是英文（题目/作文/提升版/范文）
+  check('写作：题目栏识别英文', slotLanguage('writing', 'chinese') === 'english');
+  check('写作：初稿栏识别英文', slotLanguage('writing', 'draft') === 'english');
+  check('写作：标准答案栏识别英文', slotLanguage('writing', 'original') === 'english');
 }
 
-/* ---------- 3. 文案完整性：两个方向的字段必须一一对应 ---------- */
+/* ---------- 3. 文案完整性：三个方向的字段必须一一对应 ---------- */
 {
   const keys = Object.keys(DIRECTION_META.cn2en.text).sort();
-  check('两个方向的文案键完全一致（少一个就会渲染出 undefined）',
-    JSON.stringify(Object.keys(DIRECTION_META.en2cn.text).sort()) === JSON.stringify(keys),
+  check('三个方向的文案键完全一致（少一个就会渲染出 undefined）',
+    DIRECTIONS.every((d) => JSON.stringify(Object.keys(DIRECTION_META[d].text).sort()) === JSON.stringify(keys)),
     `cn2en=${keys.length} 项`);
   const empty = [];
   for (const d of DIRECTIONS) {
@@ -87,8 +93,23 @@ console.log('=== 练习方向测试 ===\n');
 /* ---------- 5. directionMeta 提供选择页要用的展示信息 ---------- */
 {
   check('directionMeta 也接受脏值', directionMeta('xxx').id === DEFAULT_DIRECTION);
-  check('两个方向各有简称与标语（选择页卡片用）',
+  check('两个翻译方向各有简称与标语（选择页卡片用）',
     DIRECTION_META.cn2en.short === '汉 → 英' && DIRECTION_META.en2cn.short === '英 → 汉');
+}
+
+/* ---------- 6. 写作方向：槽位角色与关键文案 ---------- */
+{
+  const w = directionText('writing');
+  check('写作：源栏是题目', w.sourceTitle === '作文题目', w.sourceTitle);
+  check('写作：初稿栏是作文', /作文/.test(w.draftTitle), w.draftTitle);
+  check('写作：四段对照的表头齐全', ['source', 'draft', 'ai', 'reference'].every((k) => w.copyHeaders[k]));
+  check('写作：范文栏留空时说明范文由 AI 生成', /范文/.test(w.emptyReference), w.emptyReference);
+  check('写作的 copyHeaders 里题目不是「中文译文」', w.copyHeaders.source !== '中文译文', w.copyHeaders.source);
+  check('每条真题都有题目与建议词数（配图题必须带 imageDesc，否则 AI 无从批改）',
+    WRITING_EXAM_BANK.every((t) => t.question && t.words > 0 && (!t.image || (t.imageDesc || '').length > 20)),
+    `${WRITING_EXAM_BANK.length} 题`);
+  check('所有配图资源实际存在', WRITING_EXAM_BANK.every((t) => !t.image || existsSync(new URL('../public' + t.image, import.meta.url))));
+  check('材料作文都带有完整阅读材料', WRITING_EXAM_BANK.filter((t) => t.exam === 'tem4' || t.exam === 'tem8').every((t) => t.excerpt?.length > 100));
 }
 
 console.log('\n' + '='.repeat(62));

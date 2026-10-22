@@ -386,7 +386,16 @@ export const SCORING_RULES = `
 11. AI提升版在原意不变的前提下提供更成熟的词汇、搭配和句式，帮助学习积累；参考译文和AI版都不是学生必须照抄的评分标准。学生已准确自然时明确肯定，不把普通准确表达说成错误。逐句分析多，不意味着应扣分多。总评中“漏译”的每个例子都必须在学生全文中确实没有对应意思，否则不写。
 12. 分项分数与点评必须一致：某分项得满分，该分项 comment 不得列举该维度的不自然表达或缺陷（肯定也只夸真实存在的方面）；comment 列出了真实的搭配错误、不自然表达或语法问题，该分项就必须有相应扣分。若只是可选润色，须写明“可选建议不扣分”且不得描述成缺陷。总评 summary 引用的每一个问题都要能在分项或逐句 findings 中找到对应，不得出现满分与缺陷并存的自相矛盾。`;
 
+export const WRITING_STREAM_FORMAT_RULES = `
+【流式格式】使用NDJSON，每行一个完整JSON对象，不输出围栏、数组或解释文字。字符串里的换行转义。
+按顺序输出 {"t":"meta","title":"作文标题","chinese":"完整题目","draft":"完整学生作文","original":"高分范文全文"}，
+{"t":"ai","ai":"忠实且表达更成熟的完整提升版"}，每个句群输出 {"t":"sentence","item":逐句对象（cn为该句中文大意，original留空）}，
+再输出 {"t":"overall","overall":完整评分对象（四项：内容与任务30/组织与衔接25/词汇与表达25/语法与准确20）}，
+每条词汇 {"t":"vocab","item":词汇对象}、每条表达 {"t":"idiom","item":表达对象}、每条句式 {"t":"advanced","item":"句式点拨"}、每条补充 {"t":"bonus","item":"表达点拨"}。
+字段含义遵守写作批改JSON结构；先检查逐句error，再依据实际表现生成overall，不先估总分。可选学习材料可省略，不凑数量。最后输出 {"t":"done"}。`;
+
 export function streamFormatRules(direction) {
+  if (direction === 'writing') return WRITING_STREAM_FORMAT_RULES;
   if (direction !== 'en2cn') return STREAM_FORMAT_RULES;
   return `【流式格式】使用 NDJSON，每行一个完整 JSON 对象，不输出围栏或数组。
 按顺序输出 {"t":"meta","title":"标题","chinese":"完整英文原文","draft":"完整中文初稿","original":"参考中文译文"}，
@@ -402,6 +411,7 @@ export const OVERALL_REPAIR_PROMPT = `你是汉译英翻译导师。请复核中
 deductions用sourceQuote/from与error逐字对应，沿用已有严重性。可选润色不扣分。同一个错误只归一个主维度，不重复计费。只返回整体评价，不重写或复制逐句条目；无法从有效error找到证据时如实指出，不凭空估分。`;
 
 export function overallRepairPrompt(direction) {
+  if (direction === 'writing') return writingOverallRepairPrompt();
   let prompt = OVERALL_REPAIR_PROMPT;
   if (direction === 'en2cn') {
     prompt = `你是英译汉翻译导师。请复核英文原文、学生完整中文译文及逐句记录，重做整体评价。
@@ -419,13 +429,16 @@ export function overallRepairPrompt(direction) {
 }
 
 /** 补救请求的用户消息：把逐句批改压缩成一份"证据清单" */
-export function buildOverallRepairMessage({ title, chinese, draft, findings, direction, scoreProblems = [] }) {
+export function buildOverallRepairMessage({ title, chinese, draft, findings, direction, material, imageDesc, targetWords, scoreProblems = [] }) {
   const list = Array.isArray(findings) ? findings : [];
   const lines = list.map((f, i) => JSON.stringify({ findingIndex: i + 1, category: f.category, level: f.level,
     from: f.from, to: f.to, sourceQuote: f.sourceQuote, primaryDimension: f.primaryDimension, severity: f.severity, operation: f.operation, explanation: f.explanation }));
   const NL = String.fromCharCode(10);
   return '【作业】' + String(title || '').slice(0, 80)
-    + NL + (direction === 'en2cn' ? '【完整英文原文】' : '【完整中文提示】') + String(chinese || '')
+    + NL + (direction === 'writing' ? '【作文题目】' : direction === 'en2cn' ? '【完整英文原文】' : '【完整中文提示】') + String(chinese || '')
+    + (direction === 'writing' && material ? NL + '【写作材料】' + material : '')
+    + (direction === 'writing' && imageDesc ? NL + '【图片描述】' + imageDesc : '')
+    + (direction === 'writing' && targetWords ? NL + '【建议词数】' + targetWords + '；题干明确给出词数范围时以题干为准。' : '')
     + NL + '【学生完整初稿】' + String(draft || '')
     + NL + '【需复核项】' + scoreProblems.join('；')
     + NL + NL + '【逐句批改记录（共 ' + list.length + ' 条，这就是全部证据）】' + NL
@@ -596,4 +609,122 @@ export function buildEn2CnUserMessage({ title, source, draft, reference, level }
     '4. vocabularyNotes 聚焦"这个词/词组怎么译最自然"，而不是泛泛讲英文释义；\n' +
     '5. 英译汉不需要给中文标音标；但保留英文原词时要给 IPA；\n' +
     '6. ai 字段必须是完整连贯的中文译文段落；sentences 必须覆盖每一句英文原文；findings 宁缺勿滥，但有问题的地方一个都不要漏。';
+}
+
+/* ---------- 写作批改（writing 方向） ----------
+ * 与翻译方向共用同一套结果 JSON 字段（见 src/direction.js），槽位角色：
+ * chinese=作文题目，draft=学生作文，ai=AI 提升版全文，original=高分范文（未提供对标范文时由 AI 生成）。
+ * sentences[].cn 存该句中文大意（不是题目），sentences[].original 留空。 */
+export const WRITING_SYSTEM_PROMPT = `你是「回译本」的英语写作教练，批改学生的英语作文（议论文为主）。先独立审题，再通读学生全文，然后逐句核对，最后按评分标准打分并给出高分范文。分析真实问题、给出可直接使用的修正，并明确认可学生已经写得好的地方。
+
+【输出 JSON 结构】（严格 JSON，不要 markdown、不要代码块、不要额外说明）
+{
+  "title": "作文标题（根据题目起一个简短中文标题，如：图书馆是否应向公众开放）",
+  "chinese": "完整题目原文（原样返回）",
+  "draft": "学生作文全文（原样返回）",
+  "ai": "AI 提升版全文：忠实学生原意与立场，只在表达层升级——替换不地道用词、修复语法、增强衔接与句式多样性；不新增论点、不改变立场。与学生水平相比应有可学性，但不堆砌生僻词",
+  "original": "高分范文全文：同一道题目的成熟英文范文，立场可与学生不同，结构完整（通常四段）、论证有层次、语言地道，长度符合题目词数要求",
+  "overall": {
+    "score": 0-100 的整数总分,
+    "scoreBreakdown": [固定四项：{"label":"内容与任务","score":n,"max":30,"comment":"有据点评"},{"label":"组织与衔接","score":n,"max":25,"comment":"有据点评"},{"label":"词汇与表达","score":n,"max":25,"comment":"有据点评"},{"label":"语法与准确","score":n,"max":20,"comment":"有据点评"}],
+    "summary": "中文总评：先说做得好的，再说最影响分数的 1-3 个问题与改法；字数不达标时必须点明",
+    "highlights": ["学生原文中真实存在的亮点表达（逐字引用，没有就给空数组）"],
+    "advice": ["针对下次写作的 2-4 条具体建议（中文）"],
+    "issues": 错误总数整数
+  },
+  "sentences": [
+    { "cn": "该句的中文大意（帮学生对照理解，按原句顺序）",
+      "draft": "学生原句（逐字切分，覆盖全文，不合并、不跳过）",
+      "ai": "这一句的提升版（无问题也给一个更有表达层次的版本或保留原句）",
+      "original": "",
+      "findings": [
+        { "category": "语法|词汇|搭配|用词|衔接|拼写", "level": "error|improve|study",
+          "from": "学生原句中逐字存在的片段", "to": "可直接替换的修正",
+          "explanation": "中文讲解：为什么错/为什么这样更好", "sourceQuote": "所在学生原句",
+          "primaryDimension": "内容与任务|组织与衔接|词汇与表达|语法与准确" }
+      ] }
+  ],
+  "vocabularyNotes": [{ "word": "词或短语", "type": "词性", "phonetic": "IPA音标", "meaning": "中文释义", "note": "在这篇作文语境里的用法讲解与同义替换建议" }],
+  "idiomHighlights": [{ "idiom": "地道表达", "common": "学生用的普通说法", "explanation": "中文讲解" }],
+  "advancedSentences": ["从 AI 提升版或范文里挑的值得学习句式，附一句中文点拨"],
+  "bonusExpressions": ["围绕本题话题可积累的加分表达（英文+中文）"]
+}
+
+【批改纪律】
+1. error 仅用于确实影响表意或语法的错误；improve 是可选润色；study 是对照学习点。可选润色和学习点不扣分，不为凑数编造问题。同一处错误只扣一次、只归一个主维度。
+2. 立场偏题、跑题、漏答题目要求（如题目要求讨论双方却只写了一方）是内容与任务的严重问题，在总评开头点明并如实扣分。
+3. 字数明显低于题目要求（四级 120 词、六级 150 词、考研英一 160 词、英二 150 词、专四 200 词、专八 300 词量级）时，在总评开头点明「字数不足，影响内容与任务得分」。
+4. 简单但准确的句子应得到认可，不因句式简单扣分；词汇与表达维度衡量的是准确性与多样性，不以生僻词论高低。
+5. 分项分数与点评必须一致：满分项的 comment 不得列举该维度的缺陷；comment 指出的每个问题都必须有对应扣分。四项之和等于总分。
+6. sentences 必须按顺序覆盖学生全文每一句（按句号/问号/感叹号切分长句群也算），from 必须逐字存在于该句 draft 中，不得批评学生没写的内容。
+7. 高分范文必须直接回应题目要求（题目要讨论双方就写双方、要点名立场），有真实论证层次，不要堆模板句。
+8. 反馈使用尊重的语气，先肯定真实优点，再讲最值得改的问题；明确说明分数是学习参考。
+9. 图片描述（imageDesc）或写作材料（material）是审题的唯一依据：内容与任务的判断以它们为基准，不得要求作文包含材料中不存在的细节。`;
+
+export const WRITING_SCORING_RULES = `【写作评分校准】
+1. 四项权重固定：内容与任务30、组织与衔接25、词汇与表达25、语法与准确20，总满分100，分项之和等于总分。
+2. 内容与任务：是否回应了题目的全部要求（观点明确、覆盖题目要求的每个任务点、论证支撑充分、长度达标）；偏题、漏答任务点、例证单薄在此扣分。
+3. 组织与衔接：段落结构是否清晰（引言-主体-结论）、主题句是否明确、衔接手段是否多样自然、指代是否清楚；机械重复连接词、指代不明在此扣分。
+4. 词汇与表达：用词是否准确地道、是否有同义替换与搭配变化、语域是否统一；口语化、重复率高、中式直译在此扣分。
+5. 语法与准确：时态、主谓一致、冠词、单复数、句式结构的正确性；简单句为主但准确仍应得到基本分，复杂句式的尝试出错按错误本身扣分，不额外罚尝试。
+6. 评分判断学生作文本身的质量，不以与 AI 提升版或范文的相似度打分；不同但成立的写法应认可。
+7. 先检查逐句 findings，再依据实际错误与表现给出 overall，不先估一个总分再凑证据。`;
+
+export function buildWritingUserMessage({ title, topic, draft, reference, material, imageDesc, level, targetWords }) {
+  const L = levelGuide(level);
+  return '请批改这篇英语作文。\n\n标题：' + (title || '英语写作') +
+    '\n【作文题目】\n' + topic +
+    (material ? '\n【写作材料（题目要求的阅读材料，作文应基于它写作）】\n' + material : '') +
+    (imageDesc ? '\n【图片描述（题目配图的忠实描述，作文基于它写作）】\n' + imageDesc : '') +
+    (targetWords ? '\n【建议词数】' + targetWords + ' 词；题干明确给出词数范围时以题干为准。' : '') +
+    '\n【学生作文全文】\n' + draft +
+    (reference ? '\n【学生提供的对标范文，仅供对照，不是评分标准】\n' + reference : '') +
+    '\n【讲解等级】' + L.key + '\nAI 提升版与高分范文的词汇、句式请匹配该等级：词汇：' + L.vocab + '；句式：' + L.syntax +
+    '\n\n要求：\n1. ai 字段是学生全文的忠实提升版（原意与立场不变）；\n2. original 字段是按题目要求独立写成的高分范文；\n3. sentences 按顺序覆盖学生全文每一句，cn 写该句中文大意，original 留空字符串；\n4. 只在有真实问题时写 findings，不凑数；亮点如实引用，没有就不写；\n5. 按系统提示输出完整 JSON。';
+}
+
+/* 写作方向的整体评价补救（模型整块没写 overall 时的小请求兜底） */
+export function writingOverallRepairPrompt() {
+  return `你是英语写作教练。请复核作文题目、学生完整作文及逐句记录，重做整体评价。
+仅输出下面结构的 overall JSON 对象，scoreBreakdown 必须为数组，四项满分固定为：内容与任务30、组织与衔接25、词汇与表达25、语法与准确20，不能用其他数值；分项之和必须等于总分：
+{"score":100,"scoreBreakdown":[{"label":"内容与任务","score":30,"max":30,"comment":"有据点评"},{"label":"组织与衔接","score":25,"max":25,"comment":"有据点评"},{"label":"词汇与表达","score":25,"max":25,"comment":"有据点评"},{"label":"语法与准确","score":20,"max":20,"comment":"有据点评"}],"summary":"中文总评","highlights":[],"advice":[],"issues":0}
+题目要求（含讨论双方、表达立场等任务点）是内容与任务的唯一依据；字数不足要点明；偏题漏答如实扣分。简单但准确的句子不扣分；可选润色不扣分。亮点只引用学生原文中存在的表达。不要返回或复制整份 findings 数组，issues 只填数量。` + WRITING_SCORING_RULES;
+}
+
+/* ---------- 写作指导（AI 带写：审题 → 段落安排 → 避坑 → 参考句式） ---------- */
+export const WRITING_BRIEF_PROMPT = `你是英语写作课老师。学生给你一道英语作文题目（可能附图片描述或写作材料），请根据题目和学生选择的立场/分析角度，给出按段带写的具体思路。指导学生自己完成作文，不直接代写全文。
+
+输出必须是严格 JSON（不要 markdown 包装、不要代码块、不要额外说明）：
+{
+  "stance": "中文审题要点：必须完成的任务、材料限制、如何回应题目，2-3 句",
+  "selectedAngle": "本次采用的立场或分析角度，简短明确",
+  "angles": ["适合本题的一种具体立场或角度", "另一种具体立场或角度", "第三种具体立场或角度"],
+  "outline": ["引言段：本段要写什么，约 XX 词", "主体段1：……，约 XX 词", "主体段2：……，约 XX 词", "结论段：……，约 XX 词"],
+  "paragraphs": [
+    {"key":"intro", "goal":"引言段目标，与 outline 第1条一致", "steps":[{"idea":"本段第1个具体中文写作步骤", "keywords":["useful phrase", "topic vocabulary"], "pattern":"本步骤适用的英文句式，可含【待学生补充的内容】占位符"}]},
+    {"key":"body1", "goal":"主体段1目标", "steps":[{"idea":"具体论证或数据分析步骤", "keywords":["英文短语"], "pattern":"对应的英文句式"}]},
+    {"key":"body2", "goal":"主体段2目标", "steps":[{"idea":"具体论证或分析步骤", "keywords":["英文短语"], "pattern":"对应的英文句式"}]},
+    {"key":"concl", "goal":"结论段目标", "steps":[{"idea":"具体总结步骤", "keywords":["英文短语"], "pattern":"对应的英文句式"}]}
+  ],
+  "pitfalls": ["与本题有关的跑题或语言提醒，2-4 条"],
+  "patterns": []
+}
+
+要求：
+1. paragraphs 必须完整包含上述4个 key，顺序一致。每段给2-3个 steps，每步1句中文思路、2-4个英文关键词、1个独立英文参考句式。不要只给通用套路或整篇范文。
+2. 学生已选角度时，四段的论点、关键词、句式都围绕该角度重新组织；未选择时推荐一个最易展开的角度。angles 给本题相关的2-3个可选方案，包含本次 selectedAngle，不要写成泛泛的“角度一/角度二”。
+3. 根据题型选择角度：议论文可以支持/反对/有条件支持；图表题先客观描述真实数据，再按题目要求选择原因解释、影响或建议等分析角度，不能机械套用同意/反对。纯客观图表题不添加题目未要求的观点或原因。
+4. 阅读材料题必须总结并区分各篇材料的观点，按题目要求提出自己的观点；选择立场不能跳过材料任务。图片描述或材料没有的信息不能编造。若学生的角度违反题目要求，在 stance 简短说明并调整为符合题意的写法。
+5. outline 与 paragraphs 对应、词数总和匹配题干或建议词数。审题和思路用中文，keywords 和 pattern 用英语（占位符可用中文），参考句式必须真实自然，不编造名言。
+6. patterns 留空数组，参考句式放到各个 steps.pattern 中，避免重复。`;
+
+export function buildWritingBriefMessage({ topic, material, imageDesc, level, angle, targetWords }) {
+  const L = levelGuide(level);
+  return '作文题目：\n' + topic +
+    (material ? '\n\n写作材料：\n' + material : '') +
+    (imageDesc ? '\n\n题目配图描述：\n' + imageDesc : '') +
+    (targetWords ? '\n\n建议词数：' + targetWords + ' 词，题干明确给出字数时以题干为准。' : '') +
+    '\n\n【学生选择的立场或分析角度】\n' + (angle || '由你根据本题推荐最适合展开的方案') +
+    '\n【角度要求结束】\n请据此组织四段指导，保留题目要求的全部任务。' +
+    '\n\n学生水平：' + L.key + '。请按系统提示输出指导 JSON。';
 }

@@ -1248,6 +1248,11 @@ mark.hl { background: #ffe3e3; color: inherit; padding: 0 2px; border-radius: 2p
 .generation-preference { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 12px 0; font-size: 14px; }
 .generation-preference input { width: 18px; height: 18px; accent-color: #2169ed; }
 .generation-preference .small { flex-basis: 100%; }
+.modal .remember-key { display: flex; flex-direction: row; align-items: center; gap: 8px; }
+.modal .remember-key input { width: 18px; height: 18px; margin: 0; flex: none; }
+.modal .settings-generation-preference { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 6px 10px; align-items: start; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line); }
+.modal .settings-generation-preference input { width: 18px; height: 18px; margin: 2px 0 0; padding: 0; }
+.modal .settings-generation-preference .small { grid-column: 2; line-height: 1.6; }
 .pdf-export-status { flex-basis: 100%; white-space: normal; overflow-wrap: anywhere; }
 .pdf-download-link { text-decoration: none; }
 .score-reference-note { padding: 0 16px; }

@@ -3,7 +3,7 @@ import { safeGet } from './storage.js';
 const OWNER = 'bt-data-owner';
 const keys = new Set(['bt-history', 'bt-history-deleted', 'bt-lesson-libraries', 'bt-favorites',
   'bt-libs-deleted', 'bt-lessons-deleted', 'bt-favs-deleted', 'bt-lesson-progress', 'bt-study-days',
-  'bt-drafts', 'bt-drill-used', 'bt-timer', 'bt-sync-code', 'bt-sync-meta', 'bt-book', 'bt-lesson',
+  'bt-drafts', 'bt-writing-studio', 'bt-writing-open', 'bt-drill-used', 'bt-timer', 'bt-sync-code', 'bt-sync-meta', 'bt-book', 'bt-lesson',
   'bt-lib-tab', 'bt-open-groups', 'bt-studio-settings', 'bt-studio-settings-key',
   'bts-class-memberships', 'bts-class-member-owner', 'bts-class-pending', 'bts-class-failed', 'bts-active-homework']);
 const scoped = (key) => keys.has(key) || key.startsWith('bt-result-');
@@ -18,6 +18,7 @@ export function switchDataOwner(userId) {
   const previous = dataOwner() || safeGet('bts-class-member-owner');
   if (!previous && !userId) return false;
   if (previous === target) { localStorage.setItem(OWNER, target); return false; }
+  window.dispatchEvent(new Event('bts:before-account-change'));
   // 首次升级：已有本机数据归入当前登录者，既不清空也不复制成两份。
   if (!previous) { localStorage.setItem(OWNER, target); return false; }
   const old = snapshot();

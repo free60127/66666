@@ -24,7 +24,6 @@ const check = (name, ok, detail = '') => {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const PORT = 8931;
-const MOCK_PORT = 9881;
 const MAX = 3; // 故意调得很小，让淘汰在测试里真的发生
 const DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'bt-jobs-'));
 
@@ -48,13 +47,13 @@ const mock = http.createServer((req, res) => {
     }));
   });
 });
-await new Promise((r) => mock.listen(MOCK_PORT, '127.0.0.1', r));
+await new Promise((resolve, reject) => { mock.once('error', reject); mock.listen(0, '127.0.0.1', resolve); });
 
 /* ---------- 被测服务端 ---------- */
 const env = {
   ...process.env,
   PORT: String(PORT),
-  AI_BASE_URL: `http://127.0.0.1:${MOCK_PORT}/v1`,
+  AI_BASE_URL: `http://127.0.0.1:${mock.address().port}/v1`,
   AI_API_KEY: 'mock',
   ALLOW_PRIVATE_BASE_URL: '1',
   JOB_MAX_COUNT: String(MAX),
