@@ -143,8 +143,12 @@ textarea, input { font: inherit; }
 .dot.err { background: #e0a30a; }
 
 /* flex 列 + 动作条 margin-top:auto：内容不满一屏时动作条也贴在窗口底部（而不是悬在半空），
-   内容超一屏时退化为普通流式排列，由 sticky 接管 */
-.editor { flex: 1; overflow-y: auto; padding: 20px; max-width: 1180px; width: 100%; margin: 0 auto; display: flex; flex-direction: column; }
+   内容超一屏时退化为普通流式排列，由 sticky 接管。
+   ⚠️ .editor 自己是**滚动容器**，必须占满主栏全宽（不能 max-width+margin auto 居中），
+   否则滚动条悬在窗口中间（实测 2000px 宽屏时距右缘 276px，用户反馈"滚动条不在最右边"）。
+   居中改用水平内边距实现：max(20px, (100%-1140px)/2) 数学上等价于原来
+   「1180px 容器 + 20px 内边距」的内容几何（内容仍居中、仍是最多 1140px 宽）。 */
+.editor { flex: 1; overflow-y: auto; padding: 20px max(20px, calc((100% - 1140px) / 2)); width: 100%; display: flex; flex-direction: column; }
 /* ⚠️ 子块一律禁止收缩（flex-shrink:0）：.editor 是**固定高度**的滚动容器，
    默认 shrink:1 会让 flex 把各区块压矮来"凑合"容器高度，而不是出现滚动条 ——
    实测 bug：「英文原文」折叠栏展开后它的输入框永远被压在吸底动作条底下，
