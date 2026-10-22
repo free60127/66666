@@ -2,7 +2,7 @@ import React from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import WritingStudio from '../../src/components/WritingStudio/index.jsx';
-import { WRITING_STORE_KEY, countWritingWords, loadWritingState, writingTopicKey } from '../../src/writing.js';
+import { WRITING_STORE_KEY, countWritingWords, exportWritingDrafts, loadWritingState, writingTopicKey } from '../../src/writing.js';
 import { WRITING_EXAM_BANK } from '../../src/writingExamBank.js';
 import { sameLesson } from '../../src/progress.js';
 import { switchDataOwner } from '../../src/accountCache.js';
@@ -16,6 +16,7 @@ const essay = 'Students should learn to cook because this skill helps them live 
 let props;
 beforeEach(() => {
   localStorage.clear();
+  sessionStorage.clear();
   vi.clearAllMocks();
   vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
   Object.defineProperty(HTMLDialogElement.prototype, 'showModal', { configurable: true, value() { this.setAttribute('open', ''); } });
@@ -28,6 +29,51 @@ const seed = (extra = {}) => localStorage.setItem(WRITING_STORE_KEY, JSON.string
 const choose = (item) => fireEvent.click(within(screen.getByRole('heading', { name: item.zh }).closest('article')).getByRole('button', { name: '写这篇' }));
 
 describe('writing workspace', () => {
+  it('does not cancel pending grading when restoring the same class task after a refresh', () => {
+    const assigned = { classId: 'class-a', hwId: 'hw-a', title: 'Task A', question: 'Discuss learning.', material: 'Material A', words: 300 };
+    seed({ topic: { ...assigned, id: 'assigned', zh: assigned.title } });
+    const onLeaveTopic = vi.fn();
+    const { rerender } = render(<WritingStudio {...props} onLeaveTopic={onLeaveTopic} assignedTopic={assigned} />);
+    expect(onLeaveTopic).not.toHaveBeenCalled();
+    rerender(<WritingStudio {...props} onLeaveTopic={onLeaveTopic} assignedTopic={{ ...assigned, hwId: 'hw-b' }} />);
+    expect(onLeaveTopic).toHaveBeenCalledOnce();
+  });
+
+  it('switches class assignments, preserving their separate drafts even when the questions match', () => {
+    const first = { classId: 'class-a', hwId: 'hw-a', title: 'Task A', question: 'Discuss learning.', material: 'Material A', words: 300 };
+    const second = { ...first, hwId: 'hw-b', title: 'Task B', material: 'Material B', words: 150 };
+    const { rerender, unmount } = render(<WritingStudio {...props} assignedTopic={first} />);
+    fireEvent.change(screen.getByRole('textbox', { name: '我的作文' }), { target: { value: essay } });
+    rerender(<WritingStudio {...props} assignedTopic={second} />);
+    expect(screen.getByText('Material B')).toBeTruthy();
+    expect(screen.queryByText('Material A')).toBeNull();
+    expect(screen.getByRole('textbox', { name: '我的作文' }).value).toBe('');
+    fireEvent.change(screen.getByRole('textbox', { name: '我的作文' }), { target: { value: essay + ' Task B.' } });
+    fireEvent.click(screen.getByRole('button', { name: '提交批改' }));
+    expect(props.onSubmit).toHaveBeenCalledWith(expect.objectContaining({ material: 'Material B', targetWords: 150, assignment: { classId: 'class-a', hwId: 'hw-b' } }));
+    unmount();
+    render(<WritingStudio {...props} assignedTopic={first} />);
+    expect(screen.getByRole('textbox', { name: '我的作文' }).value).toBe(essay);
+  });
+
+  it('removes the topic lock when the assignment is cleared', () => {
+    const { rerender } = render(<WritingStudio {...props} assignedTopic={{ classId: 'c', hwId: 'h', question: 'Question' }} />);
+    expect(screen.queryByRole('button', { name: '返回题库' })).toBeNull();
+    rerender(<WritingStudio {...props} assignedTopic={null} />);
+    expect(screen.getByRole('button', { name: '返回题库' })).toBeTruthy();
+  });
+
+  it('saves the parent title and exports the latest edit even if browser storage is full', () => {
+    seed();
+    const { rerender } = render(<WritingStudio {...props} workTitle="First title" titleTopicKey={writingTopicKey(topic)} />);
+    rerender(<WritingStudio {...props} workTitle="Edited title" titleTopicKey={writingTopicKey(topic)} />);
+    fireEvent(window, new Event('pagehide'));
+    expect(loadWritingState().workTitle).toBe('Edited title');
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('quota'); });
+    fireEvent.change(screen.getByRole('textbox', { name: '我的作文' }), { target: { value: essay + ' Unsaved text.' } });
+    expect(exportWritingDrafts().some((row) => row.essay.endsWith('Unsaved text.') && row.workTitle === 'Edited title')).toBe(true);
+  });
+
   it('opens the image from the bank without selecting the topic', () => {
     render(<WritingStudio {...props} />);
     fireEvent.click(screen.getByRole('button', { name: '查看大图：儿童户外活动：家长怎么看' }));
@@ -186,6 +232,7 @@ describe('writing workspace', () => {
     fireEvent(window, new Event('pagehide'));
     expect(loadWritingState().essay).toContain('Page hide edit.');
     vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('quota'); });
+    fireEvent.change(screen.getByRole('textbox', { name: '我的作文' }), { target: { value: essay + ' Unsaved quota edit.' } });
     fireEvent.click(screen.getByRole('button', { name: '提交批改' }));
     expect(await screen.findByRole('alert')).toHaveProperty('textContent', expect.stringContaining('草稿未能保存'));
   });

@@ -25,6 +25,12 @@ function useHarness(streamResults = false) {
 }
 beforeEach(() => { localStorage.clear(); window.history.replaceState(null, '', '/'); vi.clearAllMocks(); activeHomework.mockReturnValue(null); });
 describe('generation recovery', () => {
+  it('does not automatically reopen a pending writing result after the user has moved to another topic', () => {
+    localStorage.setItem('bt-writing-studio', JSON.stringify({ topic: { id: 'topic-b', question: 'Question B' }, essay: 'Draft B' }));
+    saveHistory([{ jobId: 'pending-topic-a', direction: 'writing', lessonKey: 'writing:topic-a', status: 'pending' }]);
+    renderHook(() => useHarness());
+    expect(getAnalyzeJob).not.toHaveBeenCalled();
+  });
   it('submits writing content without attaching an active translation homework', async () => {
     activeHomework.mockReturnValue({ classId: 'translation-class', hwId: 'translation-task', prompt: '班级翻译题' });
     analyze.mockResolvedValue({ jobId: 'writing-job', deleteToken: 'delete-token' });
@@ -55,15 +61,17 @@ describe('generation recovery', () => {
     const { result } = renderHook(() => useHarness());
     await act(async () => { await result.current.runGenerate(undefined, {
       direction: 'writing', chinese: 'Essay question', draft: 'My essay', title: 'Essay title', lessonKey: 'writing',
+      assignment: { classId: 'writing-class', hwId: 'writing-task' },
     }); });
     // 写作作业随写作提交上报：上报调用要带上班级任务定位（hwId），完成后清掉进行中任务
     expect(reportCompletedJob).toHaveBeenCalledWith('writing-job-2', 'delete-token-2',
       expect.objectContaining({ classId: 'writing-class', hwId: 'writing-task' }));
-    // 题目被改动时提交守卫会按作业原题提交（服务端逐字校验的前提）
+    // 不能静默换题后把另一篇正文交过去：不匹配的提交必须在模型调用前拒绝。
     await act(async () => { await result.current.runGenerate(undefined, {
       direction: 'writing', chinese: 'Essay question (edited)', draft: 'My essay again', lessonKey: 'writing',
     }); });
-    expect(analyze).toHaveBeenLastCalledWith(expect.objectContaining({ chinese: 'Essay question' }));
+    expect(analyze).toHaveBeenCalledTimes(1);
+    expect(result.current.error).toContain('当前作文与班级作业不一致');
   });
   it('does not replace completed history with a stale pending record during account sync', () => {
     const pending = { jobId: 'same-job', title: '同一作业', time: 1234, status: 'pending', deleteToken: 'token' };
@@ -71,6 +79,16 @@ describe('generation recovery', () => {
     expect(mergeHistory([pending], [done])[0]).toMatchObject({ status: 'done', deleteToken: 'token' });
     expect(mergeHistory([done], [pending])[0].status).toBe('done');
     expect(mergeHistory([pending], [{ ...pending, status: 'error' }])[0].status).toBe('error');
+  });
+  it('rejects assignment, material or word-target mismatches before any model request', async () => {
+    activeHomework.mockReturnValue({ classId: 'c', hwId: 'b', kind: 'writing', prompt: 'Same question', material: 'Material B', imageDesc: 'Chart B', targetWords: 300 });
+    const { result } = renderHook(() => useHarness());
+    const valid = { direction: 'writing', chinese: 'Same question', draft: 'My essay', material: 'Material B', imageDesc: 'Chart B', targetWords: 300, assignment: { classId: 'c', hwId: 'b' } };
+    for (const patch of [{ assignment: { classId: 'c', hwId: 'a' } }, { material: 'Material A' }, { imageDesc: 'Chart A' }, { targetWords: 180 }]) {
+      await act(async () => result.current.runGenerate(undefined, { ...valid, ...patch }));
+      expect(result.current.error).toContain('当前作文与班级作业不一致');
+    }
+    expect(analyze).not.toHaveBeenCalled();
   });
   it('defaults to complete output and records the job before completion', async () => {
     let finish;

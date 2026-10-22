@@ -6,6 +6,7 @@ const MEMBER_OWNER_KEY = 'bts-class-member-owner';
 const PENDING_KEY = 'bts-class-pending';
 const FAILED_KEY = 'bts-class-failed';
 const ACTIVE_HW_KEY = 'bts-active-homework';
+export const ACTIVE_HOMEWORK_EVENT = 'bts:active-homework-changed';
 // 进行中的班级任务存 localStorage 并带 24h 过期：学生"开始作业"后关掉标签页
 // （手机切后台被回收更常见）是常态，sessionStorage 会把作业归属弄丢，
 // 完成的练习就不再计入那份作业 —— 教师端显示"未完成"，学生白做。
@@ -33,10 +34,12 @@ export const activateHomework = (classId, hwId, extra = {}) => {
     kind: extra.kind === 'writing' ? 'writing' : null,
     material: String(extra.material || '').slice(0, 8000),
     imageDesc: String(extra.imageDesc || '').slice(0, 8000),
+    targetWords: Number.isFinite(Number(extra.targetWords)) && Number(extra.targetWords) > 0 ? Number(extra.targetWords) : null,
     at: Date.now(),
   }));
+  window.dispatchEvent(new Event(ACTIVE_HOMEWORK_EVENT));
 };
-export const clearActiveHomework = () => localStorage.removeItem(ACTIVE_HW_KEY);
+export const clearActiveHomework = () => { localStorage.removeItem(ACTIVE_HW_KEY); window.dispatchEvent(new Event(ACTIVE_HOMEWORK_EVENT)); };
 export const studentDashboard = (member) => api('/api/classes/' + member.classId + '/student-dashboard', { method: 'POST', body: JSON.stringify({ studentKey: member.studentKey }) }, TIMEOUT.wake);
 export const pendingAssignments = (dashboards, now = Date.now()) => dashboards.flatMap((dashboard) => {
   if (!dashboard || dashboard.class?.archivedAt) return [];

@@ -82,7 +82,7 @@ function ReferenceBlocks({ result, allFindings }) {
   );
 }
 
-function ResultSheetImpl({ result, onBack, onCopy, onShare, shareTip, fav, history, jobId, streaming }) {
+function ResultSheetImpl({ result, onBack, onReviseWriting, onCopy, onShare, shareTip, fav, history, jobId, streaming }) {
   const checking = Boolean(streaming?.active || result.generating);
   const overall = checking ? { ...result.overall, score: null, scoreBreakdown: [] } : result.overall || {};
   // 整页文案按这条结果的方向走（老结果没有 direction 字段 → directionText 回落汉译英）
@@ -97,6 +97,7 @@ function ResultSheetImpl({ result, onBack, onCopy, onShare, shareTip, fav, histo
     <div className="result-sheet">
       <div className="result-toolbar">
         <button className="ghost-btn" onClick={onBack}><ArrowLeft size={15} />返回编辑</button>
+        {result.direction === 'writing' && onReviseWriting ? <button className="ghost-btn" disabled={checking} onClick={onReviseWriting}>继续修改本篇</button> : null}
         <button className="ghost-btn" onClick={onCopy}><ClipboardCopy size={15} />复制全部</button>
         <button className="ghost-btn" onClick={onShare}><Link2 size={15} />复制分享链接</button>
         <button className="ghost-btn" onClick={() => window.print()}><Download size={15} />导出 PDF</button>

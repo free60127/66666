@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { pendingAssignments } from '../../src/classroom.js';
+import { ACTIVE_HOMEWORK_EVENT, activateHomework, activeHomework, clearActiveHomework } from '../../src/classroom.js';
 
 describe('班级作业进站提醒', () => {
   it('只提醒未提交、未截止且仍开放的作业，并按截止时间排序', () => {
@@ -39,4 +40,16 @@ describe('进行中的班级任务持久化', () => {
     clearActiveHomework();
     expect(activeHomework()).toBeNull();
   });
+});
+it('preserves writing word targets and notifies task activation and completion', () => {
+  const events = [];
+  const listener = () => events.push(activeHomework());
+  window.addEventListener(ACTIVE_HOMEWORK_EVENT, listener);
+  try {
+    activateHomework('class-a', 'hw-a', { kind: 'writing', prompt: 'Question', targetWords: 300, material: 'Reading' });
+    expect(activeHomework()).toMatchObject({ targetWords: 300, material: 'Reading', hwId: 'hw-a' });
+    clearActiveHomework();
+    expect(events).toHaveLength(2);
+    expect(events[1]).toBeNull();
+  } finally { window.removeEventListener(ACTIVE_HOMEWORK_EVENT, listener); }
 });

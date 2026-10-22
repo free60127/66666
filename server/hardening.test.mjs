@@ -19,8 +19,10 @@ const check = (name, ok, detail = '') => {
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-const PORT = 8961;
-const MOCK_PORT = 8962;
+const portProbe = http.createServer();
+await new Promise((resolve) => portProbe.listen(0, '127.0.0.1', resolve));
+const PORT = portProbe.address().port;
+await new Promise((resolve) => portProbe.close(resolve));
 const BUCKET_MAX = 5;          // 故意设得很小，便于在几秒内打出边界
 const INFLIGHT = 1;            // 同时只允许 1 个任务在跑
 const QUEUE = 0;               // 不允许排队 → 第 2 个任务应被明确拒绝
@@ -34,7 +36,8 @@ const mock = http.createServer((req, res) => {
     res.end(JSON.stringify({ choices: [{ message: { content: '{"ok":true}' } }] }));
   }, 2500);
 });
-await new Promise((r) => mock.listen(MOCK_PORT, '127.0.0.1', r));
+await new Promise((r) => mock.listen(0, '127.0.0.1', r));
+const MOCK_PORT = mock.address().port;
 
 const app = spawn(process.execPath, ['server/index.mjs'], {
   env: {

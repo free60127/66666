@@ -14,7 +14,8 @@ import TopicImage from './TopicImage.jsx'
 import WritingGuide from './WritingGuide.jsx'
 import WritingMaterial from '../WritingMaterial.jsx'
 import { hasWritingBrief, normalizeWritingBrief } from '../../writingGuidance.js'
-import { WRITING_STORE_KEY, countWritingWords as countWords, loadWritingState, splitWritingParagraphs, writingMaterial, writingTargetWords, writingTopicKey } from '../../writing.js'
+import { countWritingWords as countWords, loadWritingState, splitWritingParagraphs, writingMaterial, writingTargetWords, writingTopicKey,
+  WRITING_DRAFT_PREFIX, listWritingDrafts, newWritingWriter, rememberWritingTopic, saveWritingDraft, writingDraftFingerprint, writingDraftVersions } from '../../writing.js'
 import '../../writing.css'
 
 /**
@@ -42,7 +43,7 @@ const emptyFilters = { exam: 'all', topic: 'all', level: 'all', q: '' };
 export function WritingStudio({
   busy, polishLevel, settings, aliveRef,
   timer, hasElapsed, toggleTimer,
-  onSubmit, onOcrImages, onTopicChange, assignedTopic,
+  onSubmit, onOcrImages, onTopicChange, onLeaveTopic, assignedTopic, workTitle, titleTopicKey,
 }) {
   const stored = useRef(loadWritingState());
   const [view, setView] = useState(() => stored.current?.topic ? 'write' : 'bank');
@@ -61,6 +62,8 @@ export function WritingStudio({
   const [briefOpen, setBriefOpen] = useState(() => stored.current?.briefOpen || false);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [savedAt, setSavedAt] = useState(() => stored.current?.savedAt || 0);
+  const [draftTitle, setDraftTitle] = useState(() => stored.current?.workTitle || stored.current?.topic?.zh || '');
+  const [savedDrafts, setSavedDrafts] = useState(listWritingDrafts);
   const [localError, setLocalError] = useState('');
   const [ocrBusy, setOcrBusy] = useState(false);
   const [saveError, setSaveError] = useState('');
@@ -68,7 +71,8 @@ export function WritingStudio({
   const cameraRef = useRef(null);
   const mountedRef = useRef(true);
   const briefRequestRef = useRef(0);
-  const draftsRef = useRef(stored.current?.drafts || {});
+  const baseRef = useRef(stored.current);
+  const writerRef = useRef(newWritingWriter());
   const ownerRef = useRef(dataOwner());
 
   const fullText = mode === 'direct' ? essay : segs.join('\n\n');
@@ -81,30 +85,34 @@ export function WritingStudio({
   /* ---------- 草稿自动保存（800ms 防抖；提交/切题不丢内容） ---------- */
   const saveTimerRef = useRef(null);
   const stateRef = useRef(null);
-  stateRef.current = { topic, mode, essay, segs, brief, angle, briefOpen };
+  stateRef.current = { topic, mode, essay, segs, brief, angle, briefOpen,
+    workTitle: titleTopicKey === topicKey && typeof workTitle === 'string' ? workTitle : draftTitle };
   const saveCurrent = useCallback((notify = true) => {
     const snap = stateRef.current;
-    if (!snap?.topic || dataOwner() !== ownerRef.current) return;
-    const at = Date.now();
-    draftsRef.current[writingTopicKey(snap.topic)] = { ...snap, savedAt: at };
+    if (!snap?.topic || dataOwner() !== ownerRef.current) return true;
     try {
-      localStorage.setItem(WRITING_STORE_KEY, JSON.stringify({ ...snap, savedAt: at, drafts: draftsRef.current }));
-      if (notify && mountedRef.current) { setSavedAt(at); setSaveError(''); }
+      baseRef.current = saveWritingDraft(snap, baseRef.current, writerRef.current);
+      if (notify && mountedRef.current) { setSavedAt(baseRef.current.savedAt); setSaveError(''); setSavedDrafts(listWritingDrafts()); }
+      return true;
     } catch {
       if (notify && mountedRef.current) setSaveError('草稿未能保存到浏览器，请先复制全文备份后再离开。');
+      return false;
     }
   }, []);
   useEffect(() => {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(saveCurrent, 800);
     return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); };
-  }, [topic, mode, essay, segs, brief, angle, briefOpen, saveCurrent]);
+  }, [topic, mode, essay, segs, brief, angle, briefOpen, workTitle, draftTitle, saveCurrent]);
   useEffect(() => {
     mountedRef.current = true;
     const flush = () => saveCurrent(false);
+    const collect = (event) => { if (dataOwner() === ownerRef.current && stateRef.current?.topic) event.detail.drafts.push({ ...stateRef.current, savedAt: Date.now() }); };
     const onHidden = () => { if (document.hidden) flush(); };
     window.addEventListener('pagehide', flush);
     window.addEventListener('bts:before-account-change', flush);
+    window.addEventListener('bts:flush-writing', flush);
+    window.addEventListener('bts:collect-writing-drafts', collect);
     document.addEventListener('visibilitychange', onHidden);
     return () => {
       flush();
@@ -112,10 +120,21 @@ export function WritingStudio({
       briefRequestRef.current += 1;
       window.removeEventListener('pagehide', flush);
       window.removeEventListener('bts:before-account-change', flush);
+      window.removeEventListener('bts:flush-writing', flush);
+      window.removeEventListener('bts:collect-writing-drafts', collect);
       document.removeEventListener('visibilitychange', onHidden);
     };
   }, [saveCurrent]);
-  useEffect(() => { onTopicChange?.(topic); }, [topic, onTopicChange]);
+  useEffect(() => { onTopicChange?.(topic, stateRef.current.workTitle); }, [topic, onTopicChange]);
+  useEffect(() => {
+    const refresh = (event) => {
+      if (dataOwner() !== ownerRef.current) return;
+      if (!event.key || event.key.startsWith(WRITING_DRAFT_PREFIX)) setSavedDrafts(listWritingDrafts());
+    };
+    window.addEventListener('storage', refresh);
+    window.addEventListener('bts:writing-drafts-changed', refresh);
+    return () => { window.removeEventListener('storage', refresh); window.removeEventListener('bts:writing-drafts-changed', refresh); };
+  }, []);
 
   /* 首次输入自动开始计时（参照竞品「开始输入后自动计时」） */
   const firstInputRef = useRef(false);
@@ -160,6 +179,7 @@ export function WritingStudio({
     if (!q) return null;
     return {
       id: 'assigned', exam: 'assigned', label: assignedTopic.label || '班级作业',
+      classId: assignedTopic.classId, hwId: assignedTopic.hwId,
       zh: assignedTopic.title || '班级写作作业', topic: '班级作业', level: '中级', qtype: '命题作文',
       question: q, material: assignedTopic.material || '', imageDesc: assignedTopic.imageDesc || '',
       words: assignedTopic.words || null, image: null,
@@ -168,9 +188,15 @@ export function WritingStudio({
   const topicLocked = Boolean(assignedTopicObj);
 
   /* ---------- 动作 ---------- */
-  const startTopic = useCallback((t) => {
-    saveCurrent();
-    const saved = draftsRef.current[writingTopicKey(t)];
+  const startTopic = useCallback((t, restoredDraft, notifyLeave = true) => {
+    if (!saveCurrent()) return false;
+    const saved = restoredDraft || loadWritingState(writingTopicKey(t));
+    try { rememberWritingTopic(t); } catch { setSaveError('无法记住当前题目，请先导出草稿备份。'); return false; }
+    if (notifyLeave) onLeaveTopic?.();
+    baseRef.current = saved;
+    writerRef.current = newWritingWriter();
+    setDraftTitle(saved?.workTitle ?? t.zh ?? '');
+    onTopicChange?.(t, saved?.workTitle ?? t.zh ?? '');
     setEssay(typeof saved?.essay === 'string' ? saved.essay : '');
     setSegs(Array.isArray(saved?.segs) && saved.segs.length === 4 ? saved.segs.map((s) => typeof s === 'string' ? s : '') : ['', '', '', '']);
     setMode(saved?.mode === 'guided' ? 'guided' : 'direct');
@@ -188,16 +214,20 @@ export function WritingStudio({
     setLocalError('');
     setView('write');
     window.scrollTo({ top: 0 });
-  }, [saveCurrent]);
+    return true;
+  }, [saveCurrent, onLeaveTopic, onTopicChange]);
 
   // 应用班级作业题目（放在 startTopic 之后声明，依赖它加载该题的历史草稿）
   const appliedAssignedRef = useRef('');
   useEffect(() => {
     if (!assignedTopicObj) { appliedAssignedRef.current = ''; return; }
-    const key = writingTopicKey(assignedTopicObj);
+    const key = JSON.stringify(assignedTopicObj);
     if (appliedAssignedRef.current === key) return;
-    appliedAssignedRef.current = key;
-    startTopic(assignedTopicObj);
+    // Rehydrating the same homework after refresh is not a user navigation:
+    // keep the pending grading recovery alive. Real task changes invalidate it.
+    const restoringSameTask = !appliedAssignedRef.current
+      && writingTopicKey(stateRef.current.topic) === writingTopicKey(assignedTopicObj);
+    if (startTopic(assignedTopicObj, undefined, !restoringSameTask)) appliedAssignedRef.current = key;
   }, [assignedTopicObj, startTopic]);
 
   const switchMode = (next) => {
@@ -281,15 +311,17 @@ export function WritingStudio({
     if (!text) { setLocalError('作文还是空的，写一点再提交批改'); return; }
     if (countWords(text) < 20) { setLocalError('作文太短（至少 20 词）——先写完主体内容再提交'); return; }
     setLocalError('');
-    saveCurrent();
+    if (!saveCurrent()) return;
     onSubmit({
       topic: topic.question.trim(),
       material,
       imageDesc: topic.imageDesc || '',
       essay: text,
-      title: topic.zh || '',
+      title: stateRef.current.workTitle,
       topicId: topicKey,
       targetWords,
+      writingTopic: topic,
+      assignment: topicLocked ? { classId: assignedTopicObj.classId, hwId: assignedTopicObj.hwId } : null,
     });
   };
 
@@ -308,6 +340,11 @@ export function WritingStudio({
           </div>
         </div>
         {topic ? <button className="ghost-btn" onClick={() => setView('write')}>继续上次写作：{topic.zh || '自定义题目'}</button> : null}
+        {savedDrafts.length ? <details className="ws-topic-desc">
+          <summary>我的写作草稿（{savedDrafts.length} 份）</summary>
+          {savedDrafts.map((item, i) => <p key={item.writer + ':' + i}><button className="ghost-btn sm"
+            onClick={() => startTopic(item.topic, item)}>{item.workTitle || item.topic.zh || '未命名作文'} · {new Date(item.savedAt || 0).toLocaleString('zh-CN')}</button></p>)}
+        </details> : null}
         {localError ? <p className="error-banner" role="alert">{localError}</p> : null}
         {saveError ? <p className="error-banner" role="alert">{saveError}</p> : null}
         {customOpen ? (
@@ -390,10 +427,10 @@ export function WritingStudio({
       <div className="ws-topbar">
         {topicLocked
           ? <span className="ws-chip" title="班级作业期间不能更换题目：批改上报要求题目与教师布置的完全一致">{topic ? topic.label : '班级作业'} · 题目已锁定</span>
-          : <button className="ghost-btn sm" onClick={() => setView('bank')}><ArrowLeft size={14} />返回题库</button>}
+          : <button className="ghost-btn sm" onClick={() => { if (saveCurrent()) { onLeaveTopic?.(); setView('bank'); } }}><ArrowLeft size={14} />返回题库</button>}
         <div className="ws-topbar-meta">
           <span className="ws-chip">{topic ? topic.label : ''}</span>
-          {topic && topic.zh ? <b className="ws-topbar-zh">{topic.zh}</b> : null}
+          {stateRef.current.workTitle ? <b className="ws-topbar-zh">{stateRef.current.workTitle}</b> : null}
         </div>
         <span className="muted small ws-saved">{savedText}</span>
       </div>
@@ -401,6 +438,18 @@ export function WritingStudio({
         <div className="error-banner" role="alert"><span className="error-text">{localError}</span>
           <button className="icon-btn err-close" onClick={() => setLocalError('')} aria-label="关闭提示"><X size={15} /></button>
         </div>
+      ) : null}
+      {savedDrafts.some((item) => writingTopicKey(item.topic) === topicKey && writingDraftFingerprint(item) !== writingDraftFingerprint(baseRef.current)) ? (
+        <details className="ws-topic-card ws-draft-copies">
+          <summary>此题有其他已保存版本，点击查看（当前文字会先保存）</summary>
+          {writingDraftVersions(topicKey).filter((item) => writingDraftFingerprint(item) !== writingDraftFingerprint(baseRef.current)).map((item, i) => (
+            <div key={item.writer + ':' + i}>
+              <p className="muted small">{new Date(item.savedAt).toLocaleString('zh-CN')} · {item.workTitle}</p>
+              <p>{(item.mode === 'guided' ? item.segs.join('\n\n') : item.essay).slice(0, 180)}</p>
+              <button className="ghost-btn sm" onClick={() => startTopic(topic, item)}>载入此版本</button>
+            </div>
+          ))}
+        </details>
       ) : null}
       <div className="ws-grid">
         {/* 左栏：题目、配图与阅读材料 */}

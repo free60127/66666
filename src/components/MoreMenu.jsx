@@ -93,7 +93,7 @@ export default function MoreMenu({
 
           <Item icon={<Settings size={15} />} label="AI 设置" onClick={onOpenSettings} />
           <Item icon={<Download size={15} />} label="备份 / 恢复" onClick={onOpenBackup}
-            title="导出 / 导入本机数据备份（课文库、收藏夹、历史）" />
+            title="导出 / 导入本机数据备份（课文库、收藏夹、历史、写作草稿）" />
           <Item icon={<GraduationCap size={15} />} label="加入教师班级" onClick={onOpenClass} />
           <Item icon={<GraduationCap size={15} />} label="教师后台" onClick={() => { window.location.href = import.meta.env.BASE_URL + 'teacher.html'; }} />
 

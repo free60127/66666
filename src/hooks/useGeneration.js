@@ -5,6 +5,7 @@ import { DEMO_LESSON_18 } from '../demo.js'
 import { formatDuration } from '../format.js'
 import { normalizeDirection, directionText } from '../direction.js'
 import { formatWritingMaterialText } from '../writingMaterial.js'
+import { loadWritingState, writingTopicKey } from '../writing.js'
 import { hasMorphology, morphologyText } from '../favorites.js'
 import {
   DELETED_HISTORY_MAX, loadDeletedHistory, loadHistory, loadResultCache,
@@ -143,6 +144,7 @@ export function useGeneration({
       jobId, title: jobTitle || '回译作业', time: data.attemptTime || Date.now(), status: 'done',
       durationMs: Number(durationMs) || 0,
       lessonKey: String((data && data.lessonKey) || ''),
+      ...(data?.writingTopic ? { writingTopic: data.writingTopic } : {}),
       ...(deleteToken ? { deleteToken } : {}),
     };
     if (loadDeletedHistory().includes(jobId)) return;
@@ -204,10 +206,12 @@ export function useGeneration({
     const entry = loadHistory().find((h) => h.jobId === jobId);
     const showCompleted = (data) => {
       const enriched = { ...data, ...(entry ? { workTitle: entry.title, durationMs: entry.durationMs,
-        lessonKey: entry.lessonKey, attemptTime: entry.time } : {}) };
+        lessonKey: entry.lessonKey, attemptTime: entry.time, ...(entry.writingTopic ? { writingTopic: entry.writingTopic } : {}) } : {}) };
       if (entry?.status === 'pending' && loadHistory().find((h) => h.jobId === jobId)?.status === 'pending') {
         addToHistory(jobId, entry.title, enriched, entry.durationMs, entry.deleteToken);
         void reportCompletedJob(jobId, entry.deleteToken, entry.classHomework);
+        if (entry.classHomework?.hwId && activeHomework()?.classId === entry.classHomework.classId
+          && activeHomework()?.hwId === entry.classHomework.hwId) clearActiveHomework();
         bumpProgress(entry.lessonKey, enriched, entry.durationMs);
         bumpStudyDay();
       }
@@ -289,7 +293,8 @@ export function useGeneration({
     };
     if (window.location.hash) openLinkedJob();
     else {
-      const pending = loadHistory().find((h) => h.status === 'pending');
+      const pending = loadHistory().find((h) => h.status === 'pending'
+        && (h.direction !== 'writing' || !h.lessonKey || h.lessonKey === writingTopicKey(loadWritingState()?.topic)));
       if (pending) void loadHistoryJob(pending.jobId);
     }
     window.addEventListener('hashchange', openLinkedJob);
@@ -313,18 +318,24 @@ export function useGeneration({
     const ovMaterial = typeof overrides.material === 'string' ? overrides.material : null;
     const ovImageDesc = typeof overrides.imageDesc === 'string' ? overrides.imageDesc : null;
     let cn = (ovChinese ?? chinese).trim();
+    if (dir === 'writing' && (classHomework || overrides.assignment)) {
+      const bound = overrides.assignment;
+      const matches = classHomework && bound?.classId === classHomework.classId && bound?.hwId === classHomework.hwId
+        && cn === classHomework.prompt && (ovMaterial || '') === (classHomework.material || '')
+        && (ovImageDesc || '') === (classHomework.imageDesc || '')
+        && (!classHomework.targetWords || Number(overrides.targetWords) === Number(classHomework.targetWords));
+      if (!matches) {
+        setError('当前作文与班级作业不一致，请从班级面板重新打开正确作业。草稿已保留，本次未提交批改。');
+        return;
+      }
+    }
     // 班级任务的提示词不可改：OCR/DOCX/手滑都可能把它改掉，而服务端会因 prompt 不一致
     // 拒绝上报 —— 学生得整篇重做。提交前自动恢复原提示词，把陷阱消掉。
-    // （写作作业同理：题目必须与教师布置的逐字一致，改动会被拒收。）
-    if (classHomework?.prompt && (dir === 'cn2en' || dir === 'writing') && cn && cn !== classHomework.prompt) {
-      if (dir === 'writing') {
-        cn = classHomework.prompt;
-        flashTip(setToast, '班级写作作业的题目不能修改，已按原题提交', 4200);
-      } else {
+    // 写作已在上面核验整份任务，不能只改题目却把另一篇正文交过去。
+    if (classHomework?.prompt && dir === 'cn2en' && cn && cn !== classHomework.prompt) {
         setChinese(classHomework.prompt);
         cn = classHomework.prompt;
         flashTip(setToast, '班级作业的中文提示不能修改，已自动恢复', 4200);
-      }
     }
     const df = (ovDraft ?? draft).trim();
     // 提示语跟着方向走：英译汉时源栏装的是英文原文、初稿栏是中文译稿
@@ -395,6 +406,7 @@ export function useGeneration({
           const pendingTitle = (ovTitle ?? title).trim() || (dir === 'writing' ? '英语写作' : matchedLesson?.title || '翻译批改');
           const pending = { jobId, title: pendingTitle, time: Date.now(),
             status: 'pending', durationMs, lessonKey: attemptLessonKey, direction: dir, deleteToken,
+            ...(dir === 'writing' && overrides.writingTopic ? { writingTopic: overrides.writingTopic } : {}),
             classHomework: classHomework ? { classId: classHomework.classId, hwId: classHomework.hwId, title: classHomework.title, sharedLessonId: classHomework.sharedLessonId } : null };
           const next = [pending, ...loadHistory().filter((h) => h.jobId !== jobId)].slice(0, 20);
           saveHistory(next); setHistoryList(next);
@@ -404,7 +416,7 @@ export function useGeneration({
           // 也没有 #job=，只能重新提交 —— 再花一次模型调用的钱。
           // 恢复路径见本文件底部的 #job= effect：已完成 → 直接出结果；
           // 仍在跑 → 自动继续读取任务直到完成，不要求用户手动刷新。
-          window.history.replaceState(null, '', '#job=' + id2);
+          if (myToken === genTokenRef.current) window.history.replaceState(null, '', '#job=' + id2);
         },
         onData: (data) => {
           // 流式结束：用服务端**收敛过的完整结果**覆盖边生成边画的那份
@@ -416,7 +428,8 @@ export function useGeneration({
           // 历史列表也用它——否则用户改过标题的那篇在历史里根本找不到。
           const workTitle = ((ovTitle ?? title) || '').trim() || (data && data.title) || '';
           const stored = loadHistory().find((h) => h.jobId === jobId);
-          const enriched = { ...(data || {}), workTitle, durationMs, lessonKey: attemptLessonKey, attemptTime: stored?.time || Date.now() };
+          const enriched = { ...(data || {}), workTitle, durationMs, lessonKey: attemptLessonKey, attemptTime: stored?.time || Date.now(),
+            ...(dir === 'writing' && overrides.writingTopic ? { writingTopic: overrides.writingTopic } : {}) };
           if (myToken === genTokenRef.current) {
             setResult(normalizeResult(enriched));
             if (jobId) setCurrentJobId(jobId);

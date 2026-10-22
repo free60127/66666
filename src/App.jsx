@@ -8,7 +8,7 @@ import { getOcrJob, getStatus, loadSettings, matchLesson, ocr, saveSettings } fr
 import { DELETED_FAVORITES_LIMIT, DELETED_LIBRARIES_LIMIT, DELETED_LESSONS_LIMIT, applyLibraryTombstones, mergeDeleted, mergeHistory } from './sync.js'
 import { mergeFavorites, saveFavorites } from './favorites.js'
 import { DIRECTION_KEY, TRANSLATION_DIRECTIONS, directionMeta, directionText, normalizeDirection } from './direction.js'
-import { loadWritingState, writingTopicKey } from './writing.js'
+import { exportWritingDrafts, importWritingDrafts, loadWritingState, saveWritingDraft, writingTopicKey } from './writing.js'
 import {
   lessonTombstoneKey, loadDeletedFavorites, loadDeletedLibraries, loadDeletedLessons,
   loadDrillUsed, loadResultCache, loadHistory, markDrillUsed, safeGet, safeSet, saveDeletedFavorites,
@@ -50,7 +50,7 @@ import MoreMenu from './components/MoreMenu.jsx'
 import ClassJoinModal from './components/ClassJoinModal.jsx'
 import AssignmentReminder from './components/AssignmentReminder.jsx'
 import OnboardingGoal from './components/OnboardingGoal.jsx'
-import { activateHomework, activeHomework, clearActiveHomework, memberships, pendingAssignments, studentDashboard } from './classroom.js'
+import { ACTIVE_HOMEWORK_EVENT, activateHomework, activeHomework, clearActiveHomework, memberships, pendingAssignments, studentDashboard } from './classroom.js'
 import LessonEditModal from './components/modals/LessonEditModal.jsx'
 import WritingStudio from './components/WritingStudio/index.jsx'
 const AI_LEVELS = ['小初', '高考英语', '四六级', '考研/专四', '专八'];
@@ -181,24 +181,33 @@ function Studio() {
   // 提交时才把 direction='writing' 连同题目/作文一起传给 useGeneration（见 submitWriting）
   const [writingOpen, setWritingOpen] = useState(() => safeGet('bt-writing-open', '') === '1');
   const [writingKey, setWritingKey] = useState(() => writingTopicKey(loadWritingState()?.topic));
-  const [writingTitle, setWritingTitle] = useState(() => loadWritingState()?.topic?.zh || '');
+  const [writingTitle, setWritingTitle] = useState(() => loadWritingState()?.workTitle || '');
   useEffect(() => { safeSet('bt-writing-open', writingOpen ? '1' : '0'); }, [writingOpen]);
-  const selectWritingTopic = useCallback((topic) => {
+  const selectWritingTopic = useCallback((topic, draftTitle) => {
     setWritingKey(writingTopicKey(topic));
-    setWritingTitle(topic?.zh || '');
+    setWritingTitle(draftTitle ?? topic?.zh ?? '');
   }, []);
   // 班级写作作业：教师布置的题目（学生端锁定，不能换题）。
   // 刷新后从进行中的班级任务里重水合 —— 否则写作页显示的是上次的自由题目，
   // 而提交守卫会按作业原题提交，界面和实际提交就不一致了。
   const [writingTask, setWritingTask] = useState(null);
   useEffect(() => {
-    const active = activeHomework();
-    if (active?.kind === 'writing' && active.prompt) {
-      setWritingTask({
+    const refresh = () => {
+      const active = activeHomework();
+      const saved = loadWritingState();
+      const oldWords = saved?.topic && active?.prompt && saved.topic.question === active.prompt && (saved.topic.material || '') === (active.material || '') ? saved.topic.words : null;
+      setWritingTask(active?.kind === 'writing' && active.prompt ? {
+        classId: active.classId, hwId: active.hwId,
         question: active.prompt, material: active.material || '', imageDesc: active.imageDesc || '',
-        words: null, title: active.title || '班级写作作业', label: '班级作业',
-      });
-    }
+        words: active.targetWords || oldWords || null, title: active.title || '班级写作作业', label: '班级作业',
+      } : null);
+    };
+    const onStorage = (event) => { if (event.key === 'bts-active-homework' || event.key === null) refresh(); };
+    refresh();
+    window.addEventListener(ACTIVE_HOMEWORK_EVENT, refresh);
+    window.addEventListener('storage', onStorage);
+    window.addEventListener('focus', refresh);
+    return () => { window.removeEventListener(ACTIVE_HOMEWORK_EVENT, refresh); window.removeEventListener('storage', onStorage); window.removeEventListener('focus', refresh); };
   }, []);
   // 生成链路的繁忙/进度/计时（hooks/useJobRunner.js）；变量名沿用原来的，调用点不用改
   const {
@@ -516,8 +525,10 @@ function Studio() {
       if (task.classId) activateHomework(task.classId, task.hwId, {
         title: task.title, prompt: task.prompt, kind: 'writing',
         material: task.material || '', imageDesc: task.imageDesc || '',
+        targetWords: task.targetWords,
       });
       setWritingTask({
+        classId: task.classId, hwId: task.hwId,
         question: task.prompt || '',
         material: task.material || '',
         imageDesc: task.imageDesc || '',
@@ -692,10 +703,17 @@ function Studio() {
   /* ---------- 写作模式：提交批改 + 拍照识别 ----------
    * 写作内容不在共享 state 里（WritingStudio 自己持久化），提交时经 overrides 传给生成链路；
    * OCR 复用同一条 /api/ocr 识别链路，识别英文（作文纸/题目截图），文本回填交给 Studio。 */
-  const submitWriting = useCallback(({ topic, material, imageDesc, essay, title, topicId, targetWords }) => {
+  const submitWriting = useCallback(({ topic, material, imageDesc, essay, title, topicId, targetWords, assignment, writingTopic }) => {
     initialLessonCancelledRef.current = true;
-    runGenerate(undefined, { direction: 'writing', chinese: topic, draft: essay, title: writingTitle.trim() || title, material, imageDesc, lessonKey: topicId, targetWords });
-  }, [runGenerate, initialLessonCancelledRef, writingTitle]);
+    runGenerate(undefined, { direction: 'writing', chinese: topic, draft: essay, title, material, imageDesc, lessonKey: topicId, targetWords, assignment, writingTopic });
+  }, [runGenerate, initialLessonCancelledRef]);
+  const cancelWritingWaitRef = useRef(cancelGenerate);
+  cancelWritingWaitRef.current = cancelGenerate;
+  const leaveWritingTopic = useCallback(() => {
+    genTokenRef.current += 1;
+    cancelWritingWaitRef.current();
+    if (window.location.hash.startsWith('#job=')) window.history.replaceState(null, '', window.location.pathname + window.location.search);
+  }, []);
 
   const ocrWritingImages = useCallback(async (files) => {
     const list = Array.from(files || []).filter((f) => f && /^image\//i.test(f.type || ''));
@@ -938,6 +956,24 @@ function Studio() {
   // 结果页「返回编辑」：只切视图，**保留结果与 #job=**（用户还要回来对照/分享）
   // 顶栏「编辑器」（backToEditor）才是清空结果的那个 —— 两者语义不同，别接错。
   const backToEditorView = useCallback(() => setView('editor'), []);
+
+  const reviseWritingResult = () => {
+    if (!result?.draft || result.direction !== 'writing') return;
+    try {
+      window.dispatchEvent(new Event('bts:flush-writing'));
+      const source = result.writingTopic || {};
+      // A revision is an independent practice. It must not silently replace today's draft or submit an old homework again.
+      const topic = { ...source, classId: undefined, hwId: undefined, id: 'custom',
+        draftKey: 'writing:revision-' + (currentJobId || Date.now()),
+        question: result.chinese, material: result.material || '', imageDesc: result.imageDesc || '',
+        zh: result.workTitle || result.title || '作文修改', label: '历史作文修改', words: result.targetWords || source.words || null };
+      saveWritingDraft({ topic, essay: result.draft, mode: 'direct', workTitle: topic.zh }, null);
+      leaveWritingTopic(); clearActiveHomework();
+      setWritingKey(writingTopicKey(topic)); setWritingTitle(topic.zh);
+      setWritingOpen(true); setView('editor'); setResult(null);
+      window.history.replaceState(null, '', window.location.pathname + window.location.search);
+    } catch { setError('无法保存作文副本，请先导出草稿备份后再试。'); }
+  };
   const favModalRef = useCallback((el) => { modalRefs.current.fav = el; }, [modalRefs]);
   const historyModalRef = useCallback((el) => { modalRefs.current.history = el; }, [modalRefs]);
   const lessonEditModalRef = useCallback((el) => { modalRefs.current.lessonEdit = el; }, [modalRefs]);
@@ -1231,6 +1267,7 @@ function Studio() {
       deletedLibraries,
       deletedLessons,
       deletedFavorites,
+      writingDrafts: exportWritingDrafts(),
     };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -1252,7 +1289,9 @@ function Studio() {
       const libs = Array.isArray(data?.libraries) ? data.libraries : [];
       const favs = Array.isArray(data?.favorites) ? data.favorites : [];
       const hist = Array.isArray(data?.history) ? data.history : [];
-      if (!libs.length && !favs.length && !hist.length) throw new Error('文件里没有可导入的数据');
+      const writingDrafts = Array.isArray(data?.writingDrafts) ? data.writingDrafts : [];
+      if (!libs.length && !favs.length && !hist.length && !writingDrafts.length) throw new Error('文件里没有可导入的数据');
+      const writingAdded = importWritingDrafts(writingDrafts);
 
       // 导入进来的课文可能来自"还没有稳定 id"的旧备份 —— 写入前统一补上，
       // 否则这些课文的「编辑 / 改序号」会因为找不到条目而毫无反应（实测踩过）
@@ -1285,7 +1324,7 @@ function Studio() {
       if (JSON.stringify(tombLessons) !== JSON.stringify(deletedLessons)) { setDeletedLessons(tombLessons); saveDeletedLessons(tombLessons); }
       if (JSON.stringify(tombFavs) !== JSON.stringify(deletedFavorites)) { setDeletedFavorites(tombFavs); saveDeletedFavorites(tombFavs); }
 
-      setBackupTip(`导入完成：新增 ${libsAdded} 个课文库、${lessonsAdded} 篇课文、${favAdded} 条收藏、${histAdded} 条历史（同名课文自动去重）。`);
+      setBackupTip(`导入完成：新增 ${libsAdded} 个课文库、${lessonsAdded} 篇课文、${favAdded} 条收藏、${histAdded} 条历史、${writingAdded} 份写作草稿（不同版本分别保留）。`);
     } catch (e) {
       const raw = String(e?.message || '');
       const notJson = /JSON|token|property|position/i.test(raw);
@@ -1804,6 +1843,9 @@ function Studio() {
                 onSubmit={submitWriting}
                 onOcrImages={ocrWritingImages}
                 onTopicChange={selectWritingTopic}
+                onLeaveTopic={leaveWritingTopic}
+                workTitle={writingTitle}
+                titleTopicKey={writingKey}
                 assignedTopic={writingTask}
               />
             ) : (
@@ -2011,6 +2053,7 @@ function Studio() {
               <ResultSheet
                 result={result}
                 onBack={backToEditorView}
+                onReviseWriting={reviseWritingResult}
                 onCopy={copyAll}
                 onShare={shareResult}
                 shareTip={shareTip}
@@ -2334,6 +2377,7 @@ function Studio() {
           <div className="modal" ref={(el) => { modalRefs.current.backup = el; }} role="dialog" aria-modal="true" aria-label="备份与恢复" onClick={(e) => e.stopPropagation()}>
             <div className="modal-head"><h2>备份与恢复</h2><button className="icon-btn" onClick={() => setBackupOpen(false)} aria-label="关闭"><X size={16} /></button></div>
             <p className="muted small">登录后，课文库、收藏、历史和进度会自动保存到账号；未登录时仅保存在当前浏览器。也可以导出备份文件，独立留存或在其它设备导入。</p>
+            <p className="muted small">写作草稿、标题和 AI 指导保存在本机，也会包含在备份文件中；不同版本导入时分别保留。</p>
             <div className="lib-preview">
               <div><span className="muted">当前数据</span><strong>{backupSummary}</strong></div>
             </div>
