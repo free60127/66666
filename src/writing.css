@@ -1,7 +1,8 @@
 /* ==================== 写作模式（WritingStudio） ====================
    独立 UI：题库筛选页 + 写作页（左题目卡/右写作区）+ 吸底动作条。
    复用全局的 primary-btn / ghost-btn / timer-box / error-banner，这里只写布局与专属件。 */
-.ws { display: flex; flex-direction: column; gap: 14px; padding-bottom: 8px; }
+/* flex:1 0 auto：短页面时 .ws 撑满编辑器高度，写作区变大、dock 不悬在半空 */
+.ws { flex: 1 0 auto; display: flex; flex-direction: column; gap: 14px; padding-bottom: 8px; }
 .ws-title { display: inline-flex; align-items: center; gap: 8px; margin: 0; font-size: 19px; }
 .ws-bank-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 10px; }
 .ws-bank-head p { margin: 4px 0 0; }
@@ -35,7 +36,7 @@
 .ws-topbar-zh { font-size: 15px; overflow-wrap: anywhere; }
 .ws-saved { margin-left: auto; white-space: nowrap; }
 
-.ws-grid { display: grid; grid-template-columns: minmax(280px, 360px) minmax(0, 1fr); gap: 14px; align-items: start; }
+.ws-grid { flex: 1 0 auto; display: grid; grid-template-columns: minmax(280px, 360px) minmax(0, 1fr); gap: 14px; align-items: start; }
 .ws-side { display: flex; flex-direction: column; gap: 12px; position: sticky; top: 12px; }
 .ws-topic-card { border: 1px solid var(--line); border-radius: 12px; background: #fff; padding: 14px; display: flex; flex-direction: column; gap: 8px; }
 .ws-topic-head { display: flex; align-items: center; gap: 7px; color: var(--brand); }
@@ -136,7 +137,19 @@
 .ws-seg-tip { font-size: 13px; color: var(--muted); background: #f7f9fb; border-radius: 8px; padding: 8px 11px; line-height: 1.6; }
 .ws-seg-tip b { color: var(--text); }
 
-.ws-dock { position: sticky; bottom: 10px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; box-shadow: 0 4px 18px rgba(16,34,46,.08); }
+/* 提交批改栏：**真·固定**在窗口底部（position: fixed），不随页面滚动、短页面也贴底。
+   --side-w 跟随侧栏占位（268px 常驻 / 收起或窄屏为 0），让 dock 与上方内容列对齐；
+   .ws:has(.ws-dock) 在页面尾部留出等高占位，避免固定栏盖住最后的内容。 */
+.ws-dock {
+  position: fixed; bottom: 12px; z-index: 30;
+  --side-w: 268px;
+  left: calc(var(--side-w) + (100vw - var(--side-w)) / 2);
+  transform: translateX(-50%);
+  width: min(1140px, calc(100vw - var(--side-w) - 32px));
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap; background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; box-shadow: 0 4px 18px rgba(16,34,46,.08);
+}
+.app:has(.sidebar.collapsed) .ws-dock { --side-w: 0px; }
+.ws:has(.ws-dock) { padding-bottom: 84px; }
 .ws-dock-count { margin-right: auto; }
 .ws-preview-mask { position: fixed; inset: 0; background: rgba(16,34,46,.45); display: grid; place-items: center; z-index: 60; padding: 18px; }
 .ws-preview { background: #fff; border-radius: 14px; max-width: 720px; width: 100%; max-height: 82vh; overflow-y: auto; padding: 18px 20px; }
@@ -149,7 +162,8 @@
   .ws-side { position: static; }
   .ws-cards { grid-template-columns: 1fr; }
   .ws-search { margin-left: 0; width: 100%; }
-  .ws-dock { bottom: 10px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; padding: 8px 10px; }
+  .ws-dock { --side-w: 0px; left: 12px; right: 12px; transform: none; width: auto; bottom: 10px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; padding: 8px 10px; }
+  .ws:has(.ws-dock) { padding-bottom: 96px; }
   .ws-dock-count { grid-column: 1; grid-row: 1; margin: 0; font-size: 12px; }
   .ws-dock > .timer-box { grid-column: 2; grid-row: 1; gap: 4px; padding: 4px 6px; }
   .ws-dock .timer-display { font-size: 14px; }

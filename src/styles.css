@@ -24,11 +24,16 @@ textarea, input { font: inherit; }
 .fav-title, .fav-body, .fav-extra, .modal p, .history-info strong,
 .sheet-glance, .score-comment, .match-text, .ocr-note { overflow-wrap: anywhere; }
 
-.app { display: flex; height: 100%; }
+/* 桌面端与移动端统一为「文档级滚动」：页面只有窗口一个滚动条（永远贴住右缘），
+   编辑器/结果页不再各自内部滚动 —— 双层滚动条 + 滚轮先滚内层再滚外层的割裂体验
+   就是层级滚动导致的（用户实测反馈）。侧栏/顶栏改用 sticky 保持常驻。 */
+.app { display: flex; min-height: 100%; }
 /* ⚠️ 侧栏本体**不滚动**：滚动交给 .side-section（唯一滚动区）。
    两边都设 overflow-y:auto 会叠出两条滚动条（用户截图反馈"叠在一起太丑"），
    而且在窄屏上还会冒出一条横向的。overflow: hidden 也顺手挡掉横向溢出。 */
-.sidebar { width: 268px; min-width: 268px; background: #10222e; color: #dfe9f0; display: flex; flex-direction: column; padding: 16px 12px; gap: 14px; overflow: hidden; transition: margin-left .25s ease; }
+/* 侧栏 sticky 常驻：文档滚动时钉在视口左侧；align-self:flex-start + 100vh
+   防止被 flex 拉伸成整篇文档的高度（那样 sticky 就没有行程了） */
+.sidebar { position: sticky; top: 0; align-self: flex-start; height: 100vh; width: 268px; min-width: 268px; background: #10222e; color: #dfe9f0; display: flex; flex-direction: column; padding: 16px 12px; gap: 14px; overflow: hidden; transition: margin-left .25s ease; }
 .sidebar.collapsed { margin-left: -268px; }
 .sidebar-close { display: none; align-items: center; justify-content: center; padding: 8px; border-radius: 8px; color: #b9cad6; background: rgba(255,255,255,.08); }
 .sidebar-close:hover { background: rgba(255,255,255,.16); color: #fff; }
@@ -125,8 +130,9 @@ textarea, input { font: inherit; }
 .muted { color: var(--muted); }
 .muted.small { font-size: 12px; }
 
-.main { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
-.topbar { height: 56px; min-height: 56px; background: var(--panel); border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 12px; padding: 0 18px; }
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+/* 顶栏 sticky 常驻：文档滚动时保持可见（下拉菜单都在这一层，z-index 要盖过正文） */
+.topbar { position: sticky; top: 0; z-index: 40; height: 56px; min-height: 56px; background: var(--panel); border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 12px; padding: 0 18px; }
 /* 方案A：作业标题直接住在顶栏里（无边框输入框，点了就能改）。
    原来它在正文里占一整行「作业标题 [input]」；标题是唯一值得常驻顶栏的信息。 */
 .topbar-title { flex: 1 1 auto; min-width: 0; border: none; background: transparent; font-weight: 600; font-size: 15px; color: var(--text); padding: 7px 9px; border-radius: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -144,15 +150,13 @@ textarea, input { font: inherit; }
 
 /* flex 列 + 动作条 margin-top:auto：内容不满一屏时动作条也贴在窗口底部（而不是悬在半空），
    内容超一屏时退化为普通流式排列，由 sticky 接管。
-   ⚠️ .editor 自己是**滚动容器**，必须占满主栏全宽（不能 max-width+margin auto 居中），
-   否则滚动条悬在窗口中间（实测 2000px 宽屏时距右缘 276px，用户反馈"滚动条不在最右边"）。
-   居中改用水平内边距实现：max(20px, (100%-1140px)/2) 数学上等价于原来
-   「1180px 容器 + 20px 内边距」的内容几何（内容仍居中、仍是最多 1140px 宽）。 */
-.editor { flex: 1; overflow-y: auto; padding: 20px max(20px, calc((100% - 1140px) / 2)); width: 100%; display: flex; flex-direction: column; }
-/* ⚠️ 子块一律禁止收缩（flex-shrink:0）：.editor 是**固定高度**的滚动容器，
-   默认 shrink:1 会让 flex 把各区块压矮来"凑合"容器高度，而不是出现滚动条 ——
-   实测 bug：「英文原文」折叠栏展开后它的输入框永远被压在吸底动作条底下，
-   看不到也几乎没法编辑。禁止收缩后，高度不够就走正常的容器滚动。 */
+   ⚠️ .editor **不再是滚动容器**（overflow visible）：页面统一为文档级滚动后，
+   吸底动作条 / 写作 dock 的 sticky 直接钉在窗口底缘，全页只有一条滚动条。
+   内容仍居中（水平内边距 max(20px, (100%-1140px)/2)，最多 1140px 宽）。 */
+.editor { flex: 1; overflow: visible; padding: 20px max(20px, calc((100% - 1140px) / 2)); width: 100%; display: flex; flex-direction: column; }
+/* 子块禁止收缩（flex-shrink:0）：短内容时 .editor 是 flex:1 的定高列，
+   shrink:1 会把区块压矮来"凑合"容器高度 —— 实测 bug：「英文原文」折叠栏展开后
+   输入框被压在吸底动作条底下。长内容时 .editor 随文档自然长高，此规则无副作用。 */
 .editor > * { flex-shrink: 0; }
 /* ---------- 模式条（方案A）----------
    原来首屏有六块同级控件：上传条、课文/自由 tabs、方向 tabs、标题行、润色等级、识别模式。
@@ -201,7 +205,7 @@ textarea, input { font: inherit; }
 .spin { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-.result { flex: 1; overflow-y: auto; padding: 18px; }
+.result { flex: 1; overflow: visible; padding: 18px; }
 /* 流式生成中的横幅：结果页边生成边显示时，告诉学生"还没完，但已经在出内容了"。
    与旧的"转圈等一分钟"是同一件事的两种体验 —— 这条横幅就是那个体验的说明书。 */
 .stream-banner { max-width: 960px; margin: 0 auto 10px; display: flex; align-items: center; gap: 9px; padding: 9px 13px; border: 1px solid #cfe0ff; background: #f2f7ff; color: var(--brand); border-radius: 10px; font-size: 13px; }
