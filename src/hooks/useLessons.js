@@ -244,12 +244,14 @@ export function useLessons({
 /** 恢复上次打开的书册/课次；没有记录则默认该册第一课。
  *  ⚠️ 不要在这里硬编码册号白名单：书册状态按课表动态恢复（四级/六级/英语一/英语二/专八/CATTI 是 5-9、11），
  *  这里曾写死 [1,2,3,4]，四六级用户每次刷新都被强制跳回第 2 册（实测复现）。
- *  现在改为：只要课表里确实存在该册号就恢复，否则才回落第 2 册。 */
+ *  回落册号必须是真实存在的：语料里早就没有第 2 册，原来回落 2 会一路退到 list[0]
+ *  （= 第 5 册四级第 1 课），与侧栏默认高亮的「回译课文」（book 10）对不上。
+ *  现在回落 10，与 book 状态的默认值、侧栏默认库三方一致。 */
 function pickInitialLesson(list) {
   const savedBook = Number(safeGet('bt-book', ''));
   const savedLesson = Number(safeGet('bt-lesson', ''));
   const hasSavedBook = Number.isInteger(savedBook) && savedBook >= 1 && list.some((l) => l.book === savedBook);
-  const targetBook = hasSavedBook ? savedBook : 2;
+  const targetBook = hasSavedBook ? savedBook : 10;
   const match = list.find((l) => l.book === targetBook && l.lesson === savedLesson);
   if (match) return match;
   return list.find((l) => l.book === targetBook) || list[0] || null;

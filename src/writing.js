@@ -1,6 +1,10 @@
 import { hasWritingBrief, normalizeWritingBrief } from './writingGuidance.js';
 import { questionWordTarget } from './writingTask.js';
 
+// 与 writingTopics.js 的 WRITING_LEVEL_WORDS 同口径（自编题库按难度给建议词数）。
+// 直接 import 会造成 writingTopics → writing → writingTopics 的循环依赖，这里镜像一份。
+const TOPIC_LEVEL_WORDS = { 初级: 120, 中级: 180, 高级: 250 };
+
 /** Shared writing draft identity and text helpers. Existing single-draft storage is retained. */
 export const WRITING_STORE_KEY = 'bt-writing-studio';
 export const WRITING_DRAFT_PREFIX = 'bt-writing-draft:';
@@ -18,13 +22,18 @@ export function writingTopicKey(topic) {
   // Old assignments have no trustworthy homework ID. Keep them separate from new assignments.
   if (topic.id === 'assigned') return 'writing:legacy-assigned-' + hashText(topic.question.trim());
   if (typeof topic.draftKey === 'string' && topic.draftKey.startsWith('writing:')) return topic.draftKey;
-  if (typeof topic.id === 'string' && /^[\w-]+$/.test(topic.id) && topic.id !== 'custom') return 'writing:' + topic.id;
+  // 题库 id 可能含中文（如 cet4-2025-12-第1套）——\w 不认 CJK，曾把 28 道 CET 题挤进
+  // custom-<hash> 分支，退化成「题干文本哈希」身份（改一个标点就断链，还会与自定义题串槽）。
+  // 键名会整体 encodeURIComponent，中文安全；只要不含冒号/空白即可作为稳定 id。
+  if (typeof topic.id === 'string' && /^[\w\u4e00-\u9fff-]+$/.test(topic.id) && topic.id !== 'custom') return 'writing:' + topic.id;
   return 'writing:custom-' + hashText(topic.question.trim());
 }
 
 export const countWritingWords = (text) => (String(text || '').match(/[A-Za-z0-9]+(?:['’-][A-Za-z0-9]+)*/g) || []).length;
 export const writingMaterial = (topic) => topic?.material || topic?.excerpt || '';
-export const writingTargetWords = (topic, level) => topic?.words || questionWordTarget(topic?.question) || ({ 小初: 80, 高考英语: 120, 四六级: 180, '考研/专四': 220, 专八: 300 }[level] || 180);
+export const writingTargetWords = (topic, level) => topic?.words || questionWordTarget(topic?.question)
+  || TOPIC_LEVEL_WORDS[topic?.level] // 题库自带难度（初级/中级/高级）优先于全局润色等级
+  || ({ 小初: 80, 高考英语: 120, 四六级: 180, '考研/专四': 220, 专八: 300 }[level] || 180);
 export const writingSourceKey = (topic) => topic?.sourceTopicKey || writingTopicKey(topic);
 
 export function revisionTopic(result, jobId) {
@@ -91,6 +100,8 @@ export function listWritingDrafts() {
       if (!groups.has(key)) groups.set(key, [row]);
     }
     for (const key of new Set(records.map((r) => writingTopicKey(r.topic)))) {
+      // 同题出现新格式记录时覆盖旧格式组（旧数据仍在存储里，loadWritingState 取最新；
+      // 这是升级过渡的既定行为——旧格式没有时钟向量，不参与支配过滤，展示两份反而误导）
       const rows = records.filter((r) => writingTopicKey(r.topic) === key);
       groups.set(key, rows.filter((r) => !rows.some((other) => other !== r
         && Object.entries(r.clock).every(([writer, seq]) => (other.clock[writer] || 0) >= seq))).sort(newerFirst));

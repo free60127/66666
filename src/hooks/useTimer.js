@@ -15,14 +15,19 @@ import { useEffect, useState } from 'react'
 const TIMER_KEY = 'bt-timer';
 const EMPTY = { running: false, startedAt: null, accumulated: 0, lessonKey: '' };
 
-/** 从 localStorage 恢复（刷新后继续计时；脏数据一律退回空值） */
+/** 页面不可见（切后台/关标签页）的时间不算练习时间：隐藏时记下 lastSeenAt，
+ * 恢复时把 startedAt 平移过这段空窗——否则「写 5 分钟 → 挂机 2 小时 → 重开」会记 2 小时。 */
 export function loadTimer() {
   try {
     const t = JSON.parse(localStorage.getItem(TIMER_KEY) || 'null');
     if (t && typeof t === 'object') {
+      let startedAt = Number(t.startedAt) || null;
+      if (t.running && startedAt && Number(t.lastSeenAt)) {
+        startedAt += Math.max(0, Date.now() - Number(t.lastSeenAt));
+      }
       return {
         running: Boolean(t.running),
-        startedAt: Number(t.startedAt) || null,
+        startedAt,
         accumulated: Math.max(0, Number(t.accumulated) || 0),
         lessonKey: String(t.lessonKey || ''),
       };
@@ -39,6 +44,27 @@ export function saveTimer(t) {
  */
 export function useTimer(lessonKey) {
   const [timer, setTimer] = useState(loadTimer);
+
+  // 页面隐藏时快照「最后可见时刻」；从后台切回来把隐藏时长从计时里剔除
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.hidden) {
+        setTimer((t) => { if (t.running) saveTimer({ ...t, lastSeenAt: Date.now() }); return t; });
+      } else {
+        setTimer((t) => {
+          if (!t.running || !t.startedAt) return t;
+          let raw = null;
+          try { raw = JSON.parse(localStorage.getItem(TIMER_KEY) || 'null'); } catch { /* ignore */ }
+          const gap = raw?.lastSeenAt ? Math.max(0, Date.now() - Number(raw.lastSeenAt)) : 0;
+          const next = { ...t, startedAt: t.startedAt + gap };
+          saveTimer(next);
+          return next;
+        });
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
+  }, []);
 
   // 切换课文 / 模式时自动归零重新计时；同一个 key（刷新页面）则原样保留
   useEffect(() => {

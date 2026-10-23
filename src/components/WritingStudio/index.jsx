@@ -83,11 +83,16 @@ export function WritingStudio({
   const material = writingMaterial(topic);
   const segMeta = writingSteps(topic);
   const segTargets = segMeta.map((s) => Math.max(5, Math.round(targetWords * s.ratio / 5) * 5));
+  // 按段带写 ↔ 直接开写 往返时保留段落槽位：离开 guided 时记下当时的 segs 与拼接结果，
+  // 只要用户没在 direct 模式改过正文，切回 guided 就原样恢复——否则按空段过滤后重切会错位
+  //（空着的「主体段 1」被丢掉，「主体段 2」顶到它的标签下）。
+  const guidedSegsRef = useRef(segs);
+  const guidedJoinRef = useRef('');
 
   /* ---------- 草稿自动保存（800ms 防抖；提交/切题不丢内容） ---------- */
   const saveTimerRef = useRef(null);
   const stateRef = useRef(null);
-  stateRef.current = { topic, mode, essay, segs, brief, angle, briefOpen,
+  stateRef.current = { topic, mode, essay, segs, brief, angle, briefOpen, activeSeg,
     workTitle: titleTopicKey === topicKey && typeof workTitle === 'string' ? workTitle : draftTitle };
   const saveCurrent = useCallback((notify = true) => {
     const snap = stateRef.current;
@@ -200,7 +205,11 @@ export function WritingStudio({
     setDraftTitle(saved?.workTitle ?? t.zh ?? '');
     onTopicChange?.(t, saved?.workTitle ?? t.zh ?? '');
     setEssay(typeof saved?.essay === 'string' ? saved.essay : '');
-    setSegs(Array.isArray(saved?.segs) && saved.segs.length === 4 ? saved.segs.map((s) => typeof s === 'string' ? s : '') : ['', '', '', '']);
+    const savedSegs = Array.isArray(saved?.segs) && saved.segs.length === 4 ? saved.segs.map((s) => typeof s === 'string' ? s : '') : ['', '', '', ''];
+    setSegs(savedSegs);
+    // 恢复「离开 guided 时」的段落快照：刷新后 direct→guided 往返同样不错位
+    guidedSegsRef.current = savedSegs;
+    guidedJoinRef.current = savedSegs.filter((s) => s.trim()).join('\n\n');
     setMode(saved?.mode === 'guided' ? 'guided' : 'direct');
     setSavedAt(saved?.savedAt || 0);
     setActiveSeg(0);
@@ -234,8 +243,16 @@ export function WritingStudio({
 
   const switchMode = (next) => {
     if (next === mode) return;
-    if (next === 'guided') { setSegs(splitWritingParagraphs(essay)); setBriefOpen(true); }
-    else setEssay(segs.filter((s) => s.trim()).join('\n\n'));
+    if (next === 'guided') {
+      // 正文在 direct 模式没被改动时，按离开 guided 那一刻的段落原样恢复（含空槽位）
+      if (essay === guidedJoinRef.current && guidedSegsRef.current.length === 4) setSegs(guidedSegsRef.current);
+      else setSegs(splitWritingParagraphs(essay));
+      setBriefOpen(true);
+    } else {
+      guidedSegsRef.current = segs;
+      guidedJoinRef.current = segs.filter((s) => s.trim()).join('\n\n');
+      setEssay(guidedJoinRef.current);
+    }
     setMode(next);
   };
 
@@ -293,10 +310,13 @@ export function WritingStudio({
       const text = await onOcrImages(files);
       if (!mountedRef.current || writingTopicKey(stateRef.current?.topic) !== requestedKey) return;
       if (!text) throw new Error('没有识别到文字，请换更清晰的照片');
-      if (mode === 'direct') {
+      // 识别常要几十秒：落文目标是「用户此刻看着的输入区」，而不是发起识别时的旧目标
+      const nowMode = stateRef.current?.mode;
+      const nowSeg = stateRef.current?.activeSeg;
+      if (nowMode === 'direct') {
         setEssay((prev) => (prev && prev.trim() ? prev.replace(/\s+$/, '') + '\n\n' + text : text));
       } else {
-        setSegs((arr) => arr.map((s, i) => (i === activeSeg
+        setSegs((arr) => arr.map((s, i) => (i === nowSeg
           ? (s && s.trim() ? s.replace(/\s+$/, '') + '\n\n' + text : text)
           : s)));
       }
@@ -316,6 +336,8 @@ export function WritingStudio({
     if (countWords(text) < 20) { setLocalError('作文太短（至少 20 词）——先写完主体内容再提交'); return; }
     setLocalError('');
     if (!saveCurrent()) return;
+    // 提交即停表：等待批改与读报告的时间不算写作用时（回来继续写会随首次输入自动续表）
+    if (timer.running) toggleTimer();
     onSubmit({
       topic: topic.question.trim(),
       material,
@@ -469,7 +491,10 @@ export function WritingStudio({
             <label className="ws-task-field">写作题型
               <select aria-label="写作题型" value={writingTaskType(topic)} disabled={busy || briefState === 'running'} onChange={(e) => {
                 const taskType = e.target.value;
-                setTopic((current) => ({ ...current, taskType })); setBrief(null); setBriefState('idle'); setBriefErr('');
+                setTopic((current) => ({ ...current, taskType }));
+                // 作废在途的指导请求：旧题型生成的指导迟到时会回填到新题型上
+                briefRequestRef.current += 1;
+                setBrief(null); setBriefState('idle'); setBriefErr('');
               }}>{Object.entries(WRITING_TASK_TYPES).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select>
             </label>
             <p className="ws-topic-q">{topic ? topic.question : ''}</p>

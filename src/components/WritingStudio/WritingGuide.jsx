@@ -15,6 +15,12 @@ export default function WritingGuide({
 }) {
   const [choosing, setChoosing] = useState(false);
   const [customAngle, setCustomAngle] = useState(angle || '');
+  // 生成完成后 angle 会更新为 AI 选定的角度——输入框跟着同步一次（用户自己正在打字时不覆盖）
+  const [seenAngle, setSeenAngle] = useState(angle || '');
+  if ((angle || '') !== seenAngle) {
+    setSeenAngle(angle || '');
+    setCustomAngle(angle || '');
+  }
   const running = status === 'running';
   const locked = disabled || running;
   const paragraph = brief?.paragraphs[activeSeg];
