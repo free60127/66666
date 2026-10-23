@@ -2,15 +2,15 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { BookOpen, Camera, CheckCircle2, ChevronDown, ChevronRight, Cloud, Download, FileText, Flame, ImagePlus, Library, LoaderCircle, PanelLeftClose, PanelLeftOpen, Save, Settings, Sparkles, Timer, Upload, UserRound, WandSparkles, X } from 'lucide-react'
 // mammoth（894 KB 源码）只在"上传 DOCX"这一个功能里用到，
 // 改为 handleDocx 内动态 import，避免它被打进首屏主包。
-import { addSection as addLibSection, corpusToLibrary, deleteSection as deleteLibSection, ensureLessonIds, mergeLibraries, newLibraryId, renameSection as renameLibSection, renumberLibrary, saveLibraries, sectionsOf } from './lessonLibrary.js'
+import { addSection as addLibSection, corpusToLibrary, deleteSection as deleteLibSection, ensureLessonIds, loadLibraries, mergeLibraries, newLibraryId, renameSection as renameLibSection, renumberLibrary, saveLibraries, sectionsOf } from './lessonLibrary.js'
 import { parseDocxText, textSimilarity, REFERENCE_SIM_THRESHOLD } from './docxParse.js'
 import { getOcrJob, getStatus, loadSettings, matchLesson, ocr, saveSettings } from './api.js'
 import { DELETED_FAVORITES_LIMIT, DELETED_LIBRARIES_LIMIT, DELETED_LESSONS_LIMIT, applyLibraryTombstones, mergeDeleted, mergeHistory } from './sync.js'
-import { mergeFavorites, saveFavorites } from './favorites.js'
+import { loadFavorites, mergeFavorites, saveFavorites } from './favorites.js'
 import { DIRECTION_KEY, TRANSLATION_DIRECTIONS, directionMeta, directionText, normalizeDirection } from './direction.js'
 import { exportWritingDrafts, importWritingDrafts, loadWritingState, saveWritingDraft, writingTopicKey, revisionTopic, rememberWritingTopic } from './writing.js'
 import {
-  lessonTombstoneKey, loadDeletedFavorites, loadDeletedLibraries, loadDeletedLessons,
+  lessonTombstoneKey, loadDeletedFavorites, loadDeletedHistory, loadDeletedLibraries, loadDeletedLessons,
   loadDrillUsed, loadResultCache, loadHistory, markDrillUsed, safeGet, safeSet, saveDeletedFavorites,
   saveDeletedHistory, saveDeletedLibraries, saveDeletedLessons, saveDrillUsed, saveHistory,
 } from './storage.js'
@@ -184,6 +184,17 @@ function Studio() {
   const [writingKey, setWritingKey] = useState(() => writingTopicKey(loadWritingState()?.topic));
   const [writingTitle, setWritingTitle] = useState(() => loadWritingState()?.workTitle || '');
   useEffect(() => { safeSet('bt-writing-open', writingOpen ? '1' : '0'); }, [writingOpen]);
+  // 从结果页/翻译视图**进入**写作模式时清掉地址栏残留的 #job=（写作编辑器是用户此刻的「位置」：
+  // 带着它刷新会被恢复逻辑顶回旧批改结果页，像「作文丢了」；草稿其实都在）。
+  // 注意只在跃迁时清：提交批改后刷新（writingOpen 一直为 true + #job=）必须保留 hash，
+  // 让挂载恢复逻辑把已完成的结果页找回来。
+  const prevWritingOpenRef = useRef(writingOpen);
+  useEffect(() => {
+    if (writingOpen && !prevWritingOpenRef.current && window.location.hash.startsWith('#job=')) {
+      window.history.replaceState(null, '', window.location.pathname + window.location.search);
+    }
+    prevWritingOpenRef.current = writingOpen;
+  }, [writingOpen]);
   const selectWritingTopic = useCallback((topic, draftTitle) => {
     setWritingKey(writingTopicKey(topic));
     setWritingTitle(draftTitle ?? topic?.zh ?? '');
@@ -682,6 +693,9 @@ function Studio() {
   /* ---------- 生成链路（hooks/useGeneration.js）----------
    * 提交 → 轮询 → 入历史 → 结果页 / 分享 / 复制 / 离线示例；变量名沿用原来的，调用点不用改。
    * 放在 useLessons / useTimer 之后：提交参数与 lessonKey 都来自那边。 */
+  // 写作模式走 ref：挂载自动恢复要在「当前是否在写作」的实时值上做守卫，不能吃闭包旧值
+  const writingOpenRef = useRef(writingOpen);
+  writingOpenRef.current = writingOpen;
   const {
     result, setResult, currentJobId, historyList, setHistoryList, shareTip,
     deletedHistory, setDeletedHistory, removeFromHistory,
@@ -698,7 +712,7 @@ function Studio() {
     settings, polishLevel, streamResults, runJob, busy, cancelProgress, elapsedMsNow, initialLessonCancelledRef,
     genTokenRef, aliveRef,
     setView, setError, setHistoryOpen, setChinese,
-    flashTip, setToast, runGenerateRef,
+    flashTip, setToast, runGenerateRef, writingOpenRef,
   });
 
   /* ---------- 写作模式：提交批改 + 拍照识别 ----------
@@ -956,7 +970,14 @@ function Studio() {
   // 传给 React.memo 过的弹窗/结果页的回调与 ref：必须稳定，否则 memo 形同虚设
   // 结果页「返回编辑」：只切视图，**保留结果与 #job=**（用户还要回来对照/分享）
   // 顶栏「编辑器」（backToEditor）才是清空结果的那个 —— 两者语义不同，别接错。
-  const backToEditorView = useCallback(() => setView('editor'), []);
+  // 例外（写作模式）：写作编辑器才是用户此刻的「位置」——残留 #job= 会让刷新/手机恢复
+  // 被挂载恢复逻辑拽回旧批改结果页，看起来就像「作文丢了」（实测复现）。翻译编辑器维持原语义。
+  const backToEditorView = useCallback(() => {
+    setView('editor');
+    if (writingOpen && window.location.hash.startsWith('#job=')) {
+      window.history.replaceState(null, '', window.location.pathname + window.location.search);
+    }
+  }, [writingOpen]);
   const finishQuiz = useCallback((id, score) => {
     const progress = loadProgress();
     const key = 'quiz:' + id;
@@ -1437,6 +1458,10 @@ function Studio() {
     local: { libraries: myLibs, favorites, history: historyList, deletedHistory,
       deletedLibraries, deletedLessons, deletedFavorites, progress: lessonProgress, days: studyDays },
     applyMerged: applyMergedSnapshot,
+    // 同步合并要拿「磁盘上的最新数据」而不是渲染期快照（防请求期间完成的写入被回写覆盖，见 useCloudSync）
+    readLocal: () => ({ libraries: loadLibraries(), favorites: loadFavorites(), history: loadHistory(),
+      deletedHistory: loadDeletedHistory(), deletedLibraries: loadDeletedLibraries(), deletedLessons: loadDeletedLessons(),
+      deletedFavorites: loadDeletedFavorites(), progress: loadProgress(), days: loadDays() }),
     flash: (msg, ms) => flashTip(setToast, msg, ms),
   });
   syncActionRef.current = flushSync;

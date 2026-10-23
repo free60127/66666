@@ -84,11 +84,14 @@ export const leaveClass = async (classId) => {
   notifyMembershipsChanged();
 };
 
-/** 完成后自动上报。失败时保存待发送队列，下一次打开应用可重试。 */
+/** 完成后自动上报。失败时保存待发送队列，下一次打开应用可重试。
+ * 返回 `{ failed }`：本次任务里被服务端**永久拒绝**（4xx）的上报——调用方要让学生看见，
+ * 否则教师改题/删作业后，学生写完整篇作文却不计成绩且毫无感知（结果只躺在班级面板里）。 */
 export async function reportCompletedJob(jobId, deleteToken, assignment = activeHomework()) {
-  if (!jobId || !deleteToken) return;
+  if (!jobId || !deleteToken) return { failed: [] };
   const members = memberships();
-  if (!members.length) return;
+  if (!members.length) return { failed: [] };
+  const knownFailed = new Set(failedClassReports().map((f) => f.classId + ':' + f.jobId));
   const pending = parse(PENDING_KEY);
   for (const member of members) {
     if (!pending.some((p) => p.jobId === jobId && p.classId === member.classId)) {
@@ -104,6 +107,8 @@ export async function reportCompletedJob(jobId, deleteToken, assignment = active
   }
   localStorage.setItem(PENDING_KEY, JSON.stringify(pending.slice(-100)));
   await retryClassReports();
+  const failed = failedClassReports().filter((f) => f.jobId === jobId && !knownFailed.has(f.classId + ':' + f.jobId));
+  return { failed };
 }
 
 /** 登录/换设备登录后：账号里的班级身份优先；本机独有班级再绑定到账号。 */

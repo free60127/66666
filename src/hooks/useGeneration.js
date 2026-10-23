@@ -64,7 +64,7 @@ export function useGeneration({
   settings, polishLevel, streamResults = false, runJob, busy, cancelProgress, elapsedMsNow,
   genTokenRef, aliveRef, initialLessonCancelledRef, direction, view,
   setView, setError, setHistoryOpen, setChinese,
-  flashTip, setToast, runGenerateRef,
+  flashTip, setToast, runGenerateRef, writingOpenRef,
 }) {
   // 方向走 ref：runGenerate 只在提交那一刻需要它，放进依赖会让"切方向"重建整个提交函数
   const directionRef = useRef(direction);
@@ -199,12 +199,23 @@ export function useGeneration({
 
   // 连点两条历史时，先发的慢请求后返回会把后点的那条覆盖掉 —— 用请求令牌丢弃过期结果
   const historyReqRef = useRef(0);
-  const loadHistoryJob = async (jobId) => {
+  /**
+   * 打开一条历史/恢复中的批改。
+   * @param {string} jobId
+   * @param {object} [opts]
+   * @param {boolean} [opts.background] 挂载自动恢复用：不抢视图、不写 #job=——
+   *   正在写作的用户不能被一篇迟到完成的旧批改拽走（含翻译任务：守卫条件只区分写作题，
+   *   挡不住「翻译 pending 顶掉写作页」）。结果照常入历史，用户可随时从「历史作业」打开。
+   */
+  const loadHistoryJob = async (jobId, opts = {}) => {
+    const background = Boolean(opts.background);
     if (initialLessonCancelledRef) initialLessonCancelledRef.current = true;
     const reqId = (historyReqRef.current += 1);
     const myToken = (genTokenRef.current += 1);
     setStreaming(false); setStreamNote('');
     cancelGenRef.current = false;
+    // 后台恢复期间用户进/出写作模式都可能发生：完成那一刻以「当时是否在写作」为准
+    const writingNow = () => Boolean(writingOpenRef?.current);
     const entry = loadHistory().find((h) => h.jobId === jobId);
     const showCompleted = (data) => {
       const enriched = { ...data, ...(entry ? { workTitle: entry.title, durationMs: entry.durationMs,
@@ -222,7 +233,9 @@ export function useGeneration({
       setCurrentJobId(jobId);
       setStreaming(false);
       setError('');
-      if (!cancelGenRef.current) setView('result');
+      if (background && writingNow()) {
+        flashTip(setToast, '批改已完成，已存进「历史作业」，可稍后查看', 6000);
+      } else if (!cancelGenRef.current) setView('result');
       else flashTip(setToast, '批改已完成，可在「历史作业」查看结果', 6000);
     };
     // 优先用本机缓存，秒开且不受服务器任务清理影响
@@ -239,7 +252,7 @@ export function useGeneration({
     }
     try {
       setHistoryOpen(false);
-      window.history.replaceState(null, '', '#job=' + jobId);
+      if (!background) window.history.replaceState(null, '', '#job=' + jobId);
       const r = await getAnalyzeJob(jobId);
       if (!aliveRef.current || reqId !== historyReqRef.current || myToken !== genTokenRef.current) return;
       const job = r.job;
@@ -248,9 +261,10 @@ export function useGeneration({
       } else if (job?.status === 'error') {
         const next = loadHistory().map((h) => h.jobId === jobId ? { ...h, status: 'error', error: job.error } : h);
         saveHistory(next); setHistoryList(next);
-        setError(job.error || '该任务生成失败');
+        if (!background) setError(job.error || '该任务生成失败');
       } else {
-        setView('editor'); setError('');
+        if (!background) setView('editor');
+        if (!background) setError('');
         await runJob({ submit: async () => ({ jobId }), fetchJob: getAnalyzeJob,
           intervalMs: POLL_ANALYZE_MS, timeoutMs: TIMEOUT_ANALYZE_MS, maxFailures: 10,
           netError: '网络暂时不可用。任务仍保留在「历史作业」，恢复网络后可继续查看，无需重新提交。',
@@ -263,13 +277,13 @@ export function useGeneration({
       setHistoryOpen(false);
       // 服务器任务已过期/重新部署丢失时，尝试用本机缓存的结果兜底
       const fallback = loadResultCache(jobId);
-      if (fallback) {
+      if (fallback && !background) {
         setResult(normalizeResult(fallback));
         setCurrentJobId(jobId);
         setView('result');
         setError('');
         window.history.replaceState(null, '', '#job=' + jobId);
-      } else {
+      } else if (!background || (e && e.message && !/不存在|过期/.test(e.message))) {
         setError(e.message || '无法读取该结果');
       }
     }
@@ -291,13 +305,22 @@ export function useGeneration({
   useEffect(() => {
     const openLinkedJob = () => {
       const m = window.location.hash.match(/^#job=([A-Za-z0-9-]{8,64})/);
+      // 刷新恢复结果页是既定语义（提交后刷新、分享链接都靠它）。写作模式下残留 #job
+      // 的场景已由「返回编辑/进入写作模式时清 hash」处理（App.jsx），这里不需要拦。
       if (m) void loadHistoryJob(m[1]);
     };
     if (window.location.hash) openLinkedJob();
     else {
       const pending = loadHistory().find((h) => h.status === 'pending'
         && (h.direction !== 'writing' || !h.lessonKey || h.lessonKey === writingTopicKey(loadWritingState()?.topic)));
-      if (pending) void loadHistoryJob(pending.jobId);
+      if (pending) {
+        const writing = Boolean(writingOpenRef?.current);
+        // 写作页挂着时：只**后台**续等「本篇作文」自己的批改（完成不抢视图，入历史后提示）；
+        // 翻译或别的题的 pending 干脆不恢复——顶掉正在写的作文比晚点看结果伤得多，历史里随时能打开。
+        const mine = pending.direction === 'writing' && pending.lessonKey
+          && pending.lessonKey === writingTopicKey(loadWritingState()?.topic);
+        if (!writing || mine) void loadHistoryJob(pending.jobId, { background: writing });
+      }
     }
     window.addEventListener('hashchange', openLinkedJob);
     return () => window.removeEventListener('hashchange', openLinkedJob);
@@ -445,7 +468,12 @@ export function useGeneration({
           if (!cancelled && myToken === genTokenRef.current && !streamViewRef.current) setView('result');
           if (jobId) {
             addToHistory(jobId, workTitle, enriched, durationMs, deleteToken);
-            void reportCompletedJob(jobId, deleteToken, classHomework);
+            Promise.resolve(reportCompletedJob(jobId, deleteToken, classHomework)).then((r) => {
+              // 班级上报被永久拒绝（教师改题/删作业/结束收集后提交）必须让学生看见，
+              // 否则整篇白写却毫无感知——详情在「班级」面板，作文与批改仍在本地历史。
+              if (r?.failed?.length) flashTip(setToast, '⚠ 本次成绩未能上报给教师：' + (r.failed[0].reason || '作业状态已变化')
+                + '。作文与批改已保留，详情见「更多 → 加入教师班级」的失败列表。', 12000);
+            }).catch(() => { /* 上报失败已进重试队列，不阻塞结果展示 */ });
             if (classHomework && activeHomework()?.classId === classHomework.classId && activeHomework()?.hwId === classHomework.hwId) clearActiveHomework();
             if (stored?.status !== 'done') { bumpProgress(attemptLessonKey, enriched, durationMs); bumpStudyDay(); }
             if (myToken === genTokenRef.current) window.history.replaceState(null, '', '#job=' + jobId);
