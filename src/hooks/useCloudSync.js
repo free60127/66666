@@ -4,7 +4,7 @@ import { loadSyncCode, loadSyncMeta, mergeSnapshot, saveSyncCode, saveSyncMeta, 
 import { migrateAccountData } from '../api.js';
 import { loadAccount } from '../account.js';
 
-export function useCloudSync({ account, local, applyMerged, flash }) {
+export function useCloudSync({ account, local, applyMerged, readLocal, flash }) {
   const token = account?.token || '';
   const [syncMeta, setSyncMeta] = useState(loadSyncMeta);
   const [syncBusy, setSyncBusy] = useState(false);
@@ -19,7 +19,13 @@ export function useCloudSync({ account, local, applyMerged, flash }) {
   const runRef = useRef(null);
   const localRef = useRef(local); localRef.current = local;
   const applyRef = useRef(applyMerged); applyRef.current = applyMerged;
+  // 读「落盘后的最新本机数据」：请求期间完成的写入（如批改轮询 addToHistory）是
+  // 同步写 localStorage 的，但 React 状态可能还没 flush —— 用渲染期快照合并会把这些
+  // 记录在内存、磁盘、云端三处同时覆盖掉（丢刚完成的练习记录）。
+  const readLocalRef = useRef(readLocal); readLocalRef.current = readLocal;
   const flashRef = useRef(flash); flashRef.current = flash;
+  // 「有条目过大、无法云同步」只提示一次：反复弹只会变成背景噪音
+  const oversizeWarnedRef = useRef(false);
   useEffect(() => { mountedRef.current = true; return () => { mountedRef.current = false; }; }, []);
   const stillCurrent = () => mountedRef.current && loadAccount()?.token === token;
 
@@ -49,14 +55,26 @@ export function useCloudSync({ account, local, applyMerged, flash }) {
       if (!res.ok) { setSyncTip(res.error || '同步失败'); return res; }
       baselineRef.current = res.baseline;
       setLegacyPending(Boolean(res.legacyPending));
-      // 请求期间新产生的本机写入仍需保留；下次推送会将它们送到账号。
-      const settled = mergeSnapshot(localRef.current, res.merged);
+      // 请求期间新产生的本机写入仍需保留。以「磁盘上的最新数据」为准做合并：
+      // 各写入路径都是同步落盘的，读盘能拿到尚未 flush 的 React 状态更新；
+      // 写回时 settled ⊇ 本机新记录，排队中的 setState 被覆盖也不会丢数据。
+      const fresh = (typeof readLocalRef.current === 'function' ? readLocalRef.current() : null) || localRef.current;
+      const settled = mergeSnapshot(fresh, res.merged);
       const changed = applyRef.current(settled);
+      if ((res.dropped?.favorites || res.dropped?.history) && !oversizeWarnedRef.current) {
+        oversizeWarnedRef.current = true;
+        const parts = [];
+        if (res.dropped.favorites) parts.push(res.dropped.favorites + ' 条收藏');
+        if (res.dropped.history) parts.push(res.dropped.history + ' 条历史');
+        flashRef.current('注意：' + parts.join('和') + '内容过大，无法同步到云端（本机保留，可导出备份留存）', 8000);
+      }
       lastSyncRef.current = Date.now();
       const meta = { ...loadSyncMeta(), lastSyncAt: lastSyncRef.current, version: res.version };
       saveSyncMeta(meta); setSyncMeta(meta);
+      // 自动同步成功也要清掉上一轮挂着的错误提示，否则旧报错一直误导用户
       if (manual) setSyncTip('同步完成，学习数据已保存到账号');
-      else if (changed) flashRef.current('已恢复账号中的学习数据', 3200);
+      else setSyncTip('');
+      if (!manual && changed) flashRef.current('已恢复账号中的学习数据', 3200);
       return { ok: true };
     } catch (error) {
       if (stillCurrent()) setSyncTip('同步未完成：' + error.message);
@@ -104,7 +122,9 @@ export function useCloudSync({ account, local, applyMerged, flash }) {
     finally { busyRef.current = false; if (mountedRef.current) setSyncBusy(false); }
   };
   const flushSync = async () => {
-    while (busyRef.current && mountedRef.current) await new Promise((resolve) => setTimeout(resolve, 100));
+    // 最多等 8 秒：在途同步卡住（网络半死不活）时不能把「退出登录」整个挂起一分钟以上
+    const deadline = Date.now() + 8000;
+    while (busyRef.current && mountedRef.current && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 100));
     return mountedRef.current ? runRef.current(true) : { ok: false };
   };
   return { syncMeta, syncBusy, syncTip, legacyPending, codeInput, setCodeInput, runSync, importLegacy, flushSync };

@@ -5,6 +5,27 @@ import { applySnapshotPatch, diffSnapshot, snapshotData } from './syncDelta.js';
 
 const CODE_KEY = 'bt-sync-code';
 const META_KEY = 'bt-sync-meta';
+// 与服务端 SNAPSHOT_LIMITS 同值（server/sync.mjs）。推送前先把超限条目摘掉：
+// 服务端对单条超限的收藏/历史是**静默丢弃**的——不摘的话该条目每次同步都会
+// 推上去又被丢掉（无限空推新版本），而且换设备登录后它就永久丢了。
+const SYNC_FAVORITE_BYTES = 20000;
+const SYNC_HISTORY_BYTES = 2000;
+const jsonBytes = (v) => new TextEncoder().encode(JSON.stringify(v)).length;
+/** 摘掉单条体积超限的条目（本地保留，只是不参与云同步）。返回各集合被摘掉的条数。 */
+function dropOversized(data) {
+  const dropped = { favorites: 0, history: 0 };
+  if (Array.isArray(data.favorites)) {
+    const kept = data.favorites.filter((f) => jsonBytes(f) <= SYNC_FAVORITE_BYTES);
+    dropped.favorites = data.favorites.length - kept.length;
+    data.favorites = kept;
+  }
+  if (Array.isArray(data.history)) {
+    const kept = data.history.filter((h) => jsonBytes(h) <= SYNC_HISTORY_BYTES);
+    dropped.history = data.history.length - kept.length;
+    data.history = kept;
+  }
+  return dropped;
+}
 
 export function loadSyncCode() {
   try { return localStorage.getItem(CODE_KEY) || ''; } catch { return ''; }
@@ -57,9 +78,10 @@ export async function syncOnce({ token, local, device, baseline, maxAttempts = 3
     const data = snapshotData(payload);
     // The UI displays only 20 jobs; that display limit must not repeatedly delete the server archive.
     data.history = mergeHistory(payload.history, remote.data.history, 200, payload.deletedHistory);
+    const dropped = dropOversized(data);
     const ops = diffSnapshot(remote.data, data);
     if (!ops.length) return { ok: true, version: remote.version, merged: payload, baseline: remote,
-      added: payload.added, legacyPending: response.legacyPending };
+      added: payload.added, legacyPending: response.legacyPending, dropped };
     const r = await patchAccountData(token, {
       baseVersion: remote.version,
       device: device || deviceId(),
@@ -68,7 +90,7 @@ export async function syncOnce({ token, local, device, baseline, maxAttempts = 3
     if (r.ok) {
       remote = { token, version: r.data.version, data: applySnapshotPatch(remote.data, r.data.ops) };
       return { ok: true, version: remote.version, merged: mergeSnapshot(payload, remote.data), baseline: remote,
-        added: payload.added, legacyPending: response.legacyPending };
+        added: payload.added, legacyPending: response.legacyPending, dropped };
     }
     if (r.status === 409) continue;
     return { ok: false, error: (r.data && r.data.error) || ('同步失败：HTTP ' + r.status) };

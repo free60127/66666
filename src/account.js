@@ -18,8 +18,15 @@ export function loadAccount() {
 export function saveAccount(token, user) {
   const before = loadAccount();
   switchDataOwner(user.id);
-  localStorage.setItem(TOKEN_KEY, token || '');
-  localStorage.setItem(USER_KEY, JSON.stringify(user || null));
+  try {
+    localStorage.setItem(TOKEN_KEY, token || '');
+    localStorage.setItem(USER_KEY, JSON.stringify(user || null));
+  } catch {
+    // 令牌写不进去（通常是配额满）：把数据槽切回原账号，避免
+    // 「仍登录 A，本地缓存却是 B 的数据」——下一次同步会把 B 的数据并进 A 的云端账号。
+    try { switchDataOwner(before?.user?.id || ''); } catch { /* 回滚也失败：如实报错 */ }
+    throw new Error('本机空间不足，无法保存登录状态，请清理浏览器存储后重试');
+  }
   if (before?.token !== token || before?.user?.id !== user.id) notifyAccountChanged();
 }
 export function clearAccount() {

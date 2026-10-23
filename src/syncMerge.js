@@ -46,11 +46,8 @@ export function mergeHistory(localHistory, remoteHistory, limit = HISTORY_LIMIT,
 /**
  * 墓碑合并：两边并集（删除是不可逆操作，取并集才不会"复活"）。
  *
- * ⚠️ 超限时的取舍：**本机的墓碑一条都不能丢**。
- * 原来是 `[...local, ...remote].slice(-limit)` —— 本机条目排在最前面，一旦远端墓碑
- * 已经堆到上限，本机刚删的那条会被直接从队首挤掉；被挤掉的墓碑随后又会被推回云端，
- * 于是"本机删了、云端还留着"，那条记录下次同步照样复活。
- * 现在的规则：先全额保留本机，剩余名额留给远端（远端也优先保留更新的那批）。
+ * ⚠️ 超限时的取舍：本机未满 → 本机全额保留、余量给远端；双端都满 → 一换一收敛
+ * （防"互相抹掉对方删除"的永久乒乓）。详见函数体注释。
  */
 export function mergeDeleted(localDeleted, remoteDeleted, limit = DELETED_LIMIT) {
   const uniq = (arr) => {
@@ -65,9 +62,22 @@ export function mergeDeleted(localDeleted, remoteDeleted, limit = DELETED_LIMIT)
   };
   const local = uniq(localDeleted).slice(-limit);
   const seen = new Set(local);
-  const room = Math.max(0, limit - local.length);
-  const remote = uniq(remoteDeleted).filter((id) => !seen.has(id));
-  return [...local, ...(room > 0 ? remote.slice(-room) : [])];
+  const remoteUnseen = uniq(remoteDeleted).filter((id) => !seen.has(id));
+  if (!remoteUnseen.length) return local;
+  // 本机未满：本机全额保留（本地刚删的那条绝不能被远端旧集合挤掉），余量给远端未见条目。
+  if (local.length < limit) {
+    const room = limit - local.length;
+    return [...local, ...remoteUnseen.slice(-room)];
+  }
+  // 双端都已满（病态场景，集合不相交）：逐个挤掉最旧的本机墓碑换入远端未见条目。
+  // 不这样做会永久乒乓：A 推回自己的满集合把 B 的删除抹掉，B 再推回来……版本号无限增长、
+  // 被删记录在另一台设备反复复活、永不收敛。删除跨设备不可逆，收敛优先于"本机一条不丢"。
+  const merged = [...local];
+  for (const id of remoteUnseen) {
+    while (merged.length >= limit) merged.shift();
+    merged.push(id);
+  }
+  return merged;
 }
 
 /**

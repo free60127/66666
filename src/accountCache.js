@@ -9,9 +9,13 @@ const keys = new Set(['bt-history', 'bt-history-deleted', 'bt-lesson-libraries',
 const scoped = (key) => keys.has(key) || key === 'bt-quiz-current' || key === 'bt-study-focus' || key.startsWith('bt-quiz-session:') || key.startsWith('bt-result-') || key.startsWith('bt-writing-draft:');
 export const dataOwner = () => safeGet(OWNER);
 const snapshot = () => Object.fromEntries(Object.keys(localStorage).filter(scoped).map((key) => [key, localStorage.getItem(key)]));
+// 配额满等写入失败不能让进程停在「写了一半」：逐键兜住，返回失败数由调用方决定回滚
+const put = (key, value) => { try { localStorage.setItem(key, value); return true; } catch { return false; } };
 const replace = (raw) => {
-  Object.keys(localStorage).filter(scoped).forEach((key) => localStorage.removeItem(key));
-  Object.entries(raw || {}).filter(([key]) => scoped(key)).forEach(([key, value]) => localStorage.setItem(key, value));
+  Object.keys(localStorage).filter(scoped).forEach((key) => { try { localStorage.removeItem(key); } catch { /* 单项失败继续 */ } });
+  let failed = 0;
+  Object.entries(raw || {}).filter(([key]) => scoped(key)).forEach(([key, value]) => { if (!put(key, value)) failed += 1; });
+  return failed;
 };
 export function switchDataOwner(userId) {
   const target = userId || 'guest';
@@ -25,9 +29,10 @@ export function switchDataOwner(userId) {
   const oldBackup = localStorage.getItem('bt-data-cache:' + previous);
   try {
     const stored = JSON.parse(localStorage.getItem('bt-data-cache:' + target) || '{}');
-    localStorage.setItem('bt-data-cache:' + previous, JSON.stringify(old));
-    replace(stored);
-    localStorage.setItem(OWNER, target);
+    if (!put('bt-data-cache:' + previous, JSON.stringify(old))) throw new Error('quota');
+    const failed = replace(stored);
+    // 任一关键写失败（含 OWNER 本身）都按整体失败处理，走统一回滚，绝不留「半切换」脏状态
+    if (failed > 0 || !put(OWNER, target)) throw new Error('quota');
     sessionStorage.removeItem('bt-studio-settings-key');
     return true;
   } catch {
@@ -41,7 +46,13 @@ export function notifyAccountChanged() { window.dispatchEvent(new Event('bts:acc
 export function forgetAccountCache(userId) {
   localStorage.removeItem('bt-data-cache:' + userId);
   if (dataOwner() === userId) {
-    replace({});
+    // 注销 ≠ 登出：账号数据销毁，但「登录前访客时期」的备份要恢复出来（登出路径就是这么做的）。
+    // 否则留下一份空的活动数据，下一次登录任何账号都会用它覆盖 cache:guest —— 访客数据就此丢失。
+    try { replace(JSON.parse(localStorage.getItem('bt-data-cache:guest') || '{}')); }
+    catch { replace({}); }
     localStorage.setItem(OWNER, 'guest');
+    // 正常切换路径会清这个键，但注销后 owner 已是 guest，clearAccount 的 switchDataOwner('')
+    // 会因 previous === target 提前返回而跳过——会话级 API Key 不能残留给注销后的访客会话。
+    try { sessionStorage.removeItem('bt-studio-settings-key'); } catch { /* ignore */ }
   }
 }

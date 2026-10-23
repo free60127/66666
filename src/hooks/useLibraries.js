@@ -56,13 +56,13 @@ export function useLibraries({ toast, setLibTip, onLessonEdited, getSelectedLess
   const deleteLibrary = useCallback((libId, libName) => {
     if (!window.confirm(`删除课文库「${libName}」？库里的课文会一起删掉，此操作不可撤销。`)) return;
     const next = removeLibrary(myLibs, libId);
-    setMyLibs(next);
-    saveLibraries(next);
+    // 走 persist：写盘失败要如实提示，否则刷新后库又"复活"，用户还以为删除坏了
+    if (!persist(next)) return;
     if (myLibId === libId) setMyLibId('');
     // 留墓碑：不然下一次云同步会把整个库从云端旧副本里并回来（"删了又出现"）
     if (onDeleted) onDeleted({ library: libId });
     toast('已删除课文库「' + libName + '」', 3000);
-  }, [myLibs, myLibId, toast, onDeleted]);
+  }, [myLibs, myLibId, toast, onDeleted, persist]);
 
   const deleteMyLesson = useCallback((libId, lessonOrNo, label) => {
     if (!window.confirm(`从课文库删除「${label}」？\n\n（其它课的序号不会自动变；想补齐空档点「我的课文库」旁的「重排序号」）`)) return;
