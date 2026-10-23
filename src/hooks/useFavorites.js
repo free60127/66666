@@ -12,6 +12,7 @@ import { POLL_QUIZ_MS, TIMEOUT_QUIZ_MS } from '../constants.js';;
 import { quiz as quizApi, getQuizJob } from '../api.js';
 import { dayStamp } from '../format.js';
 import { useJobRunner } from './useJobRunner.js';
+import { loadQuizSession, newQuizSession } from '../quizSession.js';
 
 /**
  * @param {object} o
@@ -28,7 +29,8 @@ export function useFavorites({ flash, setView, settings, polishLevel, isOpen, op
   // 间隔重复复习会话：{ ids, index, revealed, reviewed, tally }
   const [favReview, setFavReview] = useState(null);
   // 自测题
-  const [quizData, setQuizData] = useState(null);
+  const [quizData, updateQuizData] = useState(() => loadQuizSession()?.quiz || null);
+  const setQuizData = (data) => updateQuizData(newQuizSession(data));
   const [quizCount, setQuizCount] = useState(10);
   const [quizShowAnswers, setQuizShowAnswers] = useState(false); // 默认隐藏答案，先自己做
   const [quizTip, setQuizTip] = useState('');

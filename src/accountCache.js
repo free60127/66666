@@ -6,7 +6,7 @@ const keys = new Set(['bt-history', 'bt-history-deleted', 'bt-lesson-libraries',
   'bt-drafts', 'bt-writing-studio', 'bt-writing-current', 'bt-writing-open', 'bt-drill-used', 'bt-timer', 'bt-sync-code', 'bt-sync-meta', 'bt-book', 'bt-lesson',
   'bt-lib-tab', 'bt-open-groups', 'bt-studio-settings', 'bt-studio-settings-key',
   'bts-class-memberships', 'bts-class-member-owner', 'bts-class-pending', 'bts-class-failed', 'bts-active-homework']);
-const scoped = (key) => keys.has(key) || key.startsWith('bt-result-') || key.startsWith('bt-writing-draft:');
+const scoped = (key) => keys.has(key) || key === 'bt-quiz-current' || key === 'bt-study-focus' || key.startsWith('bt-quiz-session:') || key.startsWith('bt-result-') || key.startsWith('bt-writing-draft:');
 export const dataOwner = () => safeGet(OWNER);
 const snapshot = () => Object.fromEntries(Object.keys(localStorage).filter(scoped).map((key) => [key, localStorage.getItem(key)]));
 const replace = (raw) => {

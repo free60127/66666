@@ -16,10 +16,18 @@ import { MAX_GRADE_ITEMS, POLL_QUIZ_MS, TIMEOUT_QUIZ_MS } from '../constants.js'
 import { gradingMode, judgeLocally, needsAIGrade, summarizeVerdicts } from '../quizGrade.js';
 import { useJobRunner } from './useJobRunner.js';
 import { safeGet } from '../storage.js';
+import { loadQuizSession, quizSessionId, saveQuizSession } from '../quizSession.js';
+import { dataOwner } from '../accountCache.js';
 
-export function useQuizGrade({ quiz, settings }) {
-  const [answers, setAnswers] = useState({});     // 题号 → 作答（选择题存选项字母）
-  const [verdicts, setVerdicts] = useState({});   // 题号 → { status, by, expected, comment, better }
+export function useQuizGrade({ quiz, settings, onComplete }) {
+  const sessionId = quizSessionId(quiz);
+  const restored = useRef(loadQuizSession(sessionId));
+  const [answers, setAnswers] = useState(() => restored.current?.answers || {});
+  const [verdicts, setVerdicts] = useState(() => restored.current?.verdicts || {});
+  const owner = useRef(dataOwner());
+  const reported = useRef(restored.current?.reported || '');
+  const saved = useRef(restored.current);
+  const [saveError, setSaveError] = useState('');
   const [tip, setTip] = useState('');
   // 这一批交给 AI 的题号 + 还没有拿到判定的那些（底部据此显示"已判 2/5 题"、题上显示"批改中"）
   const [pendingAI, setPendingAI] = useState([]);
@@ -35,7 +43,30 @@ export function useQuizGrade({ quiz, settings }) {
   const qs = useMemo(() => (Array.isArray(quiz && quiz.questions) ? quiz.questions : []), [quiz]);
 
   // 换了一份卷子（重新出题 / 换了方向）就清空作答：把上一份的答案贴到新题上是最糟的错
-  useEffect(() => { setAnswers({}); setVerdicts({}); setTip(''); setPendingAI([]); setAiTotal(0); }, [quiz]);
+  const latest = useRef(null);
+  latest.current = { quiz, answers, verdicts };
+  const flush = useCallback(() => {
+    if (dataOwner() !== owner.current) return true;
+    const state = latest.current;
+    if (saved.current && JSON.stringify([state.answers, state.verdicts, reported.current])
+      === JSON.stringify([saved.current.answers, saved.current.verdicts, saved.current.reported || ''])) return true;
+    const ok = saveQuizSession(state.quiz, state.answers, state.verdicts, reported.current, false, saved.current);
+    if (ok) saved.current = { ...state, reported: reported.current };
+    return ok;
+  }, []);
+  useEffect(() => {
+    const timer = setTimeout(() => setSaveError(flush() ? '' : '答题进度未能保存到本机，可能空间不足或其他页面同时修改了本题。请先复制答案备份。'), 250);
+    return () => clearTimeout(timer);
+  }, [answers, verdicts, flush]);
+  useEffect(() => {
+    const save = () => { flush(); };
+    const hide = () => { if (document.hidden) save(); };
+    window.addEventListener('pagehide', save);
+    window.addEventListener('bts:flush-quiz', save);
+    window.addEventListener('bts:before-account-change', save);
+    document.addEventListener('visibilitychange', hide);
+    return () => { save(); window.removeEventListener('pagehide', save); window.removeEventListener('bts:flush-quiz', save); window.removeEventListener('bts:before-account-change', save); document.removeEventListener('visibilitychange', hide); };
+  }, [flush]);
 
   const apply = useCallback((i, v) => setVerdicts((prev) => ({ ...prev, [i]: v })), []);
 
@@ -72,7 +103,9 @@ export function useQuizGrade({ quiz, settings }) {
 
   /** 批改整卷：先本地判一遍，再把拿不准的（主观题/存疑题）一次性交给 AI */
   const gradeAll = useCallback(async () => {
-    if (!qs.length) return;
+    if (!qs.length || aiBusy) return;
+    const submittedAnswers = { ...answersRef.current };
+    const stillMatches = (i) => answersRef.current[i] === submittedAnswers[i];
     setTip('');
     const base = { ...verdictsRef.current };
     const askAI = [];
@@ -122,7 +155,7 @@ export function useQuizGrade({ quiz, settings }) {
           onEvent: (name, payload) => {
             if (name !== 'grade' || !payload || !payload.grade) return;
             const qi = batch[payload.grade.index];      // 位置 → 卷子上的题号
-            if (qi == null) return;
+            if (qi == null || !stillMatches(qi)) return;
             setVerdicts((prev) => ({
               ...prev,
               [qi]: {
@@ -149,7 +182,7 @@ export function useQuizGrade({ quiz, settings }) {
             const next = { ...prev };
             for (const g of grades) {
               const qi = batch[g.index];                      // 位置 → 卷子上的题号
-              if (qi == null) continue;
+              if (qi == null || !stillMatches(qi)) continue;
               next[qi] = {
                 status: g.verdict || 'close',
                 by: 'ai',
@@ -167,6 +200,7 @@ export function useQuizGrade({ quiz, settings }) {
       setVerdicts((prev) => {
         const next = { ...prev };
         for (const i of batch) {
+          if (!stillMatches(i)) continue;
           const local = next[i];
           if (local && local.by === 'ai') continue;
           next[i] = {
@@ -182,7 +216,7 @@ export function useQuizGrade({ quiz, settings }) {
     } finally {
       setPendingAI([]);
     }
-  }, [qs, quiz, settings, run]);
+  }, [qs, quiz, settings, run, aiBusy]);
 
   const resetAll = useCallback(() => {
     setAnswers({});
@@ -197,9 +231,17 @@ export function useQuizGrade({ quiz, settings }) {
   }, []);
 
   const summary = useMemo(() => summarizeVerdicts(verdicts, qs.length), [verdicts, qs.length]);
+  useEffect(() => {
+    if (!summary.total || summary.judged !== summary.total || !onComplete || dataOwner() !== owner.current) return;
+    const signature = JSON.stringify([answers, verdicts]);
+    if (reported.current === signature) return;
+    onComplete(sessionId, Math.round(summary.right / summary.total * 100));
+    reported.current = signature;
+    flush();
+  }, [answers, verdicts, summary, sessionId, onComplete, flush]);
 
   return {
-    answers, verdicts, summary, tip, aiBusy, aiElapsed: elapsed,
+    answers, verdicts, summary, tip: saveError || tip, aiBusy, aiElapsed: elapsed,
     // AI 批改进度：total = 这一批几道题，pending = 还在等的题号（逐题到达时实时收缩）
     aiProgress: { total: aiTotal, pending: pendingAI, done: Math.max(0, aiTotal - pendingAI.length) },
     setAnswer, chooseOption, judgeOne, gradeAll, selfJudge, resetAll, clearOne,

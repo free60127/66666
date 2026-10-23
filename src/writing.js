@@ -1,4 +1,5 @@
 import { hasWritingBrief, normalizeWritingBrief } from './writingGuidance.js';
+import { questionWordTarget } from './writingTask.js';
 
 /** Shared writing draft identity and text helpers. Existing single-draft storage is retained. */
 export const WRITING_STORE_KEY = 'bt-writing-studio';
@@ -23,7 +24,18 @@ export function writingTopicKey(topic) {
 
 export const countWritingWords = (text) => (String(text || '').match(/[A-Za-z0-9]+(?:['’-][A-Za-z0-9]+)*/g) || []).length;
 export const writingMaterial = (topic) => topic?.material || topic?.excerpt || '';
-export const writingTargetWords = (topic, level) => topic?.words || ({ 小初: 80, 高考英语: 120, 四六级: 180, '考研/专四': 220, 专八: 300 }[level] || 180);
+export const writingTargetWords = (topic, level) => topic?.words || questionWordTarget(topic?.question) || ({ 小初: 80, 高考英语: 120, 四六级: 180, '考研/专四': 220, 专八: 300 }[level] || 180);
+export const writingSourceKey = (topic) => topic?.sourceTopicKey || writingTopicKey(topic);
+
+export function revisionTopic(result, jobId) {
+  const source = result.writingTopic || {};
+  return { ...source, classId: undefined, hwId: undefined, id: 'custom',
+    draftKey: 'writing:revision-' + (jobId || Date.now()),
+    sourceTopicKey: source.sourceTopicKey || result.lessonKey || writingTopicKey({ ...source, question: result.chinese }),
+    parentJobId: jobId || '', rootJobId: source.rootJobId || jobId || '',
+    question: result.chinese, material: result.material || '', imageDesc: result.imageDesc || '',
+    zh: result.workTitle || result.title || '作文修改', label: '历史作文修改', words: result.targetWords || source.words || null };
+}
 
 export function splitWritingParagraphs(text) {
   const paragraphs = String(text || '').split(/\n\s*\n/);
@@ -34,7 +46,7 @@ export function normalizeWritingDraft(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const rawTopic = value.topic;
   const topic = rawTopic && typeof rawTopic.question === 'string' && rawTopic.question.trim()
-    ? { ...Object.fromEntries(['id', 'draftKey', 'classId', 'hwId', 'exam', 'label', 'zh', 'topic', 'level', 'qtype', 'question', 'material', 'excerpt', 'image', 'imageDesc']
+    ? { ...Object.fromEntries(['id', 'draftKey', 'sourceTopicKey', 'parentJobId', 'rootJobId', 'taskType', 'classId', 'hwId', 'exam', 'label', 'zh', 'topic', 'level', 'qtype', 'question', 'material', 'excerpt', 'image', 'imageDesc']
       .filter((key) => typeof rawTopic[key] === 'string').map((key) => [key, rawTopic[key]])),
       words: Number.isFinite(Number(rawTopic.words)) && Number(rawTopic.words) > 0 ? Number(rawTopic.words) : null } : null;
   const brief = normalizeWritingBrief(value.brief);

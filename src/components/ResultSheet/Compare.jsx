@@ -1,9 +1,10 @@
 /**
  * 「同一课文 · 与上次对比」：把这一次和上一次同课练习的差距算出来摆到结果页顶部。
- */import React, { useMemo } from 'react';
+ */import React, { useMemo, useState } from 'react';
 import { formatTime, formatDuration } from '../../format.js';
 import { loadResultCache } from '../../storage.js';
 import { compareWithPrevious } from '../../progress.js';
+import { getAnalyzeJob } from '../../api.js';
 
 export function fmtDelta(delta, unit = '') {
   if (!delta) return '持平';
@@ -23,13 +24,29 @@ export function pcTone(delta, lowerIsBetter) {
  * 没有上一次同课记录时整块不渲染（不占位、不显示空壳）。
  */
 function PracticeCompareImpl({ result, history, jobId }) {
+  const [loaded, setLoaded] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const parentId = result.direction === 'writing' ? result.writingTopic?.parentJobId : '';
   const cmp = useMemo(
-    () => compareWithPrevious({ history, result, jobId, readResult: loadResultCache }),
-    [history, result, jobId],
+    () => compareWithPrevious({ history, result, jobId, readResult: (id) => loaded?.id === id ? loaded.data : loadResultCache(id) }),
+    [history, result, jobId, loaded],
   );
-  if (!cmp) return null;
+  if (!cmp) return parentId ? <section className="sheet-section practice-compare">
+    <h2>原稿与修改稿</h2><p className="muted small">本机没有可对比的原稿报告，可尝试读取已保存的报告。</p>
+    <button className="ghost-btn" disabled={loading} onClick={async () => {
+      setLoading(true); setError('');
+      try {
+        const response = await getAnalyzeJob(parentId);
+        const data = response.job?.data;
+        if (!data || data.direction !== 'writing' || String(data.chinese || '').trim() !== String(result.chinese || '').trim()) throw new Error('原稿已不可用或题目不一致');
+        setLoaded({ id: parentId, data });
+      } catch { setError('原稿报告暂不可用，可能已删除或过期。当前作文和批改结果仍可使用。'); }
+      finally { setLoading(false); }
+    }}>{loading ? '正在读取…' : '载入原稿对比'}</button>{error ? <p role="status">{error}</p> : null}
+  </section> : null;
   const when = cmp.prev.daysAgo === 0 ? '今天' : cmp.prev.daysAgo === 1 ? '昨天'
-    : (cmp.prev.daysAgo != null ? cmp.prev.daysAgo + ' 天前' : formatTime(cmp.prev.time));
+    : (cmp.prev.daysAgo != null ? cmp.prev.daysAgo + ' 天前' : cmp.prev.time ? formatTime(cmp.prev.time) : '较早的一次练习');
   const summary = cmp.tried === 0
     ? '上次没有可归类的问题类型，这次直接看逐句解析。'
     : cmp.fixed === cmp.tried
@@ -41,7 +58,7 @@ function PracticeCompareImpl({ result, history, jobId }) {
     <section className="sheet-section practice-compare">
       <div className="section-heading">
         <span className="label-dot" />
-        <h2>{result.direction === 'writing' ? '同一题目' : '同一课文'} · 与上次对比</h2>
+        <h2>{parentId ? '原稿与修改稿对比' : (result.direction === 'writing' ? '同一题目' : '同一课文') + ' · 与上次对比'}</h2>
         <span className="muted small">上次练习：{when}{cmp.prev.title ? ' · ' + cmp.prev.title : ''}</span>
       </div>
       <div className="pc-grid">
@@ -87,6 +104,14 @@ function PracticeCompareImpl({ result, history, jobId }) {
         </div>
       ) : null}
       <p className="pc-tip">{summary}</p>
+      {cmp.newCategories?.length ? <p className="pc-tip">本次新增的问题类型：{cmp.newCategories.map((item) => item.cat + '（' + item.total + ' 处）').join('、')}</p> : null}
+      {result.direction === 'writing' ? <>
+        <p className="muted small">依据两次已有批改比较；未再次检出同类问题不等于已经掌握。</p>
+        <details><summary>展开原稿与本次正文</summary><div className="pc-drafts">
+          <section><h3>原稿</h3><p>{cmp.prev.draft || '原稿正文未保存'}</p></section>
+          <section><h3>本次修改稿</h3><p>{result.draft}</p></section>
+        </div></details>
+      </> : null}
     </section>
   );
 }

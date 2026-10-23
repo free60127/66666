@@ -63,7 +63,7 @@ export default function MoreMenu({
               title="登录后学习数据跨设备同步，加入的教师班级也会自动恢复" />
           ) : null}
           {view !== 'editor' ? <Item icon={<BookOpen size={15} />} label="返回编辑器" onClick={onBackToEditor} /> : null}
-          {view === 'quiz' && hasQuiz ? <Item icon={<Sparkles size={15} />} label="看刚才那份自测题" onClick={onOpenQuiz} /> : null}
+          {hasQuiz ? <Item icon={<Sparkles size={15} />} label="继续自测题" onClick={onOpenQuiz} /> : null}
           <Item icon={<History size={15} />} label="历史结果" count={historyCount} onClick={onOpenHistory} />
           <Item icon={<Star size={15} />} label="收藏夹" count={favCount} onClick={onOpenFavs} />
           <Item icon={<Flame size={15} />} label="今日待复习" count={dueCount} onClick={onStartReview}

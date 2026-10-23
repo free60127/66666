@@ -1,0 +1,18 @@
+.learning-home { max-width: 1160px; margin: 0 auto; padding: 28px 24px 48px; }
+.learning-home h1 { margin: 0; font-size: 26px; }
+.learning-home h2 { margin: 28px 0 14px; font-size: 18px; }
+.learning-home-head { display: flex; justify-content: space-between; align-items: center; gap: 20px; flex-wrap: wrap; }
+.learning-home-head label { display: grid; gap: 6px; }
+.learning-home select, .ws-task-fields input, .ws-task-fields select, .ws-task-field select { padding: 8px 10px; border: 1px solid var(--line, #e2e8f0); border-radius: 8px; background: var(--panel, white); color: inherit; max-width: 100%; }
+.learning-home-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 16px; }
+.learning-home-cards article, .learning-home-summary { padding: 20px; border: 1px solid var(--line, #e2e8f0); border-radius: 16px; background: var(--panel, white); }
+.learning-home-cards h3 { margin: 0; font-size: 17px; overflow-wrap: anywhere; }
+.learning-home-cards p { line-height: 1.65; }
+.learning-home-summary { margin-top: 24px; }
+.learning-home-summary h2 { margin-top: 0; }
+.pc-drafts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+.pc-drafts p { white-space: pre-wrap; overflow-wrap: anywhere; }
+.ws-task-fields { display: flex; flex-wrap: wrap; gap: 14px; margin: 12px 0; }
+.ws-task-fields label, .ws-task-field { display: grid; gap: 6px; font-size: 13px; }
+.ws-task-field { margin: 12px 0; }
+@media (max-width: 640px) { .learning-home { padding: 20px 14px; } .pc-drafts { grid-template-columns: 1fr; } }

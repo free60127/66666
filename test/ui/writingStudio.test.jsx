@@ -126,8 +126,8 @@ describe('writing workspace', () => {
     seed({ essay: text });
     render(<WritingStudio {...props} />);
     fireEvent.click(screen.getByRole('tab', { name: /按段带写/ }));
-    expect(screen.getByRole('textbox', { name: '引言' }).value).toBe('Introduction.');
-    fireEvent.change(screen.getByRole('textbox', { name: '引言' }), { target: { value: 'Edited introduction.' } });
+    expect(screen.getByRole('textbox', { name: '概括材料' }).value).toBe('Introduction.');
+    fireEvent.change(screen.getByRole('textbox', { name: '概括材料' }), { target: { value: 'Edited introduction.' } });
     fireEvent.click(screen.getByRole('tab', { name: /直接开写/ }));
     expect(screen.getByRole('textbox', { name: '我的作文' }).value).toBe(text.replace('Introduction.', 'Edited introduction.'));
   });
@@ -182,7 +182,7 @@ describe('writing workspace', () => {
     fireEvent.click(patterns[0].querySelector('summary'));
     expect(patterns[0].open).toBe(true);
     expect(patterns[1].open).toBe(false);
-    fireEvent.click(screen.getByRole('button', { name: /主体段 1/ }));
+    fireEvent.click(screen.getByRole('button', { name: /回应与立场/ }));
     expect(screen.getByText('段落思路 1')).toBeTruthy();
     expect(screen.queryByText('段落思路 0')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: '切换立场 / 角度' }));

@@ -236,6 +236,8 @@ export function favFromFinding(finding, result) {
     kind: 'finding',
     direction: result?.direction || 'cn2en',
     answerLanguage: textLanguage(f.to),
+    recallPrompt: f.from || '回想这条知识点的正确表达',
+    recallAnswer: f.to || '',
     title: (f.from ? f.from + ' → ' + f.to : f.to) || f.category || '知识点',
     category: f.category || '',
     level: f.level || '',
@@ -249,6 +251,23 @@ export function favFromFinding(finding, result) {
     source: (result && result.title) || '',
     sourceLevel: (result && result.aiLevel) || '',
   };
+}
+
+/** Old imported cards remain usable; correction answers never appear on the front. */
+export function favoriteRecall(item) {
+  const title = String(item?.title || '');
+  if (item?.recallPrompt) return { prompt: item.recallPrompt, answer: item.recallAnswer || title };
+  if (item?.kind === 'finding') {
+    const split = title.indexOf(' → ');
+    return split >= 0
+      ? { prompt: title.slice(0, split), answer: title.slice(split + 3) }
+      : { prompt: '回想这条知识点的正确表达', answer: title };
+  }
+  // Vocabulary cards ask for meaning; expressions ask for the expression when a gloss is available.
+  if (item?.kind === 'expression' && item.body && !item.body.includes(title)) {
+    return { prompt: item.body, answer: title };
+  }
+  return { prompt: title, answer: '' };
 }
 
 export function favFromVocab(v, result) {

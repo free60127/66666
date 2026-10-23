@@ -92,6 +92,11 @@ try {
     await page.locator('.ws-essay').fill(essay + ' B ONLY.');
     await start('Assignment A'); assert.equal(await page.locator('.ws-essay').inputValue(), essay + ' A ONLY.');
     await start('Assignment B'); assert.equal(await page.locator('.ws-essay').inputValue(), essay + ' B ONLY.');
+    await page.getByRole('button', { name: '学习首页', exact: true }).click();
+    await page.locator('.learning-home-cards article').filter({ hasText: '继续写作：Assignment B' }).getByRole('button', { name: '继续学习', exact: true }).click();
+    assert.equal(await page.locator('.ws-essay').inputValue(), essay + ' B ONLY.');
+    assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('bts-active-homework')).hwId), 'hw-b');
+    assert.equal(await page.getByText(/题目已锁定/).count(), 1);
     const request = page.waitForRequest(r => r.url().endsWith('/api/analyze') && r.method() === 'POST');
     await page.getByRole('button', { name: '提交批改', exact: true }).click();
     const body = (await request).postDataJSON();

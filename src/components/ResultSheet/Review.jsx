@@ -6,7 +6,7 @@
  * 手来回离开键盘反而更慢；三个评分按钮位置固定，数字键是零学习成本的映射。
  */import React, { useEffect, useRef } from 'react';
 import { formatDay, formatTime } from '../../format.js';
-import { sm2Review, nextDueAt, dueLabel, FAV_KIND_LABEL, FAV_GRADES } from '../../favorites.js';
+import { favoriteRecall, sm2Review, nextDueAt, dueLabel, FAV_KIND_LABEL, FAV_GRADES } from '../../favorites.js';
 import { CheckCircle2 } from 'lucide-react';
 
 /** 数字键 → 档位（顺序 = 界面上从左到右的三个按钮） */
@@ -88,6 +88,7 @@ function FavReviewPanelImpl({ session, items, onReveal, onGrade, onSkip, onExit 
     );
   }
   const now = Date.now();
+  const recall = favoriteRecall(item);
   const grades = ['forgot', 'normal', 'easy'].map((g, i) => ({ g, label: FAV_GRADES[g], days: sm2Review(item, g, now).interval, hotkey: i + 1 }));
   return (
     <div className="fav-review">
@@ -102,9 +103,10 @@ function FavReviewPanelImpl({ session, items, onReveal, onGrade, onSkip, onExit 
           {item.category ? <span className="fav-cat">{item.category}</span> : null}
           <span className="fav-date">{item.lastReviewed ? '上次复习 ' + formatTime(item.lastReviewed) + (item.lastGrade ? ' · ' + (FAV_GRADES[item.lastGrade] || '') : '') : '还没复习过'}</span>
         </div>
-        <div className="fav-title">{item.title}</div>
+        <div className="fav-title">{recall.prompt}</div>
         {session.revealed ? (
           <>
+            {recall.answer ? <div className="fav-body"><strong>参考表达：</strong>{recall.answer}</div> : null}
             {item.body ? <div className="fav-body">{item.body}</div> : null}
             {item.extra ? <div className="fav-extra">{item.extra}</div> : null}
             {item.source ? <div className="fav-source">来自：{item.source}</div> : null}

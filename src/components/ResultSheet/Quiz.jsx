@@ -10,6 +10,7 @@ import { ArrowLeft, CheckCheck, ClipboardCopy, Download, LoaderCircle, RotateCcw
 import { VERDICT_LABEL, answerLetter, gradingMode, optionLabel, optionText } from '../../quizGrade.js';
 import { useQuizGrade } from '../../hooks/useQuizGrade.js';
 import { answerLanguage } from '../../learningLanguage.js';
+import { quizSessionId } from '../../quizSession.js';
 
 const BY_LABEL = { local: '本地判定', ai: 'AI 批改', self: '自评' };
 
@@ -41,9 +42,9 @@ function VerdictBox({ q, v, onSelf }) {
   );
 }
 
-function QuizSheetImpl({ quiz, settings, showAnswers, onToggleAnswers, onBack, onBackToFav, onCopy, tip }) {
+function QuizSheetImpl({ quiz, settings, showAnswers, onToggleAnswers, onBack, onBackToFav, onCopy, tip, onComplete }) {
   const qs = quiz && Array.isArray(quiz.questions) ? quiz.questions : [];
-  const g = useQuizGrade({ quiz, settings });
+  const g = useQuizGrade({ quiz, settings, onComplete });
   const s = g.summary;
   const touched = Object.keys(g.answers).length > 0;
 
@@ -64,6 +65,7 @@ function QuizSheetImpl({ quiz, settings, showAnswers, onToggleAnswers, onBack, o
           <span className="sheet-duration">共 {qs.length} 题{quiz.local ? ' · 本地兜底生成' : ''}{quiz.level ? ' · 润色等级 ' + quiz.level : ''}</span>
         </header>
         <p className="quiz-hint">直接在屏幕上做：选择题点选项立刻判对错，填空 / 改错写完点「核对」，翻译 / 造句点底部「批改」交给 AI。导出 PDF 时答案与解析会统一印在最后。</p>
+        <p className="muted small">答题进度保存在当前账号的本机浏览器，刷新后可从「学习首页」或「更多」继续。完成后同步正确率摘要。</p>
         <ol className="quiz-list">
           {qs.map((q, i) => {
             const mode = gradingMode(q);
@@ -176,4 +178,6 @@ function QuizSheetImpl({ quiz, settings, showAnswers, onToggleAnswers, onBack, o
     </div>
   );
 }
-export const QuizSheet = React.memo(QuizSheetImpl);
+export const QuizSheet = React.memo(function QuizSheet(props) {
+  return <QuizSheetImpl key={quizSessionId(props.quiz)} {...props} />;
+});

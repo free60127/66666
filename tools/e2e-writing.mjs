@@ -63,7 +63,7 @@ try {
   check('Excerpt 2 与前一篇之间有明显段间空白', await page.locator('.ws-material .writing-material-section').nth(1).evaluate((el) => parseFloat(getComputedStyle(el).marginTop) >= 20 && parseFloat(getComputedStyle(el).paddingTop) >= 16));
   await page.getByRole('textbox', { name: '我的作文' }).fill(essay);
   await page.getByRole('tab', { name: /按段带写/ }).click();
-  check('按段带写接续已有作文', await page.getByRole('textbox', { name: '引言' }).inputValue() === essay);
+  check('材料作文从概括材料开始，按段带写接续已有作文', await page.getByRole('textbox', { name: '概括材料', exact: true }).inputValue() === essay);
   await page.getByRole('button', { name: '生成本题写作指导', exact: true }).click();
   await page.waitForSelector('.ws-guide-steps', { timeout: 15000 });
   check('AI 引导位于右侧编辑框上方', await page.locator('.ws-editor').evaluate((editor) => {
@@ -79,8 +79,8 @@ try {
   check('每条参考句式独立展开', await patterns.first().evaluate((el) => el.open) && !await patterns.nth(1).evaluate((el) => el.open));
   await page.screenshot({ path: path.join(outDir, 'guided-desktop.png') });
   await patterns.first().locator('summary').click();
-  await page.getByRole('button', { name: /主体段 1/ }).click();
-  check('切换段落同时切换 AI 引导', await page.locator('.ws-guide-paragraph').getAttribute('aria-label') === '主体段 1写作思路' && await page.getByRole('textbox', { name: '主体段 1', exact: true }).inputValue() === '');
+  await page.getByRole('button', { name: /回应与立场/ }).click();
+  check('切换段落同时切换 AI 引导', await page.locator('.ws-guide-paragraph').getAttribute('aria-label') === '回应与立场写作思路' && await page.getByRole('textbox', { name: '回应与立场', exact: true }).inputValue() === '');
   await page.getByRole('button', { name: '切换立场 / 角度', exact: true }).click();
   const chosenAngle = '强调线下互动，主张混合式学习';
   await page.getByRole('button', { name: chosenAngle, exact: true }).click();

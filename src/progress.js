@@ -71,7 +71,7 @@ export function normalizeLessonKey(key) {
   const k = String(key == null ? '' : key).trim();
   if (!k) return '';
   if (k === 'free' || k === 'demo') return k;
-  return /^(?:lesson|writing):[\w-]+$/.test(k) ? k : '';
+  return /^(?:lesson|writing):[\w-]+$/.test(k) || /^writing:assigned:[\w%.-]+:[\w%.-]+$/.test(k) ? k : '';
 }
 
 const LESSON_TITLE_RE = /^lesson\s*\d+/i;
@@ -84,7 +84,7 @@ export function legacyLessonKey(title) {
 }
 
 function attemptKeys(x) {
-  const strong = normalizeLessonKey(x && x.lessonKey);
+  const strong = normalizeLessonKey(x?.direction === 'writing' ? x.writingTopic?.sourceTopicKey || x.lessonKey : x?.lessonKey);
   return { strong, weak: strong ? '' : legacyLessonKey(x && x.title) };
 }
 
@@ -149,14 +149,18 @@ export function compareWithPrevious({ history, result, jobId = '', readResult = 
   // 更新的那几次练习也在列表里 —— 不加时间截断就会拿"后来的那次"当上次，结论完全是反的。
   const selfEntry = jobId ? list.find((h) => h.jobId === jobId) : null;
   const curTime = Number(cur.attemptTime) || (selfEntry && Number(selfEntry.time)) || now;
+  const parentId = cur.direction === 'writing' ? cur.writingTopic?.parentJobId : '';
+  if (parentId && !list.some((h) => h.jobId === parentId)) list.unshift({ jobId: parentId, time: 0 });
   for (const h of list) {
+    if (parentId && h.jobId !== parentId) continue;
     if (jobId && h.jobId === jobId) continue;
     if ((Number(h.time) || 0) > curTime) continue; // 比这次晚的练习不算"上次"
     let cached = null;
     try { cached = read(h.jobId); } catch { cached = null; }
     if (!cached || typeof cached !== 'object') continue;
     if (!jobId && sameAttempt(cached, cur)) continue; // 没有 jobId 时别把"自己"当成上一次
-    if (!sameLesson(cached, cur)) continue;
+    if (!sameLesson(cached, cur) && !(parentId === h.jobId && cached.direction === 'writing'
+      && String(cached.chinese || '').trim() === String(cur.chinese || '').trim())) continue;
     prevEntry = h;
     prev = cached;
     break;
@@ -185,6 +189,7 @@ export function compareWithPrevious({ history, result, jobId = '', readResult = 
       state: nowTotal === 0 ? 'fixed' : delta < 0 ? 'down' : delta > 0 ? 'up' : 'same',
     };
   });
+  const newCategories = curTally.list.filter((x) => !prevTally.list.some((p) => p.cat === x.cat)).slice(0, topCats);
 
   const sameRubric = (prev.overall?.scoringVersion || 'legacy') === (cur.overall?.scoringVersion || 'legacy');
   const score = sameRubric ? compareNum(prevScore, curScore) : null;
@@ -199,6 +204,7 @@ export function compareWithPrevious({ history, result, jobId = '', readResult = 
 
   return {
     prev: {
+      draft: prev.draft || '',
       jobId: prevEntry.jobId,
       time,
       title: String(prev.title || prevEntry.title || ''),
@@ -220,6 +226,7 @@ export function compareWithPrevious({ history, result, jobId = '', readResult = 
     issues,
     duration,
     items,
+    newCategories,
     tried: items.length,
     fixed: items.filter((x) => x.state === 'fixed').length,
     worse: items.filter((x) => x.state === 'up').length,

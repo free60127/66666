@@ -1,3 +1,4 @@
+import { writingContext } from '../src/writingTask.js';
 import { localOverall } from './gradingFallback.mjs';
 import { normalizeEn2cnOverall } from './en2cnScoring.mjs';
 import { needsEn2cnReview, EN2CN_REVIEW_PROMPT, buildEn2cnReviewMessage, applyEn2cnReview } from './en2cnReview.mjs';
@@ -1129,7 +1130,7 @@ function normalizeEvidenceFor(direction, overall) {
   return direction === 'en2cn' ? normalizeEn2cnOverall(overall) : sanitizeOverall(overall);
 }
 
-function buildAnalyzeData({ parsed, dir, title, chinese, draft, original, level, lesson, lessonNo, material, imageDesc, targetWords }) {
+function buildAnalyzeData({ parsed, dir, title, chinese, draft, original, level, lesson, lessonNo, material, imageDesc, targetWords, writingTopic }) {
   // 清洗 findings：丢掉「went → went」这类无意义对照（模型偶尔会为凑数而生造），
   // 丢了多少条打进日志 —— 数量长期偏高就说明 prompt 需要再收一收。
   const cleanedSentences = sanitizeSentences(parsed.sentences);
@@ -1141,7 +1142,7 @@ function buildAnalyzeData({ parsed, dir, title, chinese, draft, original, level,
     title: parsed.title || title,
     chinese,
     draft,
-    ...(dir === 'writing' ? { material, imageDesc, targetWords } : {}),
+    ...(dir === 'writing' ? { material, imageDesc, targetWords, writingTopic: writingContext(writingTopic) } : {}),
     ai: parsed.ai || '',
     // 写作方向：范文由模型按题目生成（original 槽），不再由语料注入；
     // 翻译方向维持原行为——original 只认语料/用户输入，防止模型捏造"课文原文"。
@@ -1157,7 +1158,7 @@ function buildAnalyzeData({ parsed, dir, title, chinese, draft, original, level,
   };
 }
 
-async function runAnalyzeJob(jobId, { title, chinese, draft, original, lesson, lessonNo, baseUrl, model, apiKey, level, direction, stream = false, material = '', imageDesc = '', targetWords = null }) {
+async function runAnalyzeJob(jobId, { title, chinese, draft, original, lesson, lessonNo, baseUrl, model, apiKey, level, direction, stream = false, material = '', imageDesc = '', targetWords = null, writingTopic = null }) {
   const job = await findJob(jobId);
   if (!job) return;
   job.status = 'running';
@@ -1234,7 +1235,7 @@ async function runAnalyzeJob(jobId, { title, chinese, draft, original, lesson, l
         throw new Error('模型返回不是有效 JSON，请重试或换模型');
       }
     }
-    job.data = buildAnalyzeData({ parsed, dir, title, chinese, draft, original, level, lesson, lessonNo, material, imageDesc, targetWords });
+    job.data = buildAnalyzeData({ parsed, dir, title, chinese, draft, original, level, lesson, lessonNo, material, imageDesc, targetWords, writingTopic });
     // 自动去重只处理完全相同的条目，嵌套引文须由语义复核确认根因。
     job.data = dedupeExactErrors(job.data);
     if (dir === 'en2cn' ? needsEn2cnReview(job.data) : needsCn2enReview(job.data)) {
@@ -1332,7 +1333,7 @@ async function runMaterialJob(jobId, { topic, level, style, baseUrl, model, apiK
 
 /* ---------- 写作指导任务（AI 带写：审题/段落安排/避坑/句式） ----------
  * 与素材任务同构：提交即返回 jobId，前端轮询取结果。 */
-async function runWritingBriefJob(jobId, { topic, material, imageDesc, level, angle, targetWords, baseUrl, model, apiKey }) {
+async function runWritingBriefJob(jobId, { topic, material, imageDesc, level, angle, targetWords, taskType, baseUrl, model, apiKey }) {
   const job = await findJob(jobId);
   if (!job) return;
   job.status = 'running';
@@ -1342,7 +1343,7 @@ async function runWritingBriefJob(jobId, { topic, material, imageDesc, level, an
   try {
     const messages = [
       { role: 'system', content: WRITING_BRIEF_PROMPT },
-      { role: 'user', content: buildWritingBriefMessage({ topic, material, imageDesc, level, angle, targetWords }) },
+      { role: 'user', content: buildWritingBriefMessage({ topic, material, imageDesc, level, angle, targetWords, taskType }) },
     ];
     const raw = await callLLM({ baseUrl, model, apiKey, messages });
     let parsed;
@@ -2028,7 +2029,7 @@ const server = http.createServer(async (req, res) => {
       const jobId = randomUUID();
       saveJob({ jobId, kind: 'writing-brief', title: '写作指导：' + topic.slice(0, 40), status: 'pending', createdAt: Date.now(), data: null, error: null });
       registerJob(jobId);
-      safeRun('writing-brief', jobId, () => runWritingBriefJob(jobId, { topic, material, imageDesc, level, angle, targetWords, baseUrl, model, apiKey }));
+      safeRun('writing-brief', jobId, () => runWritingBriefJob(jobId, { topic, material, imageDesc, level, angle, targetWords, taskType: ['essay', 'letter', 'chart', 'material'].includes(body.taskType) ? body.taskType : '', baseUrl, model, apiKey }));
       return json(res, 200, { ok: true, jobId, status: 'pending' });
     }
     const briefMatch = p.match(/^\/api\/writing-brief\/([A-Za-z0-9-]{8,64})$/);
@@ -2286,7 +2287,7 @@ const server = http.createServer(async (req, res) => {
       // 立即返回任务号，后台再调用模型；手机端/弱网不会因长时间占用请求而卡死
       safeRun('analyze', jobId, () => runAnalyzeJob(jobId, {
         title, chinese, draft, original: lesson ? (direction === 'en2cn' ? lesson.chinese : lesson.english) : userOriginal,
-        lesson, lessonNo, baseUrl, model, apiKey, level, direction, stream, material, imageDesc, targetWords,
+        lesson, lessonNo, baseUrl, model, apiKey, level, direction, stream, material, imageDesc, targetWords, writingTopic: writingContext(body.writingTopic),
       }));
       return json(res, 200, { ok: true, jobId, status: 'pending', deleteToken, stream });
     }

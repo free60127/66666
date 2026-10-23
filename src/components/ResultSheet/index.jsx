@@ -145,7 +145,7 @@ function ResultSheetImpl({ result, onBack, onReviseWriting, onCopy, onShare, sha
           hasIdiom={(result.idiomHighlights || []).length > 0}
           hasSummary={(result.advancedSentences || []).length > 0 || (result.bonusExpressions || []).length > 0}
         />
-        <PracticeCompare result={result} history={history} jobId={jobId} />
+        <PracticeCompare key={jobId || result.writingTopic?.parentJobId || result.title} result={result} history={history} jobId={jobId} />
         <ReferenceBlocks result={result} allFindings={allFindings} />
         <section className="sheet-section analysis">
           <div className="section-heading"><span className="label-dot" /><h2>{dt.sentencesTitle}</h2><span className="muted small">{sentences.length} 个句群 · {overall.issues ?? 0} 项分析</span></div>

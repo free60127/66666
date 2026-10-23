@@ -49,7 +49,7 @@ const stat = () => document.querySelector('.quiz-grade-stat').textContent;
 /** 第 i 个选项按钮（DOM 里的可访问名是「B swing」，带不带点都不稳，直接按位置取） */
 const optBtn = (i) => document.querySelectorAll('.quiz-opt')[i];
 
-beforeEach(() => { vi.clearAllMocks(); });
+beforeEach(() => { vi.clearAllMocks(); localStorage.clear(); });
 afterEach(() => cleanup());
 
 describe('选择题：点选项立刻判对错', () => {

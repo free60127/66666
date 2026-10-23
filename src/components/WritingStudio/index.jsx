@@ -16,6 +16,7 @@ import WritingMaterial from '../WritingMaterial.jsx'
 import { hasWritingBrief, normalizeWritingBrief } from '../../writingGuidance.js'
 import { countWritingWords as countWords, loadWritingState, splitWritingParagraphs, writingMaterial, writingTargetWords, writingTopicKey,
   WRITING_DRAFT_PREFIX, listWritingDrafts, newWritingWriter, rememberWritingTopic, saveWritingDraft, writingDraftFingerprint, writingDraftVersions } from '../../writing.js'
+import { WRITING_TASK_TYPES, writingTaskType, writingSteps, questionWordTarget } from '../../writingTask.js'
 import '../../writing.css'
 
 /**
@@ -31,14 +32,12 @@ import '../../writing.css'
  * 所以历史/收藏/分享/云同步零改动（见 useGeneration 的 overrides 参数）。
  */
 
-const SEG_META = [
-  { key: 'intro', label: '引言', ratio: 0.15, tip: '点明主题，按题目要求交代背景或概括图表、材料' },
-  { key: 'body1', label: '主体段 1', ratio: 0.3, tip: '展开第一个任务点，用论据、例子或题中数据支撑' },
-  { key: 'body2', label: '主体段 2', ratio: 0.3, tip: '展开其余任务点，补充分析，注意与上一段衔接' },
-  { key: 'concl', label: '结论', ratio: 0.25, tip: '总结全文，回应题目要求，不引入新的论据或数据' },
-];
-
 const emptyFilters = { exam: 'all', topic: 'all', level: 'all', q: '' };
+const currentTopic = (saved) => {
+  if (!saved) return null;
+  const canonical = WRITING_EXAM_BANK.find((item) => item.id === saved.id);
+  return canonical ? { ...saved, ...canonical, ...(saved.taskType ? { taskType: saved.taskType } : {}) } : saved;
+};
 
 export function WritingStudio({
   busy, polishLevel, settings, aliveRef,
@@ -48,9 +47,11 @@ export function WritingStudio({
   const stored = useRef(loadWritingState());
   const [view, setView] = useState(() => stored.current?.topic ? 'write' : 'bank');
   const [filters, setFilters] = useState(emptyFilters);
-  const [topic, setTopic] = useState(() => WRITING_EXAM_BANK.find((item) => item.id === stored.current?.topic?.id) || stored.current?.topic || null);
+  const [topic, setTopic] = useState(() => currentTopic(stored.current?.topic));
   const [customOpen, setCustomOpen] = useState(false);
   const [customText, setCustomText] = useState('');
+  const [customType, setCustomType] = useState('auto');
+  const [customWords, setCustomWords] = useState('');
   const [mode, setMode] = useState(() => stored.current?.mode || 'direct');
   const [essay, setEssay] = useState(() => stored.current?.essay || '');
   const [segs, setSegs] = useState(() => (Array.isArray(stored.current?.segs) && stored.current.segs.length === 4) ? stored.current.segs : ['', '', '', '']);
@@ -80,7 +81,8 @@ export function WritingStudio({
   const targetWords = writingTargetWords(topic, polishLevel);
   const topicKey = writingTopicKey(topic);
   const material = writingMaterial(topic);
-  const segTargets = SEG_META.map((s) => Math.max(20, Math.round(targetWords * s.ratio / 5) * 5));
+  const segMeta = writingSteps(topic);
+  const segTargets = segMeta.map((s) => Math.max(5, Math.round(targetWords * s.ratio / 5) * 5));
 
   /* ---------- 草稿自动保存（800ms 防抖；提交/切题不丢内容） ---------- */
   const saveTimerRef = useRef(null);
@@ -203,7 +205,7 @@ export function WritingStudio({
     setSavedAt(saved?.savedAt || 0);
     setActiveSeg(0);
     briefRequestRef.current += 1;
-    setTopic(t);
+    setTopic(currentTopic(saved?.topic ? { ...saved.topic, ...t, ...(saved.topic.taskType ? { taskType: saved.topic.taskType } : {}) } : t));
     const restored = normalizeWritingBrief(saved?.brief);
     const savedBrief = hasWritingBrief(restored) ? restored : null;
     setBrief(savedBrief);
@@ -240,8 +242,10 @@ export function WritingStudio({
   const startCustom = () => {
     const q = customText.trim();
     if (!q) { setLocalError('请先粘贴或输入作文题目'); return; }
+    const words = customWords ? Number(customWords) : questionWordTarget(q);
+    if (customWords && (!Number.isInteger(words) || words < 20 || words > 2000)) { setLocalError('目标词数请输入 20～2000 的整数'); return; }
     setCustomOpen(false);
-    startTopic({ id: 'custom', exam: 'custom', label: '自定义题目', zh: q.length > 18 ? q.slice(0, 18) + '…' : q, topic: '自定义', level: '中级', qtype: '自由命题', question: q, words: null, image: null });
+    startTopic({ id: 'custom', exam: 'custom', label: '自定义题目', zh: q.length > 18 ? q.slice(0, 18) + '…' : q, topic: '自定义', level: '中级', qtype: '自由命题', question: q, taskType: customType === 'auto' ? writingTaskType({ question: q }) : customType, words, image: null });
   };
 
   const genBrief = useCallback(async (requestedAngle = '') => {
@@ -256,7 +260,7 @@ export function WritingStudio({
     try {
       const outcome = await submitAndPoll({
         submit: () => writingBrief({
-          topic: topic.question, material, imageDesc: topic.imageDesc || '', level: polishLevel, angle: selected, targetWords,
+          topic: topic.question, material, imageDesc: topic.imageDesc || '', level: polishLevel, angle: selected, targetWords, taskType: writingTaskType(topic),
           baseUrl: settings.baseUrl, model: settings.model, apiKey: settings.apiKey,
         }),
         fetchJob: getWritingBriefJob,
@@ -358,6 +362,12 @@ export function WritingStudio({
               aria-label="自定义作文题目"
               autoFocus
             />
+            <div className="ws-task-fields">
+              <label>写作题型<select aria-label="自定义写作题型" value={customType} onChange={(e) => setCustomType(e.target.value)}>
+                <option value="auto">根据题目识别</option>{Object.entries(WRITING_TASK_TYPES).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+              </select></label>
+              <label>目标词数<input aria-label="自定义目标词数" type="number" min="20" max="2000" value={customWords} onChange={(e) => setCustomWords(e.target.value)} placeholder={String(questionWordTarget(customText) || '以题干为准')} /></label>
+            </div>
             <div className="ws-custom-actions">
               <button className="primary-btn sm" onClick={startCustom}>用这道题写作</button>
               <button className="ghost-btn sm" onClick={() => setCustomOpen(false)}>取消</button>
@@ -456,6 +466,12 @@ export function WritingStudio({
         <aside className="ws-side">
           <div className="ws-topic-card">
             <div className="ws-topic-head"><BookOpen size={15} /><h3>作文题目</h3></div>
+            <label className="ws-task-field">写作题型
+              <select aria-label="写作题型" value={writingTaskType(topic)} disabled={busy || briefState === 'running'} onChange={(e) => {
+                const taskType = e.target.value;
+                setTopic((current) => ({ ...current, taskType })); setBrief(null); setBriefState('idle'); setBriefErr('');
+              }}>{Object.entries(WRITING_TASK_TYPES).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select>
+            </label>
             <p className="ws-topic-q">{topic ? topic.question : ''}</p>
             <p className="muted small">练习目标：约 {targetWords} 词，具体字数以题干要求为准。</p>
             {topic && topic.image ? (
@@ -486,9 +502,10 @@ export function WritingStudio({
             <button role="tab" aria-selected={mode === 'guided'} className={mode === 'guided' ? 'active' : ''}
               disabled={ocrBusy} onClick={() => switchMode('guided')}>按段带写<i>一段一段写，AI 给思路</i></button>
           </div>
+          {mode === 'guided' ? <p className="muted small">按题型分步组织内容，可按题目要求合并成自然段。</p> : null}
           {mode === 'guided' || briefOpen ? (
             <nav className="ws-seg-tabs" aria-label={mode === 'guided' ? '按段写作' : '段落指导'}>
-              {SEG_META.map((s, i) => (
+              {segMeta.map((s, i) => (
                 <span key={s.key} className="ws-seg-wrap">
                   {i > 0 ? <ChevronRight size={13} className="ws-seg-arrow" /> : null}
                   <button className={'ws-seg-tab' + (activeSeg === i ? ' active' : '')}
@@ -500,7 +517,7 @@ export function WritingStudio({
             </nav>
           ) : null}
           <WritingGuide key={topicKey} brief={brief} status={briefState} error={briefErr} open={briefOpen}
-            onToggle={() => setBriefOpen((value) => !value)} activeSeg={activeSeg} paragraphLabel={SEG_META[activeSeg].label}
+            onToggle={() => setBriefOpen((value) => !value)} activeSeg={activeSeg} paragraphLabel={segMeta[activeSeg].label}
             angle={angle} onGenerate={genBrief} disabled={busy} />
           {mode === 'direct' ? (
             <div className="ws-write-area">
@@ -527,25 +544,25 @@ export function WritingStudio({
           ) : (
             <div className="ws-write-area">
               {!briefOpen || !brief ? <div className="ws-seg-tip">
-                {brief?.outline[activeSeg] || <><b>写{SEG_META[activeSeg].label}：</b>{SEG_META[activeSeg].tip}</>}
+                {brief?.outline[activeSeg] || <><b>写{segMeta[activeSeg].label}：</b>{segMeta[activeSeg].tip}</>}
               </div> : null}
               <textarea
                 className="ws-essay"
-                aria-label={SEG_META[activeSeg].label}
+                aria-label={segMeta[activeSeg].label}
                 value={segs[activeSeg]}
                 onChange={(e) => {
                   onFirstInput();
                   const v = e.target.value;
                   setSegs((arr) => arr.map((s, i) => (i === activeSeg ? v : s)));
                 }}
-                placeholder={'在这里写' + SEG_META[activeSeg].label + '…'}
+                placeholder={'在这里写' + segMeta[activeSeg].label + '…'}
                 spellCheck={false}
               />
               <div className="ws-write-foot">
                 <span className="ws-count">本段 <b>{countWords(segs[activeSeg])}</b> / 约 {segTargets[activeSeg]} 词 · 全文 {wordCount} 词</span>
                 <div className="ws-write-tools">
                   <button className="ghost-btn sm" disabled={activeSeg === 0} onClick={() => setActiveSeg((i) => Math.max(0, i - 1))}>‹ 上一段</button>
-                  <button className="ghost-btn sm" disabled={activeSeg === SEG_META.length - 1} onClick={() => setActiveSeg((i) => Math.min(SEG_META.length - 1, i + 1))}>下一段 ›</button>
+                  <button className="ghost-btn sm" disabled={activeSeg === segMeta.length - 1} onClick={() => setActiveSeg((i) => Math.min(segMeta.length - 1, i + 1))}>下一段 ›</button>
                   <button className="ghost-btn sm" disabled={ocrBusy} onClick={() => cameraRef.current?.click()}>
                     {ocrBusy ? <LoaderCircle className="spin" size={14} /> : <Camera size={14} />}拍照识别
                   </button>
@@ -584,7 +601,7 @@ export function WritingStudio({
             </div>
             {mode === 'direct'
               ? fullText.split(/\n{2,}/).map((p, i) => <p key={i}>{p}</p>)
-              : SEG_META.map((s, i) => segs[i] && segs[i].trim() ? (
+              : segMeta.map((s, i) => segs[i] && segs[i].trim() ? (
                 <div key={s.key}><p className="muted small">【{s.label}】</p><p>{segs[i]}</p></div>
               ) : null)}
             {!wordCount ? <p className="muted">（还没有内容）</p> : null}

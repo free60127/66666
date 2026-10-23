@@ -8,16 +8,16 @@ import { getOcrJob, getStatus, loadSettings, matchLesson, ocr, saveSettings } fr
 import { DELETED_FAVORITES_LIMIT, DELETED_LIBRARIES_LIMIT, DELETED_LESSONS_LIMIT, applyLibraryTombstones, mergeDeleted, mergeHistory } from './sync.js'
 import { mergeFavorites, saveFavorites } from './favorites.js'
 import { DIRECTION_KEY, TRANSLATION_DIRECTIONS, directionMeta, directionText, normalizeDirection } from './direction.js'
-import { exportWritingDrafts, importWritingDrafts, loadWritingState, saveWritingDraft, writingTopicKey } from './writing.js'
+import { exportWritingDrafts, importWritingDrafts, loadWritingState, saveWritingDraft, writingTopicKey, revisionTopic, rememberWritingTopic } from './writing.js'
 import {
   lessonTombstoneKey, loadDeletedFavorites, loadDeletedLibraries, loadDeletedLessons,
   loadDrillUsed, loadResultCache, loadHistory, markDrillUsed, safeGet, safeSet, saveDeletedFavorites,
   saveDeletedHistory, saveDeletedLibraries, saveDeletedLessons, saveDrillUsed, saveHistory,
 } from './storage.js'
-import { saveProgress } from './lessonProgress.js'
+import { loadProgress, saveProgress } from './lessonProgress.js'
 import { clearDraft, draftAgeText, listDrafts, loadDraft, saveDraft } from './draftBox.js'
 import { dayStamp } from './format.js'
-import { saveDays } from './studyStreak.js'
+import { loadDays, recordDay, saveDays } from './studyStreak.js'
 import { useTimer } from './hooks/useTimer.js'
 import { useCloudSync } from './hooks/useCloudSync.js'
 import { useAccount } from './hooks/useAccount.js'
@@ -50,6 +50,7 @@ import MoreMenu from './components/MoreMenu.jsx'
 import ClassJoinModal from './components/ClassJoinModal.jsx'
 import AssignmentReminder from './components/AssignmentReminder.jsx'
 import OnboardingGoal from './components/OnboardingGoal.jsx'
+import LearningHome from './components/LearningHome.jsx'
 import { ACTIVE_HOMEWORK_EVENT, activateHomework, activeHomework, clearActiveHomework, memberships, pendingAssignments, studentDashboard } from './classroom.js'
 import LessonEditModal from './components/modals/LessonEditModal.jsx'
 import WritingStudio from './components/WritingStudio/index.jsx'
@@ -956,17 +957,59 @@ function Studio() {
   // 结果页「返回编辑」：只切视图，**保留结果与 #job=**（用户还要回来对照/分享）
   // 顶栏「编辑器」（backToEditor）才是清空结果的那个 —— 两者语义不同，别接错。
   const backToEditorView = useCallback(() => setView('editor'), []);
+  const finishQuiz = useCallback((id, score) => {
+    const progress = loadProgress();
+    const key = 'quiz:' + id;
+    if (progress[key]?.last === score) return;
+    progress[key] = { n: 1, last: score, best: Math.max(progress[key]?.best || 0, score), at: Date.now(), ms: 0 };
+    saveProgress(progress); setLessonProgress(progress);
+    const days = recordDay(loadDays()); saveDays(days); setStudyDays(days);
+  }, [setLessonProgress, setStudyDays]);
+  const openLearningHome = () => {
+    window.dispatchEvent(new Event('bts:flush-writing'));
+    window.dispatchEvent(new Event('bts:flush-quiz'));
+    const { key, snap } = draftSnapshotRef.current || {};
+    if (key && snap) saveDraft(key, snap);
+    closeSidebarOnMobile();
+    setView('home');
+  };
+  const openHomeWriting = (topic) => {
+    try {
+      const active = activeHomework();
+      const isAssignment = Boolean(topic.classId && topic.hwId);
+      const sameAssignment = isAssignment && active?.kind === 'writing' && active.classId === topic.classId && active.hwId === topic.hwId;
+      if (isAssignment && !sameAssignment) {
+        const task = reminderTasks.find((item) => item.type === 'writing' && item.classId === topic.classId && item.hwId === topic.hwId);
+        if (task) startClassTask(task);
+        else {
+          setClassJoinOpen(true);
+          flashTip(setToast, '请从班级作业中继续这份草稿，以核对最新题目和作业状态。', 5000);
+        }
+        return;
+      }
+      rememberWritingTopic(topic);
+      leaveWritingTopic();
+      if (!sameAssignment) clearActiveHomework();
+      selectWritingTopic(topic, loadWritingState(writingTopicKey(topic))?.workTitle || topic.zh);
+      // New recommendations have no draft yet; record the selected topic for the workspace to restore.
+      if (!loadWritingState(writingTopicKey(topic))) saveWritingDraft({ topic, mode: 'direct', essay: '', workTitle: topic.zh }, null);
+      setWritingOpen(true); setView('editor');
+    } catch { flashTip(setToast, '无法保存所选题目，请先导出本机草稿备份。'); }
+  };
+  const runHomeAction = (card) => {
+    if (card.kind === 'writing-draft') { openHomeWriting(card.draft.topic); return; }
+    if (card.kind === 'translation-draft') { setWritingOpen(false); openDraft(card.key); return; }
+    if (card.kind === 'quiz') { setView('quiz'); return; }
+    if (card.kind === 'review') { startReview(); return; }
+    if (card.kind === 'report') void loadHistoryJob(card.jobId);
+  };
 
   const reviseWritingResult = () => {
     if (!result?.draft || result.direction !== 'writing') return;
     try {
       window.dispatchEvent(new Event('bts:flush-writing'));
-      const source = result.writingTopic || {};
       // A revision is an independent practice. It must not silently replace today's draft or submit an old homework again.
-      const topic = { ...source, classId: undefined, hwId: undefined, id: 'custom',
-        draftKey: 'writing:revision-' + (currentJobId || Date.now()),
-        question: result.chinese, material: result.material || '', imageDesc: result.imageDesc || '',
-        zh: result.workTitle || result.title || '作文修改', label: '历史作文修改', words: result.targetWords || source.words || null };
+      const topic = revisionTopic(result, currentJobId);
       saveWritingDraft({ topic, essay: result.draft, mode: 'direct', workTitle: topic.zh }, null);
       leaveWritingTopic(); clearActiveHomework();
       setWritingKey(writingTopicKey(topic)); setWritingTitle(topic.zh);
@@ -1019,6 +1062,7 @@ function Studio() {
     history: historyList,
     loadResult: loadResultCache,
   }), [visibleLessons, activeLib, lessonProgress, historyList]);
+  const nextLearningLesson = visibleLessons.find((lesson) => !lessonProgress[lessonKeyOf(lesson, activeLib)]?.n);
   // 徽章只数**错误**（可提升不算错，混进去会让数字虚高、也让"错误训练"这个名字名不副实）
   const drillReady = useMemo(() => drillRows.reduce((n, r) => n + r.errors.length, 0), [drillRows]);
 
@@ -1636,6 +1680,7 @@ function Studio() {
 
       <main className="main">
         <header className="topbar">
+          <button className="ghost-btn sm" onClick={openLearningHome} aria-current={view === 'home' ? 'page' : undefined}>学习首页</button>
           <button className="icon-btn side-toggle" onClick={toggleSidebar} title={sidebarOpen ? '收起侧栏' : '展开侧栏'} aria-label={sidebarOpen ? '收起侧栏' : '展开侧栏'}>
             {sidebarOpen ? <PanelLeftClose size={18} /> : <PanelLeftOpen size={18} />}
           </button>
@@ -1695,7 +1740,14 @@ function Studio() {
           </div>
         ) : null}
 
-        {view === 'editor' ? (
+        {view === 'home' ? <LearningHome history={historyList} favorites={favorites} progress={lessonProgress} level={polishLevel}
+          onAction={runHomeAction} onWriting={openHomeWriting} onQuiz={() => setView('quiz')}
+          nextLesson={nextLearningLesson} onTranslation={() => {
+            if (nextLearningLesson) {
+              if (activeLib) pickMyLesson(activeLib.id, nextLearningLesson.lesson);
+              else pickLesson(nextLearningLesson.book, nextLearningLesson.lesson);
+            } else { setWritingOpen(false); setView('editor'); }
+          }} /> : view === 'editor' ? (
           <section className="editor">
             {!writingOpen && !guideDone && historyList.length === 0 ? (
               <div className="start-guide" role="note">
@@ -2037,6 +2089,7 @@ function Studio() {
             {quizData && (
               <QuizSheet
                 quiz={quizData}
+                onComplete={finishQuiz}
                 settings={settings}
                 showAnswers={quizShowAnswers}
                 onToggleAnswers={() => setQuizShowAnswers((v) => !v)}
@@ -2267,8 +2320,10 @@ function Studio() {
           onClose={() => { safeSet('bt-goal', 'skip'); setGoalOpen(false); }}
           onPick={(goal) => {
             safeSet('bt-goal', goal.key);
+            safeSet('bt-study-focus', goal.focus || 'both');
             setPolishLevel(goal.level);
             setGoalOpen(false);
+            if (goal.focus === 'writing' || goal.focus === 'both') { setView('home'); return; }
             // 带到对应级别的第一篇课文（回译课文按 section 分组）
             setBuiltinTab('huiyi');
             setMyLibId('');

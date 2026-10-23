@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { GraduationCap, BookOpen, Library, Feather } from 'lucide-react';
 
 /**
@@ -15,14 +15,18 @@ const GOALS = [
 ];
 
 export default function OnboardingGoal({ onPick, onClose }) {
+  const [focus, setFocus] = useState('both');
   return (
     <div className="modal-mask" onClick={onClose}>
       <div className="modal goal-modal" role="dialog" aria-modal="true" aria-label="选择你的学习目标" onClick={(e) => e.stopPropagation()}>
         <div className="modal-head"><h2>你的目标是什么？</h2><button className="icon-btn" onClick={onClose} aria-label="关闭"><Feather size={16} /></button></div>
         <p className="goal-lead">选一个，我会把练习难度和课文难度调到匹配；之后随时可在顶栏「难度」里改。</p>
+        <label>这次主要练什么？ <select aria-label="入门学习重点" value={focus} onChange={(event) => setFocus(event.target.value)}>
+          <option value="both">翻译与写作</option><option value="writing">英语写作</option><option value="translation">翻译训练</option>
+        </select></label>
         <div className="goal-grid">
           {GOALS.map((g, i) => (
-            <button type="button" key={g.key} className="goal-card" onClick={() => onPick(g)}>
+            <button type="button" key={g.key} className="goal-card" onClick={() => onPick({ ...g, focus })}>
               <span className="goal-icon">{[<GraduationCap size={18} key="a" />, <BookOpen size={18} key="b" />, <Library size={18} key="c" />, <Feather size={18} key="d" />][i]}</span>
               <strong>{g.label}</strong>
               <small>{g.desc}</small>

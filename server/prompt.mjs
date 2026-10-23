@@ -1,3 +1,4 @@
+import { writingSteps, writingTaskType, WRITING_TASK_TYPES } from '../src/writingTask.js';
 import { MAX_DRILL_COUNT } from './limits.mjs';
 import { EN2CN_TRANSFER_RULES } from './en2cnPrinciples.mjs';
 import { EN2CN_SCORING_GUIDE } from './en2cnScoring.mjs';
@@ -711,16 +712,17 @@ export const WRITING_BRIEF_PROMPT = `你是英语写作课老师。学生给你�
 }
 
 要求：
-1. paragraphs 必须完整包含上述4个 key，顺序一致。每段给2-3个 steps，每步1句中文思路、2-4个英文关键词、1个独立英文参考句式。不要只给通用套路或整篇范文。
+1. paragraphs 必须完整包含上述4个 key，顺序一致；这些 key 是固定的存储槽位，实际目标和名称按用户消息中的题型分步安排组织，书信不可套用议论文引言/结论，纯图表不添加个人观点。每段给2-3个 steps，每步1句中文思路、2-4个英文关键词、1个独立英文参考句式。不要只给通用套路或整篇范文。
 2. 学生已选角度时，四段的论点、关键词、句式都围绕该角度重新组织；未选择时推荐一个最易展开的角度。angles 给本题相关的2-3个可选方案，包含本次 selectedAngle，不要写成泛泛的“角度一/角度二”。
 3. 根据题型选择角度：议论文可以支持/反对/有条件支持；图表题先客观描述真实数据，再按题目要求选择原因解释、影响或建议等分析角度，不能机械套用同意/反对。纯客观图表题不添加题目未要求的观点或原因。
 4. 阅读材料题必须总结并区分各篇材料的观点，按题目要求提出自己的观点；选择立场不能跳过材料任务。图片描述或材料没有的信息不能编造。若学生的角度违反题目要求，在 stance 简短说明并调整为符合题意的写法。
 5. outline 与 paragraphs 对应、词数总和匹配题干或建议词数。审题和思路用中文，keywords 和 pattern 用英语（占位符可用中文），参考句式必须真实自然，不编造名言。
 6. patterns 留空数组，参考句式放到各个 steps.pattern 中，避免重复。`;
 
-export function buildWritingBriefMessage({ topic, material, imageDesc, level, angle, targetWords }) {
+export function buildWritingBriefMessage({ topic, material, imageDesc, level, angle, targetWords, taskType }) {
   const L = levelGuide(level);
-  return '作文题目：\n' + topic +
+  const task = { question: topic, material, imageDesc, taskType };
+  return '写作题型：' + WRITING_TASK_TYPES[writingTaskType(task)] + '\n分步安排：' + writingSteps(task).map((s) => s.key + ' = ' + s.label + '：' + s.tip).join('；') + '\n这些是内容步骤，可合并为自然段，不强制四个自然段。\n\n作文题目：\n' + topic +
     (material ? '\n\n写作材料：\n' + material : '') +
     (imageDesc ? '\n\n题目配图描述：\n' + imageDesc : '') +
     (targetWords ? '\n\n建议词数：' + targetWords + ' 词，题干明确给出字数时以题干为准。' : '') +

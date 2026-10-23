@@ -6,6 +6,7 @@ import { formatDuration } from '../format.js'
 import { normalizeDirection, directionText } from '../direction.js'
 import { formatWritingMaterialText } from '../writingMaterial.js'
 import { loadWritingState, writingTopicKey } from '../writing.js'
+import { writingContext } from '../writingTask.js'
 import { hasMorphology, morphologyText } from '../favorites.js'
 import {
   DELETED_HISTORY_MAX, loadDeletedHistory, loadHistory, loadResultCache,
@@ -144,7 +145,8 @@ export function useGeneration({
       jobId, title: jobTitle || '回译作业', time: data.attemptTime || Date.now(), status: 'done',
       durationMs: Number(durationMs) || 0,
       lessonKey: String((data && data.lessonKey) || ''),
-      ...(data?.writingTopic ? { writingTopic: data.writingTopic } : {}),
+      direction: data?.direction || 'cn2en',
+      ...(data?.writingTopic ? { writingTopic: writingContext(data.writingTopic) } : {}),
       ...(deleteToken ? { deleteToken } : {}),
     };
     if (loadDeletedHistory().includes(jobId)) return;
@@ -363,6 +365,7 @@ export function useGeneration({
           material: ovMaterial || undefined,
           imageDesc: ovImageDesc || undefined,
           targetWords: dir === 'writing' ? overrides.targetWords : undefined,
+          writingTopic: dir === 'writing' ? writingContext({ ...overrides.writingTopic, sourceTopicKey: overrides.writingTopic?.sourceTopicKey || attemptLessonKey }) : undefined,
           level: polishLevel,
           // 流式：服务端一行一段地往外写，前端边收边画（见下面的 stream 配置）。
           // 服务端不认识这个字段时会忽略它 —— 老后端 + 新前端也不会出错。
@@ -406,7 +409,7 @@ export function useGeneration({
           const pendingTitle = (ovTitle ?? title).trim() || (dir === 'writing' ? '英语写作' : matchedLesson?.title || '翻译批改');
           const pending = { jobId, title: pendingTitle, time: Date.now(),
             status: 'pending', durationMs, lessonKey: attemptLessonKey, direction: dir, deleteToken,
-            ...(dir === 'writing' && overrides.writingTopic ? { writingTopic: overrides.writingTopic } : {}),
+            ...(dir === 'writing' && overrides.writingTopic ? { writingTopic: writingContext(overrides.writingTopic) } : {}),
             classHomework: classHomework ? { classId: classHomework.classId, hwId: classHomework.hwId, title: classHomework.title, sharedLessonId: classHomework.sharedLessonId } : null };
           const next = [pending, ...loadHistory().filter((h) => h.jobId !== jobId)].slice(0, 20);
           saveHistory(next); setHistoryList(next);

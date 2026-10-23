@@ -22,7 +22,7 @@ async function submit(kind, payload, errorExpected = false) {
 const input = { direction: 'writing', title: '写作练习', chinese: 'Summarize the reading and discuss learning to cook.',
   draft: 'Students should learn to cook because it helps them live independently and choose healthy meals. This practical skill also allows them to save money.',
   material: 'The reading explains how cooking develops independence.', imageDesc: 'The chart shows that 60% of students cook at home.',
-  targetWords: 300, book: 2, lessonId: 18, level: '专八' };
+  targetWords: 300, book: 2, lessonId: 18, level: '专八', writingTopic: { parentJobId: 'previous-job', rootJobId: 'first-job', sourceTopicKey: 'writing:task-a', taskType: 'material' } };
 try {
   const invalid = await post('analyze', { direction: 'writing', chinese: 'Question' });
   assert.equal(invalid.httpStatus, 400); assert.match(invalid.error, /作文/);
@@ -36,6 +36,7 @@ try {
   assert.equal(first.job.data.original, writingModelEssay);
   assert.equal(first.job.data.material, input.material); assert.equal(first.job.data.imageDesc, input.imageDesc);
   assert.equal(first.job.data.targetWords, 300);
+  assert.deepEqual(first.job.data.writingTopic, input.writingTopic, 'revision references survive a shared report read');
   assert.deepEqual(first.job.data.meta, { book: null, lessonId: null });
   assert.deepEqual(first.job.data.overall.scoreBreakdown, writingOverall.scoreBreakdown);
   assert.equal(first.job.deleteToken, undefined, 'shared reads do not disclose delete credentials');
