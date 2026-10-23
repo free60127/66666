@@ -147,7 +147,7 @@ export function createAccounts({ kv, mail, env = process.env, sent, onDelete }) 
    * 所以必须分开说。这些文案不涉及任何用户数据，公开展示也无风险。
    */
   const MAIL_REASON = {
-    not_configured: '邮件服务未配置：服务端缺少 SMTP_USER / SMTP_PASS 环境变量',
+    not_configured: '站点未配置邮件服务（SMTP），验证码发不出去——注册暂时不可用；自托管管理员可在服务端设置 SMTP_USER/SMTP_PASS，或设 EMAIL_VERIFY=0 关闭邮箱验证',
     auth: '邮件服务认证失败：SMTP_PASS 应该是邮箱「授权码」而不是登录密码，且需先在邮箱设置里开启 SMTP 服务',
     // Render 免费实例**明确禁止**出站 SMTP（官方 changelog: "Free web services will no longer
     // allow outbound traffic to SMTP ports"）—— 这不是配置问题，换授权码、换端口都没用。
@@ -174,6 +174,22 @@ export function createAccounts({ kv, mail, env = process.env, sent, onDelete }) 
     if (!u) return null;
     if (Number(s.epoch) !== Number(u.sessionEpoch)) return null; // 已被改密/重置踢下线
     return u;
+  }
+  /** 同一用户的「读用户 → 改 → 写回」串行化：并发 bind/unbind 会互相覆盖丢一条绑定。 */
+  const userLocks = new Map(); // userId → 链尾 Promise（已吞错，不断链）
+  async function userLock(token, task) {
+    const u = await sessionUser(token);
+    if (!u) return { ok: false, status: 401, error: '请先登录账号' };
+    const prev = userLocks.get(u.id) || Promise.resolve();
+    const tail = prev.then(() => task(u));
+    const swallow = tail.catch(() => {});
+    userLocks.set(u.id, swallow);
+    try {
+      return await tail;
+    } finally {
+      // 链消化完且没有后来者接链时清掉自己，Map 不随时间增长
+      swallow.then(() => { if (userLocks.get(u.id) === swallow) userLocks.delete(u.id); }).catch(() => {});
+    }
   }
   /** 签发新会话 */
   async function issueSession(user, device = '') {
@@ -310,28 +326,33 @@ export function createAccounts({ kv, mail, env = process.env, sent, onDelete }) 
       return { ok: true };
     },
 
-    /** 入班成功后把班级成员身份绑到账号：换设备登录即自动恢复（不用再输邀请码）。 */
+    /** 入班成功后把班级成员身份绑到账号：换设备登录即自动恢复（不用再输邀请码）。
+     * 同一账号的绑定/解绑是「读-改-写」：双端/双标签同时操作会互相覆盖丢一条，
+     * 用按用户的串行锁把整段读改写关进同一个临界区（进程内单实例部署下即安全）。 */
     async bindClass(token, entry) {
-      const u = await sessionUser(token);
-      if (!u) return { ok: false, status: 401, error: '请先登录账号' };
-      const one = sanitizeClassMembers([entry]);
-      if (!one.length) return { ok: false, status: 400, error: '班级成员信息格式不正确' };
-      const list = sanitizeClassMembers(u.classMembers).filter((m) => m.classId !== one[0].classId);
-      list.unshift(one[0]);
-      u.classMembers = list.slice(0, 10);
-      u.updatedAt = Date.now();
-      await kv.set(K_USER(u.id), JSON.stringify(u));
-      return { ok: true, status: 200, classMembers: u.classMembers };
+      return userLock(token, async (u) => {
+        const one = sanitizeClassMembers([entry]);
+        if (!one.length) return { ok: false, status: 400, error: '班级成员信息格式不正确' };
+        const list = sanitizeClassMembers(u.classMembers).filter((m) => m.classId !== one[0].classId);
+        list.unshift(one[0]);
+        u.classMembers = list.slice(0, 10);
+        u.updatedAt = Date.now();
+        await kv.set(K_USER(u.id), JSON.stringify(u));
+        return { ok: true, status: 200, classMembers: u.classMembers };
+      });
     },
 
     async unbindClass(token, classId) {
-      const u = await sessionUser(token);
-      if (!u) return { ok: false, status: 401, error: '请先登录账号' };
-      if (!/^[a-f0-9]{32}$/.test(String(classId || ''))) return { ok: false, status: 400, error: '班级编号不正确' };
-      u.classMembers = sanitizeClassMembers(u.classMembers).filter((m) => m.classId !== classId);
-      u.updatedAt = Date.now();
-      await kv.set(K_USER(u.id), JSON.stringify(u));
-      return { ok: true, status: 200, classMembers: u.classMembers };
+      return userLock(token, async (u) => {
+        if (!/^[a-f0-9]{32}$/.test(String(classId || ''))) return { ok: false, status: 400, error: '班级编号不正确' };
+        const members = sanitizeClassMembers(u.classMembers);
+        const removed = members.find((m) => m.classId === classId) || null;
+        u.classMembers = members.filter((m) => m.classId !== classId);
+        u.updatedAt = Date.now();
+        await kv.set(K_USER(u.id), JSON.stringify(u));
+        // member 回传给路由层：班级成员记录上的 boundAccount 标记要一并解除
+        return { ok: true, status: 200, classMembers: u.classMembers, member: removed };
+      });
     },
 
     /** 开放教师身份：已有账号登录后也可启用，无需重复注册邮箱。 */

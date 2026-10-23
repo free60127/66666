@@ -118,12 +118,20 @@ export function createFileKv(dir) {
   };
   const writeEnv = (f, v, ttlSec) => {
     const body = JSON.stringify({ v: String(v), e: ttlSec > 0 ? Date.now() + ttlSec * 1000 : 0 });
-    try {
-      fs.writeFileSync(f, body);
-    } catch (e) {
-      // 目录可能被清掉（平台重置磁盘 / 手工清理）——自愈一次
-      if (isMissing(e)) { ensure(); fs.writeFileSync(f, body); return; }
-      throw e;
+    // Windows 上多个进程共享同一 data/kv 时（例如并行跑测试实例），writeFileSync 可能撞上
+    // 瞬时的 EPERM/EBUSY（对方正持有句柄）。短暂重试几次，别让一次锁窗口变成异常往上冒。
+    const transient = (e) => /^(EPERM|EBUSY|EACCES|EAGAIN)$/i.test(String(e?.code || ''));
+    const sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        fs.writeFileSync(f, body);
+        return;
+      } catch (e) {
+        // 目录可能被清掉（平台重置磁盘 / 手工清理）——自愈一次
+        if (isMissing(e)) { ensure(); continue; }
+        if (transient(e) && attempt < 4) { sleep(30 * (attempt + 1)); continue; }
+        throw e;
+      }
     }
   };
   return {

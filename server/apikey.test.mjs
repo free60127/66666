@@ -15,6 +15,9 @@
  */
 import http from 'node:http';
 import { spawn } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 const results = [];
 const check = (name, ok, detail = '') => {
@@ -60,14 +63,18 @@ console.log('=== API Key 归一化测试 ===\n');
 }
 
 /* ---------- 1. 脏 key 起服务：发出去必须是干净的，且任务能跑完 ---------- */
+/* 三个实例都必须用自己的临时 DATA_DIR：继承环境会把开发机的 data/kv 一起共用，
+   当日 IP 免费额度被开发流程消耗后，这里会莫名 429（隔离是测试自己的责任）。 */
 {
   seen.length = 0;
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'bts-apikey-'));
   const app = spawn(process.execPath, ['server/index.mjs'], {
     env: {
       ...process.env, PORT: String(PORT),
       AI_BASE_URL: `http://127.0.0.1:${MOCK_PORT}/v1`,
       AI_API_KEY: DIRTY,                 // ← 故意脏
       ALLOW_PRIVATE_BASE_URL: '1',
+      DATA_DIR: dataDir,
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -110,17 +117,20 @@ console.log('=== API Key 归一化测试 ===\n');
   check('请求体非空（确实发起了真实调用）', Boolean(seen[0] && seen[0].bytes > 10), `bytes=${seen[0] && seen[0].bytes}`);
 
   app.kill();
+  fs.rmSync(dataDir, { recursive: true, force: true });
 }
 
 /* ---------- 2. 首尾空白形态同样被清理 ---------- */
 {
   seen.length = 0;
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'bts-apikey-'));
   const app = spawn(process.execPath, ['server/index.mjs'], {
     env: {
       ...process.env, PORT: String(PORT + 1),
       AI_BASE_URL: `http://127.0.0.1:${MOCK_PORT}/v1`,
       AI_API_KEY: DIRTY_TAB,             // 前后空格 + 换行
       ALLOW_PRIVATE_BASE_URL: '1',
+      DATA_DIR: dataDir,
     },
     stdio: 'ignore',
   });
@@ -138,17 +148,20 @@ console.log('=== API Key 归一化测试 ===\n');
   check('首尾空白/换行也被清理', seen.length > 0 && seen[0].auth === 'Bearer ' + CLEAN,
     `auth=${(seen[0] && seen[0].auth || '').replace(/sk-(.{6}).*/, 'sk-$1…')}`);
   app.kill();
+  fs.rmSync(dataDir, { recursive: true, force: true });
 }
 
 /* ---------- 3. 干净的 key 不受影响（不能把正常配置改坏） ---------- */
 {
   seen.length = 0;
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'bts-apikey-'));
   const app = spawn(process.execPath, ['server/index.mjs'], {
     env: {
       ...process.env, PORT: String(PORT + 2),
       AI_BASE_URL: `http://127.0.0.1:${MOCK_PORT}/v1`,
       AI_API_KEY: CLEAN,
       ALLOW_PRIVATE_BASE_URL: '1',
+      DATA_DIR: dataDir,
     },
     stdio: 'ignore',
   });
@@ -166,6 +179,7 @@ console.log('=== API Key 归一化测试 ===\n');
   check('干净的 key 原样发出（未被改动）', seen.length > 0 && seen[0].auth === 'Bearer ' + CLEAN,
     `auth=${(seen[0] && seen[0].auth || '').replace(/sk-(.{6}).*/, 'sk-$1…')}`);
   app.kill();
+  fs.rmSync(dataDir, { recursive: true, force: true });
 }
 
 mock.close();

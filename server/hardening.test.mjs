@@ -11,6 +11,9 @@
  */
 import http from 'node:http';
 import { spawn } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 const results = [];
 const check = (name, ok, detail = '') => {
@@ -44,6 +47,9 @@ const app = spawn(process.execPath, ['server/index.mjs'], {
     ...process.env, PORT: String(PORT),
     AI_BASE_URL: `http://127.0.0.1:${MOCK_PORT}/v1`, AI_API_KEY: 'k',
     ALLOW_PRIVATE_BASE_URL: '1',
+    // 独立数据目录：共用开发机的 data/kv 时，当日 IP 免费额度可能已被开发流程
+    // 消耗（127.0.0.1 同源），并发闸门的断言会先撞上 429。
+    DATA_DIR: fs.mkdtempSync(path.join(os.tmpdir(), 'bts-hardening-')),
     TRUST_PROXY_HOPS: '1',
     RATE_LIMIT_PER_MIN: '100000',      // 别让"次数限流"干扰本测试
     RATE_BUCKET_MAX: String(BUCKET_MAX),

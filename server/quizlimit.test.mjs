@@ -71,6 +71,8 @@ const env = {
   AI_API_KEY: 'mock',
   ALLOW_PRIVATE_BASE_URL: '1',
   DATA_DIR,
+  // 本测试要连发多个 /api/quiz：放行公共额度（默认 IP 2 次/日会在第 3 单撞 429）——它测的是出题上限
+  FREE_DAILY_IP: '1000', FREE_DAILY_ACCOUNT: '1000', DAILY_SERVER_BUDGET: '1000',
 };
 let server = null;
 try {

@@ -58,10 +58,15 @@ const env = {
   ALLOW_PRIVATE_BASE_URL: '1',
   JOB_MAX_COUNT: String(MAX),
   DATA_DIR, // 隔离数据目录，不碰仓库里的 data/
+  // 本测试要连做 MAX+2 次提交：放行公共额度（默认 IP 2 次/日会在第 3 单撞 429）——它测的是保留/淘汰
+  FREE_DAILY_IP: '1000', FREE_DAILY_ACCOUNT: '1000', DAILY_SERVER_BUDGET: '1000',
 };
 let server = null;
+let serverLogs = '';
 const boot = async () => {
-  const s = spawn(process.execPath, ['server/index.mjs'], { env, stdio: 'ignore' });
+  const s = spawn(process.execPath, ['server/index.mjs'], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+  s.stdout.on('data', (d) => { serverLogs += d.toString(); });
+  s.stderr.on('data', (d) => { serverLogs += d.toString(); });
   for (let i = 0; i < 50; i += 1) {
     try { if ((await fetch(`http://127.0.0.1:${PORT}/api/health`)).ok) return s; } catch { /* 还没起来 */ }
     await sleep(300);
@@ -76,7 +81,9 @@ const makeJob = async () => {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ title: 'T', chinese: '中', draft: 'd' }),
   });
-  const { jobId } = await r.json();
+  const body = await r.json();
+  const { jobId } = body;
+  if (!jobId) throw new Error('任务提交失败（HTTP ' + r.status + '）: ' + JSON.stringify(body).slice(0, 160));
   for (let i = 0; i < 40; i += 1) {
     const j = await get('/api/analyze/' + jobId);
     if (j.body.job && j.body.job.status === 'done') return jobId;
@@ -131,6 +138,7 @@ try {
   check('续期不影响条数统计', Number(st2.body.jobs.retained) <= MAX, 'retained=' + st2.body.jobs.retained);
 } catch (e) {
   check('脚本执行未抛错', false, e && e.message);
+  console.log('--- 服务端日志 ---\n' + serverLogs.split('\n').slice(-14).join('\n'));
 } finally {
   await stop(server);
   mock.close();

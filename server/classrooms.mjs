@@ -97,7 +97,18 @@ export function createClassrooms({ kv, accounts, findJob, lessonLookup }) {
     if (!student || !parsedRoom || parsedRoom.archivedAt) return null;
     return { classId, studentKey: studentKeyRaw, className: parsedRoom.name, name: student.name, studentNo: student.studentNo };
   }
+  /** 账号绑定/解绑时在成员记录上打标记：join 的匿名重领守卫靠它识别
+   * 「这个学号已经属于某个登录账号」，防止凭公开的姓名+学号冒领身份凭据。 */
+  async function markAccountBound(classId, studentKeyRaw, bound) {
+    const sid = String(studentKeyRaw || '');
+    if (!/^[a-f0-9]{64}$/.test(sid)) return;
+    const student = await byStudent(classId, sid);
+    if (!student || Boolean(student.boundAccount) === Boolean(bound)) return;
+    student.boundAccount = bound ? Date.now() : undefined;
+    await kv.set(studentKey(classId, sid), JSON.stringify(student));
+  }
   return {
+    async markAccountBound(classId, studentKeyRaw, bound) { return markAccountBound(classId, studentKeyRaw, bound); },
     async list(token) {
       const user = await teacher(token);
       if (!user) return fail(403, '请先登录教师账号');
@@ -406,6 +417,10 @@ export function createClassrooms({ kv, accounts, findJob, lessonLookup }) {
         if (existingId) {
           const existing = await byStudent(id, existingId);
           if (!existing || existing.name !== cleanName) return fail(409, '该学号已被其他姓名使用，请联系教师');
+          // 「同姓名同学号重进 = 换设备找回身份」是有意设计，但 studentKey 是等价于本人身份的
+          // 凭据（可提交作业、消耗班级统一 AI Key 额度）——姓名学号在教室里都是公开信息，
+          // 已绑定登录账号的成员不允许匿名重领：请登录后在班级面板恢复（bindClass 路径）。
+          if (existing.boundAccount) return fail(409, '该学号已绑定登录账号：请用该账号登录后从「加入教师班级」面板恢复身份，或联系教师处理');
           return ok({ classId: id, className: room.name, studentKey: existingId, student: { name: cleanName, studentNo: cleanNo } });
         }
         const countKey = P + id + ':stu-count';

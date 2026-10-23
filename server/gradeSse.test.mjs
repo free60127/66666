@@ -78,7 +78,9 @@ const mock = http.createServer((req, res) => {
 });
 await new Promise((r) => mock.listen(MOCK_PORT, '127.0.0.1', r));
 
-const env = { ...process.env, PORT: String(PORT), AI_BASE_URL: `http://127.0.0.1:${MOCK_PORT}/v1`, AI_API_KEY: 'mock', ALLOW_PRIVATE_BASE_URL: '1', DATA_DIR };
+const env = { ...process.env, PORT: String(PORT), AI_BASE_URL: `http://127.0.0.1:${MOCK_PORT}/v1`, AI_API_KEY: 'mock', ALLOW_PRIVATE_BASE_URL: '1', DATA_DIR,
+  // 本测试要连发多个 /api/quiz：放行公共额度（默认 IP 2 次/日会在第 3 单撞 429）——它测的是流式批改
+  FREE_DAILY_IP: '1000', FREE_DAILY_ACCOUNT: '1000', DAILY_SERVER_BUDGET: '1000' };
 let server = null;
 
 /** 读 SSE：每解析出一个事件就回调（返回一个可 break 的循环） */
@@ -119,13 +121,16 @@ const ITEMS = [
 ];
 
 try {
-  server = spawn(process.execPath, ['server/index.mjs'], { env, stdio: 'ignore' });
+  server = spawn(process.execPath, ['server/index.mjs'], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+  let bootLog = '';
+  server.stdout.on('data', (d) => { bootLog += d.toString(); });
+  server.stderr.on('data', (d) => { bootLog += d.toString(); });
   let up = false;
   for (let i = 0; i < 50 && !up; i += 1) {
     try { up = (await fetch(`${BASE}/api/health`)).ok; } catch { /* 等 */ }
     if (!up) await sleep(300);
   }
-  if (!up) throw new Error('服务端启动超时');
+  if (!up) throw new Error('服务端启动超时：\n' + bootLog.split('\n').slice(0, 12).join('\n'));
 
   /* ---------- 1. 提交：stream=1 要回执给前端 ---------- */
   const r1 = await post({ mode: 'grade', stream: true, items: ITEMS, level: '四六级' });

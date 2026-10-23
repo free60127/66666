@@ -10,6 +10,9 @@
  */
 import http from 'node:http';
 import { spawn } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 const results = [];
 const check = (name, ok, detail = '') => {
@@ -51,7 +54,9 @@ await new Promise((r) => mock.listen(MOCK_PORT, '127.0.0.1', r));
 
 function startServer(port, extraEnv) {
   const proc = spawn(process.execPath, ['server/index.mjs'], {
-    env: { ...process.env, PORT: String(port), AI_BASE_URL: `http://127.0.0.1:${MOCK_PORT}/v1`, AI_API_KEY: 'server-key', ...extraEnv },
+    env: { ...process.env, PORT: String(port), AI_BASE_URL: `http://127.0.0.1:${MOCK_PORT}/v1`, AI_API_KEY: 'server-key',
+      // 独立数据目录：不与开发机的 data/kv 共享（否则当日 IP 额度可能已被开发流程消耗）
+      DATA_DIR: fs.mkdtempSync(path.join(os.tmpdir(), 'bts-ssrf-')), ...extraEnv },
     stdio: 'ignore',
   });
   return proc;

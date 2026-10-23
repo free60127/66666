@@ -265,6 +265,10 @@ async function resolveEndpointFor(body) {
   return { ...ep, keySource: normalizeApiKey(body.apiKey).key ? 'own' : 'server' };
 }
 
+/* env 解析注意：不能用 `Number(env) || 默认值` —— 0 是假值，会被悄悄换成默认值
+   （实测：MAX_QUEUED_JOBS=0 本意是"不许排队"，结果被解析成 50）。
+   posInt 认 0：MAX_QUEUED_JOBS=0 是合法配置（并发满即 503，不排队）；
+   其余非法值（空 / NaN / 负数）回落默认。想关掉某功能请查阅该配置项的语义，配 0 不一定代表关闭。 */
 const posInt = (raw, fallback) => {
   const n = Number(raw);
   return Number.isFinite(n) && n >= 0 && String(raw ?? '').trim() !== '' ? Math.floor(n) : fallback;
@@ -285,11 +289,12 @@ const CLASS_KEY_DAILY = posInt(process.env.CLASS_KEY_DAILY, 300);
 /** 管理面板密钥：只在服务器 .env 配置，不进仓库。未配置时 /api/admin/* 全部拒绝。 */
 const ADMIN_KEY = String(process.env.ADMIN_KEY || '').trim();
 
-/** 游客去重标记：首次出现（按 IP 哈希）时记一笔，用于"累计游客"统计。IP 本身不落盘。 */
+/** 游客去重标记：首次出现（按 IP 哈希）时记一笔，用于"累计游客"统计。IP 本身不落盘。
+ * 标记带 90 天 TTL：统计口径只需要"近期去重"，永久键会和账号/任务数据抢同一个库的存储额度。 */
 async function trackGuestOnce(ipHash) {
   try {
     const day = usageDay();
-    const created = await kv.setNx(`bts:stats:guest:${ipHash}`, '1', 0);
+    const created = await kv.setNx(`bts:stats:guest:${ipHash}`, '1', 90 * 24 * 3600);
     if (created) {
       await kv.incrBy('bts:stats:guests:total', 1);
       await kv.incrBy(`bts:stats:guests:${day}`, 1);
@@ -418,7 +423,7 @@ function recordClientError(entry) {
    而且清理是全表扫描（100 万桶时单次 43ms），挂在请求路径上会把事件循环卡住。 */
 /* env 解析注意：不能用 `Number(env) || 默认值` —— 0 是假值，会被悄悄换成默认值
    （实测：MAX_QUEUED_JOBS=0 本意是"不许排队"，结果被解析成 50）。
-   统一走这里的 posInt()：只认正整数字符串，其余（含 0、空、NaN）一律回落默认值。 */
+   统一走这里的 posInt()：0 是合法配置值（见其定义处的说明）。 */
 const RATE_BUCKET_MAX = Math.max(1, posInt(process.env.RATE_BUCKET_MAX, 20000));
 // 音标兜底查询是全站唯一会**代表服务器**去打第三方接口的 GET 端点：
 // 独立桶 + 独立上限，别让人借服务器 IP 刷 dictionaryapi.dev，也别和「生成」抢配额
@@ -450,6 +455,26 @@ function rateLimited(req, bucketKey = '', max = RATE_MAX) {
   if (rateBuckets.size >= RATE_BUCKET_MAX) sweepRateBuckets(now);
   return bucket.count > max;
 }
+
+/* ---------- SSE 并发连接数上限（按 IP） ----------
+ * 每条 SSE 连接占用一个 250ms 轮询循环 + 15s 心跳 interval，最长可挂 staleMsFor() 分钟。
+ * 不设上限时，一个脚本开几千条连接就能把连接资源和（内存淘汰后的）KV 查询额度耗光。 */
+const SSE_CONNS_PER_IP = Math.max(1, posInt(process.env.SSE_CONNS_PER_IP, 6));
+const sseConns = new Map(); // ip → 该 IP 当前挂着的 SSE 连接数
+function sseConnAcquire(req) {
+  const ip = clientIp(req);
+  const n = sseConns.get(ip) || 0;
+  if (n >= SSE_CONNS_PER_IP) return false;
+  sseConns.set(ip, n + 1);
+  return true;
+}
+function sseConnRelease(req) {
+  const ip = clientIp(req);
+  const n = (sseConns.get(ip) || 1) - 1;
+  if (n <= 0) sseConns.delete(ip); else sseConns.set(ip, n);
+}
+// 任务类 GET（轮询 + SSE）的独立限流桶：前端 2-3 秒一拍 + 多标签页属正常流量，上限放宽
+const JOB_POLL_RATE_MAX = Math.max(RATE_MAX, posInt(process.env.JOB_POLL_LIMIT_PER_MIN, 180));
 
 // DeepSeek 最新的 flash 已原生支持图片输入，作为拍照识别（OCR）的默认视觉模型
 const DEEPSEEK_VISION_MODEL = 'deepseek-flash';
@@ -891,6 +916,10 @@ const MAX_BODY_BYTES = 20 * 1024 * 1024; // 拍照识别会上传 base64 图片�
  */
 const MAX_TEXT_BYTES = 256 * 1024; // 课文正文类：中文 / 英文原文 / 英文初稿
 const MAX_SMALL_BYTES = 64 * 1024; // 短输入：生成主题、收藏知识点列表
+/** 字节数的人话表达：小于 1MB 的上限原来显示成"超过 0MB"，用户无从判断该压到多小 */
+const formatBytes = (n) => n >= 1024 * 1024
+  ? (n / 1024 / 1024).toFixed(n % (1024 * 1024) ? 1 : 0) + 'MB'
+  : Math.round(n / 1024) + 'KB';
 /**
  * 读取并解析 JSON 请求体。
  * - 超限时不再 req.destroy()：那样客户端收到的是"连接被重置"，看不到原因。
@@ -908,7 +937,7 @@ async function readBody(req, maxBytes = MAX_BODY_BYTES) {
     if (size > maxBytes) { tooLarge = true; chunks.length = 0; continue; }
     chunks.push(c);
   }
-  if (tooLarge) throw new HttpError(413, `请求体过大（超过 ${Math.round(maxBytes / 1024 / 1024)}MB），请精简后重试`);
+  if (tooLarge) throw new HttpError(413, `请求体过大（超过 ${formatBytes(maxBytes)}），请精简后重试`);
   if (!chunks.length) return {};
   const text = Buffer.concat(chunks).toString('utf8').trim();
   if (!text) return {};
@@ -959,14 +988,17 @@ function objectArray(value) {
   return (Array.isArray(value) ? value : []).filter((x) => x && typeof x === 'object' && !Array.isArray(x));
 }
 
-async function postChat({ url, headers, body, withFormat, timeoutMs = 120000 }) {
+async function postChat({ url, headers, body, withFormat, timeoutMs = 120000, signal }) {
   let r;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  // 外部信号（流式 body 阶段的不活动看门狗）与本函数自身的超时合并：
+  // fetch resolve 后自身定时器就清了，外部信号仍能中断 body 读取
+  const combined = signal ? AbortSignal.any([controller.signal, signal]) : controller.signal;
   try {
     r = await fetch(url, {
       method: 'POST', headers,
-      signal: controller.signal,
+      signal: combined,
       // 不跟随重定向。跟随 = 把"刚才验证过是公网"的目标换成响应头里指定的任意地址：
       // 攻击者用自己的公网域名通过校验，再回一个 307 Location: http://169.254.169.254/，
       // undici 会带着 body 跟过去 —— 前面所有私网校验全部白做。
@@ -1047,8 +1079,13 @@ async function callLLMStream({ baseUrl, model, apiKey, messages }, { onDelta, ti
   const url = baseUrl.replace(/\/+$/, '') + '/chat/completions';
   const headers = { 'Content-Type': 'application/json' };
   if (apiKey) headers['Authorization'] = 'Bearer ' + apiKey;
+  // 响应头到达后 postChat 自己的超时就失效了——没有这道看门狗，一个"每 4 分钟滴一粒
+  // 心跳字节"的故障/恶意端点能把并发名额无限占死（任务永远 running、额度不释放）。
+  const idle = new AbortController();
+  let idleTimer = setTimeout(() => idle.abort(), timeoutMs);
+  const bumpIdle = () => { clearTimeout(idleTimer); idleTimer = setTimeout(() => idle.abort(), timeoutMs); };
   const r = await postChat({
-    url, headers, withFormat: false, timeoutMs,
+    url, headers, withFormat: false, timeoutMs, signal: idle.signal,
     body: { model, messages, temperature: 0.3, stream: true, max_tokens: maxTokens },
   });
   if (!r.ok) {
@@ -1091,27 +1128,36 @@ async function callLLMStream({ baseUrl, model, apiKey, messages }, { onDelta, ti
    * 先看 content-type，不是事件流就把整段读回来：里头若有 data: 行就按 SSE 解析，
    * 否则按普通 completion 取 content（结果照常拿到，只是没有"边生成边显示"）。 */
   const ctype = String(r.headers.get('content-type') || '');
-  if (!/text\/event-stream/i.test(ctype)) {
-    const text = await r.text().catch(() => '');
-    if (!/^\s*data:/m.test(text)) {
-      let content = '';
-      try {
-        const data = JSON.parse(text);
-        const c0 = (data.choices && data.choices[0]) || {};
-        content = (c0.message && c0.message.content) || (c0.delta && c0.delta.content) || '';
-        if (c0.finish_reason) finishReason = String(c0.finish_reason);
-      } catch { /* 不是 JSON：下面统一报错 */ }
-      if (!String(content).trim()) throw new Error('模型没有返回内容，请重试');
-      console.warn('[stream] 该模型接口忽略了 stream=true（返回的是普通 JSON），本次按一次性结果处理');
-      if (onDelta) onDelta(String(content));
-      full = String(content);
-      if (finishReason === 'length') console.warn('[stream] 输出被 max_tokens 截断，可能有内容不完整');
-      return { text: full, finishReason, streamed: false };
+  try {
+    if (!/text\/event-stream/i.test(ctype)) {
+      const text = await r.text().catch(() => '');
+      if (!/^\s*data:/m.test(text)) {
+        let content = '';
+        try {
+          const data = JSON.parse(text);
+          const c0 = (data.choices && data.choices[0]) || {};
+          content = (c0.message && c0.message.content) || (c0.delta && c0.delta.content) || '';
+          if (c0.finish_reason) finishReason = String(c0.finish_reason);
+        } catch { /* 不是 JSON：下面统一报错 */ }
+        if (!String(content).trim()) throw new Error('模型没有返回内容，请重试');
+        console.warn('[stream] 该模型接口忽略了 stream=true（返回的是普通 JSON），本次按一次性结果处理');
+        if (onDelta) onDelta(String(content));
+        full = String(content);
+        if (finishReason === 'length') console.warn('[stream] 输出被 max_tokens 截断，可能有内容不完整');
+        return { text: full, finishReason, streamed: false };
+      }
+      feedSse(text);
+    } else {
+      const decoder = new TextDecoder('utf-8');
+      for await (const chunk of r.body) { bumpIdle(); feedSse(decoder.decode(chunk, { stream: true })); }
     }
-    feedSse(text);
-  } else {
-    const decoder = new TextDecoder('utf-8');
-    for await (const chunk of r.body) feedSse(decoder.decode(chunk, { stream: true }));
+  } catch (e) {
+    if (e?.name === 'AbortError' || idle.signal.aborted) {
+      throw new Error('模型接口流式输出停滞（' + Math.round(timeoutMs / 1000) + ' 秒没有新内容），已中止本次生成');
+    }
+    throw e;
+  } finally {
+    clearTimeout(idleTimer);
   }
   if (!full.trim()) throw new Error('模型没有返回内容，请重试');
   if (finishReason === 'length') console.warn('[stream] 输出被 max_tokens 截断，可能有内容不完整');
@@ -1639,7 +1685,15 @@ const server = http.createServer(async (req, res) => {
   applyCors(req, res);
   if (req.method === 'OPTIONS') { res.writeHead(204); return res.end(); }
 
-  const url = new URL(req.url, 'http://localhost');
+  // 畸形请求目标（绝对形式带非法端口等）会让 URL 构造直接抛——必须兜住，
+  // 否则请求悬挂不响应、进程里攒 unhandledRejection（raw socket 可低成本批量制造）
+  let url;
+  try {
+    url = new URL(req.url, 'http://localhost');
+  } catch {
+    res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+    return res.end(JSON.stringify({ error: 'bad request target' }));
+  }
   const p = url.pathname;
   if (p.startsWith('/api/auth/') || p.startsWith('/api/account-data')) res.setHeader('Cache-Control', 'no-store');
 
@@ -1676,6 +1730,13 @@ const server = http.createServer(async (req, res) => {
     // 会调用模型的接口先过限流，避免被脚本批量刷（也防匿名白嫖服务端 key）
     if (req.method === 'POST' && ['/api/analyze', '/api/ocr', '/api/quiz', '/api/generate-material', '/api/writing-brief', '/api/match'].includes(p) && rateLimited(req)) {
       return json(res, 429, { error: '请求过于频繁，请稍后再试（每分钟上限 ' + RATE_MAX + ' 次）' });
+    }
+    // 任务类 GET（轮询 + SSE）同样要限流：SSE 每 250ms 查一次任务（内存淘汰后落到 KV），
+    // 高频轮询能以极低成本耗尽 Upstash 免费命令额度 → kv 报错 → 全站同步/账号 503。
+    // 独立桶 + 放宽上限（180/分），正常前端轮询（2-3 秒一拍 + 多标签页）不受影响。
+    if (req.method === 'GET' && /^\/api\/(analyze|quiz|ocr|generate-material|writing-brief)\//.test(p)
+      && rateLimited(req, 'job-poll', JOB_POLL_RATE_MAX)) {
+      return json(res, 429, { error: '查询过于频繁，请稍后再试' });
     }
 
     /* 学习数据只接受登录会话，userId 由服务端决定，客户端不能指定别人。 */
@@ -1735,16 +1796,32 @@ const server = http.createServer(async (req, res) => {
         'become-teacher': () => accounts.becomeTeacher(token),
         'bind-class': async () => {
           const member = await classrooms.memberIdentity(String(body.classId || ''), String(body.studentKey || ''));
-          return member ? accounts.bindClass(token, member) : { ok: false, status: 403, error: '请先加入该班级' };
+          if (!member) return { ok: false, status: 403, error: '请先加入该班级' };
+          const bound = await accounts.bindClass(token, member);
+          // 绑定成功后给成员记录打标记：之后凭「姓名+学号」的匿名 join 不再发 studentKey
+          if (bound.ok) await classrooms.markAccountBound(member.classId, member.studentKey, true);
+          return bound;
         },
-        'unbind-class': () => accounts.unbindClass(token, body.classId),
+        'unbind-class': async () => {
+          const r = await accounts.unbindClass(token, body.classId);
+          if (r.ok && r.member) await classrooms.markAccountBound(body.classId, r.member.studentKey, false);
+          return r;
+        },
         login: () => accounts.login({ ...body, ip, device: body.device }),
         logout: () => accounts.logout(token),
         'logout-all': () => accounts.logoutAll(token),
         me: () => accounts.me(token),
         sync: () => ({ ok: false, status: 410, error: '请使用账号数据迁移入口' }),
         'change-password': () => accounts.changePassword(token, body),
-        'delete-account': () => accounts.deleteAccount(token, body),
+        'delete-account': async () => {
+          // 注销前先取班级身份：成员记录上的 boundAccount 标记要一并解除，
+          // 否则该学号永远无法再通过「姓名+学号」换设备找回（匿名 join 会被守卫拒绝）
+          const me = await accounts.me(token);
+          const members = me.ok ? (me.classMembers || []) : [];
+          const r = await accounts.deleteAccount(token, body);
+          if (r.ok) for (const m of members) await classrooms.markAccountBound(m.classId, m.studentKey, false);
+          return r;
+        },
         forgot: () => accounts.forgot({ email: body.email, ip }),
         'reset-password': () => accounts.resetPassword({ ...body, ip }),
       }[action];
@@ -2177,6 +2254,7 @@ const server = http.createServer(async (req, res) => {
     const quizStreamMatch = p.match(/^\/api\/quiz\/([A-Za-z0-9-]{8,64})\/stream$/);
     if (quizStreamMatch && req.method === 'GET') {
       const jobId = quizStreamMatch[1];
+      if (!sseConnAcquire(req)) return json(res, 429, { error: '连接数过多，请稍后再试' });
       res.writeHead(200, {
         'Content-Type': 'text/event-stream; charset=utf-8',
         'Cache-Control': 'no-cache, no-transform',
@@ -2228,6 +2306,7 @@ const server = http.createServer(async (req, res) => {
         if (!closed) send('error', { error: String((e && e.message) || e) });
       } finally {
         clearInterval(heartbeat);
+        sseConnRelease(req);
         if (!closed) res.end();
       }
       return undefined;
@@ -2300,6 +2379,7 @@ const server = http.createServer(async (req, res) => {
     const analyzeStreamMatch = p.match(/^\/api\/analyze\/([A-Za-z0-9-]{8,64})\/stream$/);
     if (analyzeStreamMatch && req.method === 'GET') {
       const jobId = analyzeStreamMatch[1];
+      if (!sseConnAcquire(req)) return json(res, 429, { error: '连接数过多，请稍后再试' });
       res.writeHead(200, {
         'Content-Type': 'text/event-stream; charset=utf-8',
         'Cache-Control': 'no-cache, no-transform',
@@ -2350,6 +2430,7 @@ const server = http.createServer(async (req, res) => {
         if (!closed) send('error', { error: String((e && e.message) || e) });
       } finally {
         clearInterval(heartbeat);
+        sseConnRelease(req);
         if (!closed) res.end();
       }
       return undefined;
@@ -2392,7 +2473,9 @@ server.listen(PORT, process.env.HOST || '0.0.0.0', () => {
   console.log('语料: ' + getCorpus().lessons.length + ' 课');
   console.log('云同步存储: ' + syncStore.kind + (syncDurable ? '（持久）' : '（本机文件 · 托管平台上会随休眠/重启清空）'));
   console.log('账号功能: ' + (accountsOn ? '已启用（存储 ' + kv.kind + '）' : '未启用（存储不持久）')
-    + '  SMTP: ' + (process.env.SMTP_USER && process.env.SMTP_PASS ? '已配置' : '未配置（找回密码不可用）'));
+    + '  SMTP: ' + ((process.env.SMTP_USER && process.env.SMTP_PASS) || process.env.SMTP_TEST_MODE === '1'
+      ? '已配置'
+      : '未配置（注册需邮箱验证码 → 当前发不出邮件，注册会被堵住；自托管可设 EMAIL_VERIFY=0 关闭验证，或配置 SMTP_USER/SMTP_PASS；找回密码同样不可用）'));
   console.log('分享链接: 结果保留 ' + JOB_TTL_DAYS + ' 天（存储 ' + kv.kind + (kvDurable ? ' · 持久' : ' · 本机文件')
     + '）· 超出 ' + JOB_MAX_COUNT + ' 条自动淘汰最旧的（JOB_TTL_DAYS / JOB_MAX_COUNT 可调）');
   // 存储用量（键数）：给"离上限还有多远"一个量级；免费额度 256MB / 单库
@@ -2439,6 +2522,12 @@ process.on('unhandledRejection', (reason) => {
 });
 process.on('uncaughtException', (err) => {
   console.error('[uncaughtException]', (err && (err.stack || err.message)) || err);
+});
+/* 退出取证：本服务曾在共享 data/kv 的并发测试环境下出现两次「无任何日志、退出码 1」的
+ * 静默退出（有 uncaughtException 兜底、不该退出）。任何非零退出都把最后的足迹留在日志里，
+ * 下次再发生至少能定位到退出时刻与退出码（stdout 缓冲在 exit 事件里仍是同步可写的）。 */
+process.on('exit', (code) => {
+  try { console.log(`[exit] 进程退出，code=${code}，uptime=${Math.round(process.uptime())}s`); } catch { /* 取证日志本身不能再抛 */ }
 });
 
 /* ---------- 退出前落盘 ----------
