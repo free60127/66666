@@ -68,6 +68,34 @@ export function sanitizeSentences(value) {
   return { list, dropped };
 }
 
+/** 范文赏析条目上限：范文就几十句，超过只会是模型在复读凑数 */
+const MODEL_BREAKDOWN_MAX = 12;
+
+/**
+ * 清洗 modelBreakdown（写作方向的"范文赏析"，按文章功能拆解范文）。
+ * 只做形状收敛：必需的 fn/sentence 非字符串或为空就丢条目，note 缺省空串，
+ * relatesTo 夹取到 0..sentenceCount（0 = 无对应）；同一（fn, sentence）重复出现只收第一条。
+ * 不改内容、不校验 sentence 是否真的逐字来自 original —— 那是 prompt 纪律的职责。
+ */
+export function sanitizeModelBreakdown(value, sentenceCount = 0) {
+  const seen = new Set();
+  const list = [];
+  let dropped = 0;
+  for (const item of objectArray(value)) {
+    const fn = String(item.fn ?? item.function ?? '').trim().slice(0, 60);
+    const sentence = String(item.sentence ?? '').trim();
+    if (!fn || !sentence) { dropped += 1; continue; }
+    const key = fn + '\n' + sentence;
+    if (seen.has(key)) { dropped += 1; continue; }
+    seen.add(key);
+    const rawRel = Math.floor(Number(item.relatesTo) || 0);
+    const relatesTo = Math.max(0, Math.min(rawRel, Math.max(0, sentenceCount)));
+    list.push({ fn, sentence, note: String(item.note ?? '').trim().slice(0, 500), relatesTo });
+    if (list.length >= MODEL_BREAKDOWN_MAX) break;
+  }
+  return { list, dropped };
+}
+
 export function sanitizeOverall(value) {
   const o = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
   return { ...o, scoreBreakdown: objectArray(o.scoreBreakdown) };

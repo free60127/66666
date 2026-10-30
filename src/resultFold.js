@@ -12,7 +12,7 @@
  * 只要按字段能认出来就照样收下 —— 否则综合评分/练习建议/词汇/习语会**整块消失**，
  * 而界面上只表现为"这一块没生成"，用户根本不知道是格式没对上。
  */
-export const SEGMENT_TYPES = ['meta', 'ai', 'overall', 'sentence', 'vocab', 'idiom', 'advanced', 'bonus', 'done'];
+export const SEGMENT_TYPES = ['meta', 'ai', 'overall', 'sentence', 'breakdown', 'vocab', 'idiom', 'advanced', 'bonus', 'done'];
 const TYPES = SEGMENT_TYPES;
 const OVERALL_KEYS = ['score', 'scoreBreakdown', 'issues', 'summary', 'highlights', 'advice'];
 const pick = (o, keys) => {
@@ -57,6 +57,7 @@ function guessType(o) {
   // 一整份完整结果（不是分段）：交给收尾的"整段 JSON 兜底"处理，别当成某一段
   if (Array.isArray(o.sentences) || (o.overall && typeof o.overall === 'object')) return '';
   if (o.cn || Array.isArray(o.findings)) return 'sentence';
+  if ((o.fn || o.function) && o.sentence) return 'breakdown';
   if (o.word) return 'vocab';
   if (o.idiom && (o.common || o.situation || o.example || o.explanation)) return 'idiom';
   if (OVERALL_KEYS.some((k) => o[k] !== undefined)) return 'overall';
@@ -90,11 +91,13 @@ export function normalizeSegment(raw) {
     const overall = nested || pick(raw, OVERALL_KEYS);
     return Object.keys(overall).length ? { t: 'overall', overall } : null;
   }
-  if (t === 'sentence' || t === 'vocab' || t === 'idiom') {
+  if (t === 'sentence' || t === 'vocab' || t === 'idiom' || t === 'breakdown') {
     const nested = raw.item && typeof raw.item === 'object' && !Array.isArray(raw.item) ? raw.item : null;
     const item = nested || omitMeta(raw);
     const ok = t === 'sentence'
       ? (item.cn || item.draft || item.ai || (Array.isArray(item.findings) && item.findings.length))
+      : t === 'breakdown'
+      ? ((item.fn || item.function) && item.sentence)
       : (t === 'vocab' ? item.word : item.idiom);
     return ok ? { t, item } : null;
   }
@@ -105,7 +108,7 @@ export function normalizeSegment(raw) {
 }
 
 export function foldSegments(segments) {
-  const out = { sentences: [], vocabularyNotes: [], idiomHighlights: [], advancedSentences: [], bonusExpressions: [] };
+  const out = { sentences: [], modelBreakdown: [], vocabularyNotes: [], idiomHighlights: [], advancedSentences: [], bonusExpressions: [] };
   const sorted = (Array.isArray(segments) ? segments : [])
     .filter(Boolean)
     .slice()
@@ -136,6 +139,12 @@ export function foldSegments(segments) {
         if (usableOverall(s.overall) || !usableOverall(out.overall)) out.overall = s.overall;
         break;
       case 'sentence': out.sentences.push(s.item); break;
+      case 'breakdown': out.modelBreakdown.push({
+        fn: String(s.item.fn ?? s.item.function ?? '').trim(),
+        sentence: String(s.item.sentence ?? '').trim(),
+        note: String(s.item.note ?? '').trim(),
+        relatesTo: Math.max(0, Math.floor(Number(s.item.relatesTo) || 0)),
+      }); break;
       case 'vocab': out.vocabularyNotes.push(s.item); break;
       case 'idiom': out.idiomHighlights.push(s.item); break;
       case 'advanced': out.advancedSentences.push(s.item); break;
@@ -152,6 +161,7 @@ export const SEGMENT_LABEL = {
   ai: '整体润色',
   overall: '整体评价',
   sentence: '逐句解析',
+  breakdown: '范文赏析',
   vocab: '词汇深度辨析',
   idiom: '地道习语',
   advanced: '高级句式',

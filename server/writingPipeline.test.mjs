@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { startWritingServer, writingModelEssay, writingOverall } from '../test/fixtures/writingServer.mjs';
+import { startWritingServer, writingModelBreakdown, writingModelEssay, writingOverall } from '../test/fixtures/writingServer.mjs';
 
 const app = await startWritingServer();
 const post = async (kind, payload) => {
@@ -39,11 +39,13 @@ try {
   assert.deepEqual(first.job.data.writingTopic, input.writingTopic, 'revision references survive a shared report read');
   assert.deepEqual(first.job.data.meta, { book: null, lessonId: null });
   assert.deepEqual(first.job.data.overall.scoreBreakdown, writingOverall.scoreBreakdown);
+  assert.deepEqual(first.job.data.modelBreakdown, writingModelBreakdown.map(({ function: fn, ...rest }) => ({ fn, ...rest })),
+    'breakdown entries normalize function→fn and survive a shared read');
   assert.equal(first.job.deleteToken, undefined, 'shared reads do not disclose delete credentials');
   assert.equal(app.requests.length, 1, 'writing does not run translation semantic reviews');
   assert.match(app.requests[0].messages[1].content, /The reading explains/);
   assert.match(app.requests[0].messages[1].content, /60%/);
-  console.log('PASS 写作批改保留题目、材料、配图说明、四维评分和 AI 范文，不串课文语料');
+  console.log('PASS 写作批改保留题目、材料、配图说明、四维评分、AI 范文与范文赏析，不串课文语料');
 
   const streamed = await submit('analyze', { ...input, stream: true });
   assert.deepEqual(streamed.job.data, first.job.data);

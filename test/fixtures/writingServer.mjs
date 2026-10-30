@@ -16,6 +16,11 @@ export const writingOverall = {
   ],
 };
 export const writingModelEssay = 'An independent model essay answering the writing question.\n\nIts arguments are fully developed.';
+/** 范文按功能的拆解：句子逐字取自 writingModelEssay；relatesTo=0 表示与学生句群无功能对应 */
+export const writingModelBreakdown = [
+  { function: '点题回应', sentence: 'An independent model essay answering the writing question.', note: '范文开篇直接回应题目任务。', relatesTo: 1 },
+  { function: '收束全文', sentence: 'Its arguments are fully developed.', note: '结尾一句收束论证。', relatesTo: 0 },
+];
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export async function startWritingServer(port = 8956) {
@@ -51,13 +56,16 @@ export async function startWritingServer(port = 8956) {
         content = { title: '写作批改示例', chinese: 'Incorrect model echo', draft: 'Incorrect model echo',
           ai: draft, original: writingModelEssay, overall: mode === 'no-overall' ? {} : writingOverall,
           sentences: [{ cn: '学生表达了自己的观点。', draft, ai: draft, original: '', findings: [] }],
+          modelBreakdown: writingModelBreakdown,
           vocabularyNotes: [], idiomHighlights: [], advancedSentences: [], bonusExpressions: [] };
       }
       if (body.stream && content.sentences) {
         const segments = [
           { t: 'meta', title: content.title, chinese: content.chinese, draft: content.draft, original: content.original },
           { t: 'ai', ai: content.ai }, ...content.sentences.map((item) => ({ t: 'sentence', item })),
-          { t: 'overall', overall: content.overall }, { t: 'done' },
+          { t: 'overall', overall: content.overall },
+          ...(content.modelBreakdown || []).map((item) => ({ t: 'breakdown', item })),
+          { t: 'done' },
         ];
         res.writeHead(200, { 'Content-Type': 'text/event-stream' });
         for (const segment of segments) {

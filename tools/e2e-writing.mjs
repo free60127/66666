@@ -109,6 +109,9 @@ try {
   check('打印版阅读材料保留分篇标题', await page.locator('.writing-material-label').nth(1).isVisible());
   await page.emulateMedia({ media: 'screen' });
   check('逐句反馈使用写作标签', await page.locator('.v-label', { hasText: 'AI 提升版' }).count() > 0);
+  check('范文赏析按功能对照呈现并带句群跳转', await page.locator('.sheet-section.breakdown .breakdown-item').count() === 2
+    && await page.locator('.sheet-section.breakdown .breakdown-jump').count() === 1);
+  check('逐句卡片不掺范文（句子级只对照自己的两个版本）', await page.locator('.sentence-card .v-row.original').count() === 0);
   await page.screenshot({ path: path.join(outDir, 'result-desktop.png') });
   const shareUrl = page.url();
   const modelCalls = app.requests.length;

@@ -392,6 +392,7 @@ export const WRITING_STREAM_FORMAT_RULES = `
 按顺序输出 {"t":"meta","title":"作文标题","chinese":"完整题目","draft":"完整学生作文","original":"高分范文全文"}，
 {"t":"ai","ai":"忠实且表达更成熟的完整提升版"}，每个句群输出 {"t":"sentence","item":逐句对象（cn为该句中文大意，original留空）}，
 再输出 {"t":"overall","overall":完整评分对象（四项：内容与任务30/组织与衔接25/词汇与表达25/语法与准确20）}，
+每条范文赏析 {"t":"breakdown","item":{"function":"功能标签","sentence":"范文原句","note":"中文讲解","relatesTo":对应学生句群序号或0}}，
 每条词汇 {"t":"vocab","item":词汇对象}、每条表达 {"t":"idiom","item":表达对象}、每条句式 {"t":"advanced","item":"句式点拨"}、每条补充 {"t":"bonus","item":"表达点拨"}。
 字段含义遵守写作批改JSON结构；先检查逐句error，再依据实际表现生成overall，不先估总分。可选学习材料可省略，不凑数量。最后输出 {"t":"done"}。`;
 
@@ -645,6 +646,12 @@ export const WRITING_SYSTEM_PROMPT = `你是「回译本」的英语写作教练
           "primaryDimension": "内容与任务|组织与衔接|词汇与表达|语法与准确" }
       ] }
   ],
+  "modelBreakdown": [
+    { "function": "该句在文章中的功能（简短标签，如：称呼与问候｜回应要点①｜细节支撑｜请求行动｜落款）",
+      "sentence": "高分范文中的对应句子（逐字引用你写在 original 里的句子，可含相邻句，不改动原文）",
+      "note": "中文讲解：这一句在范文里的作用、值得学习的表达点，以及与学生写法的关键差异（如有）",
+      "relatesTo": 对应学生句群的序号（从 1 开始的整数；无功能对应填 0，不得强行配对） }
+  ],
   "vocabularyNotes": [{ "word": "词或短语", "type": "词性", "phonetic": "IPA音标", "meaning": "中文释义", "note": "在这篇作文语境里的用法讲解与同义替换建议" }],
   "idiomHighlights": [{ "idiom": "地道表达", "common": "学生用的普通说法", "explanation": "中文讲解" }],
   "advancedSentences": ["从 AI 提升版或范文里挑的值得学习句式，附一句中文点拨"],
@@ -660,7 +667,8 @@ export const WRITING_SYSTEM_PROMPT = `你是「回译本」的英语写作教练
 6. sentences 必须按顺序覆盖学生全文每一句（按句号/问号/感叹号切分长句群也算），from 必须逐字存在于该句 draft 中，不得批评学生没写的内容。
 7. 高分范文必须直接回应题目要求（题目要讨论双方就写双方、要点名立场），有真实论证层次，不要堆模板句。
 8. 反馈使用尊重的语气，先肯定真实优点，再讲最值得改的问题；明确说明分数是学习参考。
-9. 图片描述（imageDesc）或写作材料（material）是审题的唯一依据：内容与任务的判断以它们为基准，不得要求作文包含材料中不存在的细节。`;
+9. 图片描述（imageDesc）或写作材料（material）是审题的唯一依据：内容与任务的判断以它们为基准，不得要求作文包含材料中不存在的细节。
+10. modelBreakdown 把高分范文按**文章功能**拆解（范文是独立成文，与学生的句子不是逐句翻译关系）：每条 sentence 必须逐字来自你写的 original，function 用简短功能标签，note 讲表达亮点与和学生写法的关键差异；relatesTo 只在学生句群与该范文句有真实功能对应时填写，结构不同、内容跑题就填 0，绝不硬凑一一对应；跑题作文的 modelBreakdown 仍按题目要求的结构完整给出，让学生看到差距在哪里。`;
 
 export const WRITING_SCORING_RULES = `【写作评分校准】
 1. 四项权重固定：内容与任务30、组织与衔接25、词汇与表达25、语法与准确20，总满分100，分项之和等于总分。
@@ -681,7 +689,7 @@ export function buildWritingUserMessage({ title, topic, draft, reference, materi
     '\n【学生作文全文】\n' + draft +
     (reference ? '\n【学生提供的对标范文，仅供对照，不是评分标准】\n' + reference : '') +
     '\n【讲解等级】' + L.key + '\nAI 提升版与高分范文的词汇、句式请匹配该等级：词汇：' + L.vocab + '；句式：' + L.syntax +
-    '\n\n要求：\n1. ai 字段是学生全文的忠实提升版（原意与立场不变）；\n2. original 字段是按题目要求独立写成的高分范文；\n3. sentences 按顺序覆盖学生全文每一句，cn 写该句中文大意，original 留空字符串；\n4. 只在有真实问题时写 findings，不凑数；亮点如实引用，没有就不写；\n5. 按系统提示输出完整 JSON。';
+    '\n\n要求：\n1. ai 字段是学生全文的忠实提升版（原意与立场不变）；\n2. original 字段是按题目要求独立写成的高分范文；\n3. sentences 按顺序覆盖学生全文每一句，cn 写该句中文大意，original 留空字符串；\n4. modelBreakdown 把范文按文章功能拆解：sentence 逐字引用 original 里的句子，note 讲表达亮点与关键差异，relatesTo 只在真实功能对应时填学生句群序号（无对应填 0），不强行配对；\n5. 只在有真实问题时写 findings，不凑数；亮点如实引用，没有就不写；\n6. 按系统提示输出完整 JSON。';
 }
 
 /* 写作方向的整体评价补救（模型整块没写 overall 时的小请求兜底） */

@@ -152,6 +152,42 @@ console.log('=== 作业解析流式协议测试 ===\n');
   check('流式已有的内容优先（不被整段 JSON 覆盖）', merged.parsed.sentences.length === 1 && merged.parsed.sentences[0].cn === '第一句');
 }
 
+/* ---------- 7.65 范文赏析（breakdown）：标准、走形、缺席补空 ----------
+ * 写作方向新增的 modelBreakdown（范文按功能拆解）。句级"原稿 vs AI 提升版"保持
+ * 纯净（不掺范文），范文在独立板块按功能对照 —— 断线重放时这段也要能续上。 */
+{
+  const folded = serverFold(createResultReader().feed([
+    JSON.stringify({ t: 'breakdown', item: { function: '称呼问候', sentence: 'How are you?', note: '寒暄开场', relatesTo: 1 } }),
+    JSON.stringify({ t: 'breakdown', item: { fn: '请求行动', sentence: 'Please write back.' } }),   // 无 note / relatesTo=0
+    JSON.stringify({ t: 'breakdown', item: { sentence: '缺功能标签的不算' } }),                       // 缺 fn → 丢
+    JSON.stringify({ fn: '点题', sentence: '平铺形状也认', relatesTo: 2 }),                            // 漏 t 漏 item
+  ].join(String.fromCharCode(10)) + String.fromCharCode(10)));
+  check('breakdown 段折叠为 modelBreakdown（function 归一成 fn，缺 note 补空）', folded.modelBreakdown.length === 3
+    && folded.modelBreakdown[0].fn === '称呼问候' && folded.modelBreakdown[0].relatesTo === 1
+    && folded.modelBreakdown[1].relatesTo === 0 && folded.modelBreakdown[2].fn === '点题', JSON.stringify(folded.modelBreakdown));
+  check('翻译方向没有 breakdown 段时字段是空数组（不影响旧方向）', serverFold([]).modelBreakdown.length === 0);
+
+  const parseLoose = (t) => JSON.parse(String(t).replace(/^[^{]*/, '').replace(/[^}]*$/, ''));
+  // 流式已拿到 breakdown：整段 JSON 里那份不覆盖
+  const merged = finalizeResult({
+    segments: [
+      { t: 'sentence', item: { cn: '第一句' }, __i: 0 },
+      { t: 'breakdown', item: { function: '点题', sentence: 'Model sentence.', note: '', relatesTo: 1 }, __i: 1 },
+    ],
+    rawText: J({ sentences: [{ cn: '第一句' }], modelBreakdown: [{ fn: '来自整段JSON', sentence: 'x', note: '', relatesTo: 0 }] }),
+    parseLoose,
+  });
+  check('finalize 收尾带上 modelBreakdown（流式已有的优先）', merged.mode === 'stream'
+    && merged.parsed.modelBreakdown.length === 1 && merged.parsed.modelBreakdown[0].fn === '点题', JSON.stringify(merged.parsed.modelBreakdown));
+  // 流式缺席：用整段 JSON 的 modelBreakdown 补上
+  const merged2 = finalizeResult({
+    segments: [{ t: 'sentence', item: { cn: '第一句' }, __i: 0 }],
+    rawText: J({ sentences: [{ cn: '第一句' }], modelBreakdown: [{ fn: '来自整段JSON', sentence: 'x', note: '', relatesTo: 0 }] }),
+    parseLoose,
+  });
+  check('流式缺席时用整段 JSON 的 modelBreakdown 补上', merged2.parsed.modelBreakdown.length === 1 && merged2.parsed.modelBreakdown[0].fn === '来自整段JSON');
+}
+
 /* ---------- 7.7 ★ usableOverall：占位符不算"有整体评价" ----------
  * 线上实测的坑：模型把 overall 写成 {"…":"…"} 这类占位符时对象是**非空**的，
  * 如果只判"空不空"，后面的整段 JSON 补空与服务端的补救请求都不会触发，

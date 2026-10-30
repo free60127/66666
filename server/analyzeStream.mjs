@@ -34,6 +34,8 @@ function shapeOk(obj) {
   const t = obj.t;
   if (t === 'overall') return Boolean(obj.overall && typeof obj.overall === 'object' && !Array.isArray(obj.overall));
   if (t === 'sentence' || t === 'vocab' || t === 'idiom') return Boolean(obj.item && typeof obj.item === 'object' && !Array.isArray(obj.item));
+  if (t === 'breakdown') return Boolean(obj.item && typeof obj.item === 'object' && !Array.isArray(obj.item)
+    && (obj.item.fn || obj.item.function) && obj.item.sentence);
   if (t === 'advanced' || t === 'bonus') return typeof obj.item === 'string';
   if (t === 'ai') return typeof obj.ai === 'string';
   if (t === 'meta') return typeof obj.title === 'string' || typeof obj.chinese === 'string' || typeof obj.draft === 'string';
@@ -88,7 +90,7 @@ export function finalizeResult({ segments, rawText, parseLoose }) {
   if (!whole || typeof whole !== 'object') return streamedOk ? { parsed: folded, mode: 'stream' } : { parsed: null, mode: 'empty' };
   if (!streamedOk) return { parsed: whole, mode: 'fallback' };
   const merged = { ...folded };
-  for (const k of ['title', 'chinese', 'draft', 'original', 'ai', 'sentences', 'vocabularyNotes', 'idiomHighlights', 'advancedSentences', 'bonusExpressions']) {
+  for (const k of ['title', 'chinese', 'draft', 'original', 'ai', 'sentences', 'modelBreakdown', 'vocabularyNotes', 'idiomHighlights', 'advancedSentences', 'bonusExpressions']) {
     if (!hasContent(merged[k]) && hasContent(whole[k])) merged[k] = whole[k];
   }
   // overall 单独判：占位符（{"…":"…"}）也算"没有"，让整段 JSON 里的真数据把它换掉

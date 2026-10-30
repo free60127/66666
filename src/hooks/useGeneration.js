@@ -549,6 +549,12 @@ export function useGeneration({
           return '· [' + f.category + '] ' + f.from + ' → ' + f.to + '：' + f.explanation + dims + syns + idiom;
         }), '',
       ]),
+      ...(result.direction === 'writing' && (result.modelBreakdown || []).length ? [
+        '【范文赏析（按文章功能对照，非逐句翻译）】',
+        ...result.modelBreakdown.map((b) => '· [' + b.fn + '] ' + b.sentence
+          + (b.note ? ' —— ' + b.note : '')
+          + (b.relatesTo ? '（对应你的第 ' + b.relatesTo + ' 句）' : '')), '',
+      ] : []),
       '【词汇深度辨析】', ...(result.vocabularyNotes || []).map((v, i) => String(i + 1) + '. ' + v.word + (v.type ? '（' + v.type + '）' : '') + '：' + (v.meaning || '') + (v.note ? ' ' + v.note : '') + (hasMorphology(v.morphology) ? ' 【' + morphologyText(v.morphology) + '】' : '')), '',
       '【地道习语】', ...(result.idiomHighlights || []).map((id, i) => String(i + 1) + '. ' + id.idiom + (id.common ? '（普通说法：' + id.common + '）' : '') + '：' + (id.explanation || '')), '',
       '【可学习的高级句式】', ...(result.advancedSentences || []).map((a) => '· ' + a), '',

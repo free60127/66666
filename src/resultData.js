@@ -40,8 +40,17 @@ function highlightSupported(text, draftLower) {
 }
 
 export function normalizeResult(data) {
-  if (!data || typeof data !== 'object') return null;
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
   const overall = data.overall && typeof data.overall === 'object' && !Array.isArray(data.overall) ? data.overall : {};
+  // 范文赏析（写作方向）：形状防护——旧缓存/分享数据里没有或形状不对时给空数组，板块整体隐藏
+  const modelBreakdown = (asObjectArray(data.modelBreakdown) || [])
+    .map((b) => ({
+      fn: String(b.fn ?? b.function ?? '').trim(),
+      sentence: String(b.sentence ?? '').trim(),
+      note: String(b.note ?? '').trim(),
+      relatesTo: Math.max(0, Math.floor(Number(b.relatesTo) || 0)),
+    }))
+    .filter((b) => b.fn && b.sentence);
   const sentences = asObjectArray(data.sentences).map((s) => ({
     ...s,
     // 过滤「went → went」这类无意义对照：**新结果在服务端已过滤**，这里是为了
@@ -72,6 +81,7 @@ export function normalizeResult(data) {
       issues: sentences.length ? issuesTotal : overall.issues,
     },
     sentences,
+    modelBreakdown,
     vocabularyNotes: asObjectArray(data.vocabularyNotes),
     idiomHighlights: asObjectArray(data.idiomHighlights),
     teacherComments: asObjectArray(data.teacherComments).filter((entry) => typeof entry.text === 'string'),

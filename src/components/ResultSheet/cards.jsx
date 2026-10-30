@@ -108,7 +108,7 @@ function SectionImpl({ label, tone, note, children }) {
 function SentenceCardImpl({ index, sentence, result, fav }) {
   const findings = sentence.findings || [];
   return (
-    <div className="sentence-card">
+    <div className="sentence-card" id={'sentence-card-' + (index + 1)}>
       <div className="sentence-head"><span className="sentence-index">{String(index + 1).padStart(2, '0')}</span><p className="sentence-cn">{sentence.cn}</p><span className="finding-count">{findings.length} 项</span></div>
       <div className="versions">
         <VersionRow label="原稿" tone="draft" text={<DraftText text={sentence.draft} findings={findings} />} />
@@ -242,6 +242,40 @@ export const ErrorProfile = React.memo(ErrorProfileImpl);
 export const Section = React.memo(SectionImpl);
 export const SentenceCard = React.memo(SentenceCardImpl);
 export const VersionRow = React.memo(VersionRowImpl);
+
+/* ---------- 范文赏析（写作方向）----------
+ * 高分范文是独立成文，与学生的句子不是逐句翻译关系：立场可能不同、结构可能不同，跑题时
+ * 更是完全不同的内容。所以不做"第 N 句对第 N 句"的硬拼，而是按**文章功能**（问候/回应
+ * 要点/细节/请求）拆解范文，讲清同一层意思范文怎么表达；只有模型给出真实功能对应时才
+ * 标"对应你的第 N 句"，跑题作文照样完整呈现题目要求的结构 —— 差距本身就是最有用的反馈。 */
+function ModelBreakdownImpl({ items }) {
+  const arr = Array.isArray(items) ? items.filter((b) => b && typeof b.sentence === 'string' && b.sentence.trim()) : [];
+  if (!arr.length) return null;
+  const jump = (n) => {
+    const target = document.getElementById('sentence-card-' + n);
+    if (target) target.scrollIntoView({ block: 'center' });
+  };
+  return (
+    <section className="sheet-section breakdown" aria-label="范文赏析">
+      <div className="section-heading"><span className="label-dot" /><h2>范文赏析</h2><span className="muted small">按文章功能对照 · 非逐句翻译</span></div>
+      <p className="breakdown-intro">高分范文是独立写成的另一篇文章——立场、结构都可能与你的不同。这里按文章功能对照：同一层意思，范文是怎么表达的；每一句好在哪。逐句改错看的是"对不对"，这里看的是"好不好"——跑题时它就是你该有的结构长什么样。</p>
+      <div className="breakdown-list">
+        {arr.map((b, i) => (
+          <div className="breakdown-item" key={'bd' + (b.fn || '') + '#' + i}>
+            <div className="breakdown-head">
+              <span className="breakdown-fn">{b.fn}</span>
+              {b.relatesTo > 0 ? <button type="button" className="chip-btn breakdown-jump" onClick={() => jump(b.relatesTo)}>↔ 对应你的第 {b.relatesTo} 句</button> : null}
+            </div>
+            <p className="breakdown-sentence">{b.sentence}</p>
+            {b.note ? <p className="breakdown-note">{b.note}</p> : null}
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+export const ModelBreakdown = React.memo(ModelBreakdownImpl);
+
 export const VocabularyNotes = React.memo(VocabularyNotesImpl);
 export const IdiomHighlights = React.memo(IdiomHighlightsImpl);
 export const SummaryBlock = React.memo(SummaryBlockImpl);

@@ -26,7 +26,7 @@ import { usageDay, reserveDailyQuota } from './usage.mjs';
 import { resolveClientIp, trustProxyHops, trustCloudflareHeader } from './client-ip.mjs';
 import { createAccounts } from './accounts.mjs';
 import { createClassrooms } from './classrooms.mjs';
-import { sanitizeOverall, sanitizeSentences } from './resultShape.mjs';
+import { sanitizeOverall, sanitizeSentences, sanitizeModelBreakdown } from './resultShape.mjs';
 import { staleMsFor } from './job-stale.mjs';
 // 方向常量与前端共用一份（src/direction.js 是纯常量模块，不碰 DOM）
 import { normalizeDirection } from '../src/direction.js';
@@ -1183,6 +1183,14 @@ function buildAnalyzeData({ parsed, dir, title, chinese, draft, original, level,
   if (cleanedSentences.dropped > 0) {
     console.warn(`[analyze] 丢弃 ${cleanedSentences.dropped} 条无意义 findings（from 与 to 相同/缺失或重复）`);
   }
+  // 写作方向：范文按文章功能的拆解（"范文赏析"板块）。relatesTo 以清洗后的句群数为准夹取，
+  // 防止模型编一个超出范围的句号让前端锚点落空。
+  const cleanedBreakdown = dir === 'writing'
+    ? sanitizeModelBreakdown(parsed.modelBreakdown, cleanedSentences.list.length)
+    : { list: [], dropped: 0 };
+  if (cleanedBreakdown.dropped > 0) {
+    console.warn(`[analyze] 丢弃 ${cleanedBreakdown.dropped} 条形状不完整的 modelBreakdown 条目`);
+  }
   return {
     direction: dir,
     title: parsed.title || title,
@@ -1196,6 +1204,7 @@ function buildAnalyzeData({ parsed, dir, title, chinese, draft, original, level,
     aiLevel: level || DEFAULT_AI_LEVEL,
     overall: sanitizeOverall(normalizeEvidenceFor(dir, parsed.overall)),
     sentences: cleanedSentences.list,
+    ...(dir === 'writing' ? { modelBreakdown: cleanedBreakdown.list } : {}),
     vocabularyNotes: objectArray(parsed.vocabularyNotes),
     idiomHighlights: objectArray(parsed.idiomHighlights),
     advancedSentences: Array.isArray(parsed.advancedSentences) ? parsed.advancedSentences : [],

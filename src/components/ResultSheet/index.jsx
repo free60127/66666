@@ -9,7 +9,7 @@ import { formatDuration } from '../../format.js'
 import { directionText } from '../../direction.js';
 import { AlertTriangle, ArrowLeft, CheckCircle2, ChevronDown, ClipboardCopy, Download, Link2, LoaderCircle } from 'lucide-react';
 import { DraftText } from './bits.jsx';
-import { ErrorProfile, Section, SentenceCard, VocabularyNotes, IdiomHighlights, SummaryBlock } from './cards.jsx';
+import { ErrorProfile, ModelBreakdown, Section, SentenceCard, VocabularyNotes, IdiomHighlights, SummaryBlock } from './cards.jsx';
 import { PracticeCompare } from './Compare.jsx';
 import WritingMaterial from '../WritingMaterial.jsx';
 
@@ -187,6 +187,7 @@ function ResultSheetImpl({ result, onBack, onReviseWriting, onCopy, onShare, sha
           <ErrorProfile result={result} history={history} jobId={jobId} />
           {sentences.map((sentence, i) => <SentenceCard key={'s' + (sentence.cn || sentence.draft || '') + '#' + i} index={i} sentence={sentence} result={result} fav={fav} />)}
         </section>
+        <ModelBreakdown items={result.modelBreakdown} />
         <VocabularyNotes items={result.vocabularyNotes} result={result} fav={fav} />
         <IdiomHighlights items={result.idiomHighlights} result={result} fav={fav} />
         <section className="sheet-section summary">

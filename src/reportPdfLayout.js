@@ -121,6 +121,15 @@ export function reportPdfModel(report, className, homeworkTitle) {
       ...fs.map(findingCard), fs.length ? null : text('该句未发现明显问题。', { size: 9, color: C.muted }),
     ], { fill: C.white, continuation: `句群 ${number}` }));
   });
+  if (result.direction === 'writing' && arr(result.modelBreakdown).length) {
+    model.push(heading('范文赏析（按文章功能对照）'));
+    arr(result.modelBreakdown).forEach((b) => model.push(box(typeof b !== 'object' ? [text(b)] : [
+      rich([{ text: b.fn || '', badge: C.gold }, { text: b.relatesTo ? '  对应你的第 ' + b.relatesTo + ' 句' : '', color: C.muted }],
+        { size: 10, gap: 8, keep: 25 }),
+      text(b.sentence, { bold: true }),
+      b.note ? text(b.note, { size: 9, color: C.muted }) : null,
+    ], { accent: C.reference, fill: C.white, continuation: typeof b === 'object' ? b.fn : '范文' })));
+  }
   if (arr(result.vocabularyNotes).length) {
     model.push(heading('词汇深度辨析'));
     arr(result.vocabularyNotes).forEach((v) => model.push(box(typeof v !== 'object' ? [text(v)] : [
