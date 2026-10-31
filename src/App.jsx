@@ -28,6 +28,7 @@ import { useModals } from './hooks/useModals.js'
 import { useLibraries } from './hooks/useLibraries.js'
 import { useEditor } from './hooks/useEditor.js'
 import { lessonKeyOf, lessonLabel } from './lessonLabel.js'
+import { lessonAiLevel, writingTopicAiLevel, levelSelectVisible } from './aiLevel.js'
 import { buildLocalDrill, collectDrills, materialsToText, pickDrillPoints } from './drill.js'
 import { extractPdfText } from './pdfText.js'
 import { prepareImage } from './ocrImage.js'
@@ -195,9 +196,13 @@ function Studio() {
     }
     prevWritingOpenRef.current = writingOpen;
   }, [writingOpen]);
+  // 当前写作题目对象：难度自动切换要按题目来源（exam）推断，只有 key 不够。
+  // 初值取持久化的上次题目——刷新恢复写作页时难度同样自动对齐。
+  const [writingTopicObj, setWritingTopicObj] = useState(() => loadWritingState()?.topic || null);
   const selectWritingTopic = useCallback((topic, draftTitle) => {
     setWritingKey(writingTopicKey(topic));
     setWritingTitle(draftTitle ?? topic?.zh ?? '');
+    setWritingTopicObj(topic || null);
   }, []);
   // 班级写作作业：教师布置的题目（学生端锁定，不能换题）。
   // 刷新后从进行中的班级任务里重水合 —— 否则写作页显示的是上次的自由题目，
@@ -487,6 +492,26 @@ function Studio() {
     runGenerateRef, refreshStatus, setError, markSavedSnapshot,
     setBackendWaking, genTokenRef, initialLessonCancelledRef,
     onDraftRestored: setDraftRestored,
+  });
+
+  /* ---------- 难度跟随材料自动切换，控件只在推断不了时出现 ----------
+   * 用户选了考研课文/考研写作题，难度却停在四六级，评分口径就错位了（用户实测反馈）。
+   * 规则（2026-10-31 拍板）：能从材料推断等级 → 自动切换**并隐藏**下拉（降低首屏信息量）；
+   * 推断不了（自由模式 / 自建课文库 / 精选自编 / 自定义题 / 班级作业）→ 显示下拉由用户选。
+   * 课文切换的短暂加载窗口里 matchedLesson 为 null，用 lastInferredRef 维持上一次的隐藏状态，避免下拉闪烁。 */
+  const inferredLevel = writingOpen
+    ? writingTopicAiLevel(writingTopicObj)
+    : mode === 'lesson' ? lessonAiLevel(matchedLesson) : null;
+  const lastInferredRef = useRef(null);
+  useEffect(() => { if (inferredLevel) lastInferredRef.current = inferredLevel; }, [inferredLevel]);
+  useEffect(() => {
+    if (!inferredLevel || polishLevel === inferredLevel) return;
+    setPolishLevel(inferredLevel);
+    safeSet(LEVEL_KEY, inferredLevel);
+  }, [inferredLevel, polishLevel]);
+  const showLevelSelect = levelSelectVisible({
+    inferredLevel, hadInferredLevel: Boolean(lastInferredRef.current),
+    mode, writingOpen, lessonLoading,
   });
 
   // useLessons 就位后，把「课文被改名/挪位」「重排后当前课变了」的处理接上
@@ -1834,12 +1859,14 @@ function Studio() {
                   ))}
                 </div>
               )}
-              <label className="modebar-field" title="AI 润色版、高级句式与推荐表达都会匹配该考试难度">
-                难度
-                <select className="modebar-select" value={polishLevel} onChange={(e) => { setPolishLevel(e.target.value); safeSet(LEVEL_KEY, e.target.value); }}>
-                  {AI_LEVELS.map((lv) => <option key={lv} value={lv}>{lv}</option>)}
-                </select>
-              </label>
+              {showLevelSelect && (
+                <label className="modebar-field" title="AI 润色版、高级句式与推荐表达都会匹配该考试难度">
+                  难度
+                  <select className="modebar-select" value={polishLevel} onChange={(e) => { setPolishLevel(e.target.value); safeSet(LEVEL_KEY, e.target.value); }}>
+                    {AI_LEVELS.map((lv) => <option key={lv} value={lv}>{lv}</option>)}
+                  </select>
+                </label>
+              )}
               {!writingOpen && <button className="ghost-btn sm" onClick={() => fileRef.current?.click()} disabled={parsing}
                 title={fileName ? `已导入：${fileName}` : '从 Word 文档导入作业（自动识别标题、中文与英文初稿）'}>
                 {parsing ? <LoaderCircle className="spin" size={14} /> : <Upload size={14} />}导入 DOCX

@@ -59,6 +59,15 @@ try {
   const materialTopic = WRITING_EXAM_BANK.find((topic) => topic.id === 'tem8-2024');
   await page.locator('.ws-card').filter({ has: page.getByRole('heading', { name: materialTopic.zh, exact: true }) }).getByRole('button', { name: '写这篇' }).click();
   check('材料作文显示完整阅读材料', (await page.locator('.ws-material').innerText()).length > 100);
+  check('选专八真题后难度自动对齐并隐藏下拉', await page.locator('.modebar-select').count() === 0
+    && await page.evaluate(() => localStorage.getItem('bt-polish-level')) === '专八');
+  await page.getByRole('button', { name: '返回题库', exact: true }).click();
+  await page.locator('.ws-filter-row').first().getByRole('button', { name: '精选自编', exact: true }).click();
+  await page.locator('.ws-card').first().getByRole('button', { name: '写这篇' }).click();
+  check('精选自编题无法推断来源，难度下拉恢复显示', await page.locator('.modebar-select').count() === 1);
+  await page.getByRole('button', { name: '返回题库', exact: true }).click();
+  await page.locator('.ws-filter-row').first().getByRole('button', { name: '专八', exact: true }).click();
+  await page.locator('.ws-card').filter({ has: page.getByRole('heading', { name: materialTopic.zh, exact: true }) }).getByRole('button', { name: '写这篇' }).click();
   check('两篇 Excerpt 与文章标题分别成为醒目标题', await page.locator('.ws-material .writing-material-label').count() === 2 && await page.locator('.ws-material .writing-material-title').count() === 2);
   check('Excerpt 2 与前一篇之间有明显段间空白', await page.locator('.ws-material .writing-material-section').nth(1).evaluate((el) => parseFloat(getComputedStyle(el).marginTop) >= 20 && parseFloat(getComputedStyle(el).paddingTop) >= 16));
   await page.getByRole('textbox', { name: '我的作文' }).fill(essay);
