@@ -4,11 +4,6 @@
 # 依赖：本机 Git Bash（tar/ssh Windows 自带）；服务器已按 deploy/README.md 初始化
 set -euo pipefail
 
-# Git Bash/MSYS 会把「看起来像 POSIX 路径」的环境变量值换算成 Windows 路径：
-# 下面 VITE_BASE=/ 的 `/` 曾被换成本机 Git 安装根目录（/Users/.../Git），构建出的
-# index.html 全部资源引用都指去那个路径，线上白屏。显式豁免这两个变量。
-export MSYS2_ENV_CONV_EXCL="VITE_BASE:VITE_API_BASE${MSYS2_ENV_CONV_EXCL:+:$MSYS2_ENV_CONV_EXCL}"
-
 DEPLOY_HOST="${1:?用法: deploy/deploy.sh bts-server}"
 SHA="$(git rev-parse HEAD)"
 if [[ -n "$(git status --porcelain)" ]]; then
@@ -16,10 +11,18 @@ if [[ -n "$(git status --porcelain)" ]]; then
   exit 1
 fi
 
+# 不要在这里用 VITE_BASE=/ 之类前缀设值：Git Bash(MSYS) 会把以 / 开头的值换算成本机
+# Git 安装根目录（曾把 base 变成 /Users/<user>/AppData/Local/Programs/Git，线上白屏；
+# 且实测 export MSYS2_ENV_CONV_EXCL 拦不住，只有同命令行前缀形式有效）。
+# vite 缺省 base 恰为 '/'（vite.config.js），API_BASE 缺省 ''（src/api.js 同源），本就无需设置；
+# 构建后的产物自检兜底：引用必须是 /assets/ 开头，且不得混入本机盘符/用户路径。
 echo "==> 本机构建前端…"
-VITE_BASE=/ VITE_API_BASE='' npm run build
+npm run build
 grep -q 'src="/assets/' dist/index.html || { echo '构建产物异常：index.html 未引用 /assets/，拒绝发布。' >&2; exit 1; }
-if grep -q '/Users/' dist/index.html; then echo '构建产物异常：index.html 含本机路径，拒绝发布。' >&2; exit 1; fi
+if grep -qE '(src|href)="(/(Users|[Cc]:/)|[A-Za-z]:/)' dist/index.html; then
+  echo '构建产物异常：index.html 含本机路径，拒绝发布。' >&2
+  exit 1
+fi
 node tools/package-release.mjs "$SHA"
 
 echo "==> 上传版本 $SHA …"
