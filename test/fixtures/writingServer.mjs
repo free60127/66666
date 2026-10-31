@@ -21,6 +21,8 @@ export const writingModelBreakdown = [
   { function: '点题回应', sentence: 'An independent model essay answering the writing question.', note: '范文开篇直接回应题目任务。', relatesTo: 1 },
   { function: '收束全文', sentence: 'Its arguments are fully developed.', note: '结尾一句收束论证。', relatesTo: 0 },
 ];
+/** 零锚重写补救调用的返回：与学生作文没有任何 ≥6 词的共享句子 */
+export const writingRepairedEssay = 'Learning to prepare simple meals is a gateway skill for young adults stepping into university life. A student who can cook decides what to eat, how much to spend, and when to shop, and those small daily decisions gradually build real independence.\n\nBeyond nutrition, planning groceries teaches budgeting and self-restraint. Sharing the kitchen with roommates also turns cooking into a social ritual that strengthens friendships and eases the pressure of academic life.';
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export async function startWritingServer(port = 8956) {
@@ -51,12 +53,19 @@ export async function startWritingServer(port = 8956) {
           pitfalls: ['不要遗漏材料要求。'], patterns: [] };
       } else if (system.includes('请复核作文题目')) {
         content = writingOverall;
+      } else if (system.includes('满分范文作者')) {
+        // 零锚重写补救调用：只应看到题目与材料，不该看到学生作文
+        content = { original: writingRepairedEssay };
       } else {
         const draft = user.split('【学生作文全文】\n')[1]?.split('\n【')[0] || 'Student essay.';
+        const cloned = mode === 'cloned-essay';
+        // cloned-essay 模式复现线上事故：范文逐字照抄学生草稿，赏析还自曝"与学生的句子相同"
         content = { title: '写作批改示例', chinese: 'Incorrect model echo', draft: 'Incorrect model echo',
-          ai: draft, original: writingModelEssay, overall: mode === 'no-overall' ? {} : writingOverall,
+          ai: draft, original: cloned ? draft : writingModelEssay, overall: mode === 'no-overall' ? {} : writingOverall,
           sentences: [{ cn: '学生表达了自己的观点。', draft, ai: draft, original: '', findings: [] }],
-          modelBreakdown: writingModelBreakdown,
+          modelBreakdown: cloned ? [
+            { function: '点题回应', sentence: draft, note: '与学生的句子相同。', relatesTo: 1 },
+          ] : writingModelBreakdown,
           vocabularyNotes: [], idiomHighlights: [], advancedSentences: [], bonusExpressions: [] };
       }
       if (body.stream && content.sentences) {

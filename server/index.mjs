@@ -12,7 +12,7 @@ import path from 'node:path';
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { promises as dnsLookup } from 'node:dns';
-import { SYSTEM_PROMPT, buildUserMessage, EN2CN_SYSTEM_PROMPT, buildEn2CnUserMessage, MATERIAL_PROMPT, buildMaterialMessage, QUIZ_PROMPT, buildQuizMessage, DRILL_PROMPT, buildDrillMessage, GRADE_PROMPT, GRADE_STREAM_PROMPT, buildGradeMessage, buildOverallRepairMessage, AI_LEVEL_KEYS, DEFAULT_AI_LEVEL, normalizeLevel, WRITING_SYSTEM_PROMPT, buildWritingUserMessage, WRITING_SCORING_RULES, WRITING_BRIEF_PROMPT, buildWritingBriefMessage } from './prompt.mjs';
+import { SYSTEM_PROMPT, buildUserMessage, EN2CN_SYSTEM_PROMPT, buildEn2CnUserMessage, MATERIAL_PROMPT, buildMaterialMessage, QUIZ_PROMPT, buildQuizMessage, DRILL_PROMPT, buildDrillMessage, GRADE_PROMPT, GRADE_STREAM_PROMPT, buildGradeMessage, buildOverallRepairMessage, AI_LEVEL_KEYS, DEFAULT_AI_LEVEL, normalizeLevel, WRITING_SYSTEM_PROMPT, buildWritingUserMessage, writingEssayRepairPrompt, buildWritingEssayRepairMessage, WRITING_SCORING_RULES, WRITING_BRIEF_PROMPT, buildWritingBriefMessage } from './prompt.mjs';
 import { MAX_DRILL_COUNT, MAX_DRILL_POINTS, MAX_GRADE_ITEMS } from './limits.mjs';
 import { SCORING_RULES, overallRepairPrompt, streamFormatRules } from './prompt.mjs';
 import { sanitizeGrades, sanitizeQuestions } from './questionShape.mjs';
@@ -26,7 +26,7 @@ import { usageDay, reserveDailyQuota } from './usage.mjs';
 import { resolveClientIp, trustProxyHops, trustCloudflareHeader } from './client-ip.mjs';
 import { createAccounts } from './accounts.mjs';
 import { createClassrooms } from './classrooms.mjs';
-import { sanitizeOverall, sanitizeSentences, sanitizeModelBreakdown } from './resultShape.mjs';
+import { sanitizeOverall, sanitizeSentences, sanitizeModelBreakdown, essayReuseRatio } from './resultShape.mjs';
 import { staleMsFor } from './job-stale.mjs';
 // 方向常量与前端共用一份（src/direction.js 是纯常量模块，不碰 DOM）
 import { normalizeDirection } from '../src/direction.js';
@@ -1307,6 +1307,24 @@ async function runAnalyzeJob(jobId, { title, chinese, draft, original, lesson, l
         console.warn('[analyze/' + dir + '] 语义复核未完成，保留第一轮分析：' + (e && e.message));
       }
     }
+    // 范文克隆检测：模型刚逐句读完学生作文再写"独立范文"，上下文锚定会让它大量照抄
+    // （实测 6 句抄 5 句，赏析讲解自己都写着"与学生的句子相同"）。触发时走零锚重写——
+    // 补救 prompt 里没有学生文本；原 modelBreakdown 对不上新范文，随之丢弃。
+    if (dir === 'writing' && job.data.original) {
+      const reuse = essayReuseRatio(job.data.original, [job.data.draft, job.data.ai]);
+      if (reuse >= ESSAY_REUSE_THRESHOLD) {
+        console.warn(`[analyze/writing] 范文重用率 ${(reuse * 100).toFixed(0)}%（阈值 ${ESSAY_REUSE_THRESHOLD * 100}%），触发零锚重写`);
+        try {
+          const repaired = await repairClonedEssay({ baseUrl, model, apiKey, data: job.data, level });
+          job.data.original = repaired.essay;
+          job.data.modelBreakdown = [];
+          job.essayRepaired = true;
+          console.warn(`[analyze/writing] 范文已零锚重写，重写后重用率 ${(repaired.after * 100).toFixed(0)}%`); 
+        } catch (e) {
+          console.warn('[analyze/writing] 范文重写补救失败，保留原范文：' + (e && e.message));
+        }
+      }
+    }
     // 整体评价缺失（模型整块没写 / 只写了占位符）→ 先补一次小请求；仍失败时保留批改但不捏造数值分数。
     // 这两步都只影响"有没有分数和建议"，不改变任何逐句批改内容。
     // 评分由模型按各方向权重直接给出，不再做账本校验拦截（真模型下账本门槛
@@ -1548,6 +1566,26 @@ async function repairOverall({ baseUrl, model, apiKey, data }) {
   const overall = sanitizeOverall(normalizeEvidenceFor(data.direction, unwrapped));
   if (!usableOverall(overall)) throw new Error('补救请求也没给出可用的整体评价');
   return overall;
+}
+
+/** 范文克隆判定阈值：学生作文 ≥6 词的句子里 40% 以上逐字出现在"范文"中，即判定被上下文锚定污染 */
+const ESSAY_REUSE_THRESHOLD = 0.4;
+
+/** 范文克隆补救：检测到范文大量复用学生句子时，用一次**零锚重写**换一篇真独立的范文。
+ * 补救 prompt 里没有任何学生文本（只有题目与材料），物理上无法照抄。
+ * 代价：原 modelBreakdown 的句子对不上新范文，只能丢弃（赏析板块隐藏，诚实降级）。 */
+async function repairClonedEssay({ baseUrl, model, apiKey, data, level }) {
+  const messages = [
+    { role: 'system', content: writingEssayRepairPrompt() },
+    { role: 'user', content: buildWritingEssayRepairMessage({ topic: data.chinese, material: data.material, imageDesc: data.imageDesc, targetWords: data.targetWords, level }) },
+  ];
+  // 短超时（60 秒）：补救不值得占住任务太久；失败就保留原范文并记日志
+  const raw = await callLLM({ baseUrl, model, apiKey, messages, timeoutMs: 60000 });
+  const parsed = parseJsonLoose(raw);
+  const essay = String((parsed && (parsed.original ?? parsed.essay)) || '').trim();
+  if (essay.split(/\s+/).length < 40) throw new Error('补救请求没有给出有效的范文');
+  const after = essayReuseRatio(essay, [data.draft, data.ai]);
+  return { essay, after };
 }
 
 /* ---------- 自测卷批改任务（mode=grade）----------

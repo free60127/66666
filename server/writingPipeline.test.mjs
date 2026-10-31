@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { startWritingServer, writingModelBreakdown, writingModelEssay, writingOverall } from '../test/fixtures/writingServer.mjs';
+import { startWritingServer, writingModelBreakdown, writingModelEssay, writingRepairedEssay, writingOverall } from '../test/fixtures/writingServer.mjs';
 
 const app = await startWritingServer();
 const post = async (kind, payload) => {
@@ -82,4 +82,21 @@ try {
   const failed = await submit('writing-brief', { topic: 'Question' }, true);
   assert.match(failed.job.error, /不完整/);
   console.log('PASS 写作指导支持完整材料，拒绝跨类型任务和空模型响应');
+
+  /* ---------- 范文克隆检测与零锚重写 ----------
+   * 线上事故：模型逐句读完学生作文再写"独立范文"，结果 6 句抄 5 句，
+   * 赏析笔记自己写着"与学生的句子相同"。fixture 的 cloned-essay 模式复现该形状。 */
+  app.setMode('cloned-essay');
+  const requestsBeforeClone = app.requests.length;
+  const cloned = await submit('analyze', input);
+  assert.equal(app.requests.length - requestsBeforeClone, 2, '克隆检测触发恰好一次补救请求');
+  const repairReq = app.requests.at(-1);
+  assert.match(repairReq.messages[0].content, /满分范文作者/);
+  assert.doesNotMatch(repairReq.messages[1].content, /live independently/, '零锚：补救请求不得包含学生作文任何片段');
+  assert.match(repairReq.messages[1].content, /The reading explains/);
+  assert.match(repairReq.messages[1].content, /60%/);
+  assert.match(repairReq.messages[1].content, /300/);
+  assert.equal(cloned.job.data.original, writingRepairedEssay);
+  assert.deepEqual(cloned.job.data.modelBreakdown, [], '旧赏析对不上新范文，随之清空');
+  console.log('PASS 范文照抄学生作文时自动零锚重写：补救请求不含学生文本，赏析随之清空');
 } finally { await app.stop(); }

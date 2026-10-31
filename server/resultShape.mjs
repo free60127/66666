@@ -70,7 +70,6 @@ export function sanitizeSentences(value) {
 
 /** 范文赏析条目上限：范文就几十句，超过只会是模型在复读凑数 */
 const MODEL_BREAKDOWN_MAX = 12;
-
 /**
  * 清洗 modelBreakdown（写作方向的"范文赏析"，按文章功能拆解范文）。
  * 只做形状收敛：必需的 fn/sentence 非字符串或为空就丢条目，note 缺省空串，
@@ -99,4 +98,30 @@ export function sanitizeModelBreakdown(value, sentenceCount = 0) {
 export function sanitizeOverall(value) {
   const o = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
   return { ...o, scoreBreakdown: objectArray(o.scoreBreakdown) };
+}
+
+/**
+ * 范文克隆检测：学生作文（或 AI 提升版）的句子有多少**逐字**出现在范文里。
+ *
+ * 为什么要有：写作批改是一次调用——模型逐句读完学生作文后再写"独立高分范文"，
+ * LLM 的上下文锚定会让它大量复用刚读过的句子（实测：一篇 88 分作文的范文 6 句里
+ * 5 句逐字照搬）。检测到高重用就触发一次**零锚重写**（补救 prompt 里没有学生作文，
+ * 物理上无法抄）。
+ *
+ * 口径：只统计 ≥6 个单词的句子（"Dear Jack," / "Best wishes," 这类礼仪套语不算）；
+ * 归一化 = 小写 + 压空白 + 去首尾标点，子串匹配。返回两篇参考文本中较高的重用率。
+ */
+export function essayReuseRatio(essay, referenceTexts) {
+  const norm = (s) => String(s == null ? '' : s).toLowerCase().replace(/\s+/g, ' ').replace(/^[^a-z0-9]+|[^a-z0-9]+$/g, '');
+  const split = (s) => String(s == null ? '' : s).split(/(?<=[.!?])\s+|\n+/).map(norm).filter((x) => x.split(' ').length >= 6);
+  const essayNorm = norm(essay);
+  if (!essayNorm) return 0;
+  let worst = 0;
+  for (const ref of Array.isArray(referenceTexts) ? referenceTexts : []) {
+    const sentences = split(ref).filter(Boolean);
+    if (!sentences.length) continue;
+    const reused = sentences.filter((s) => essayNorm.includes(s)).length;
+    worst = Math.max(worst, reused / sentences.length);
+  }
+  return worst;
 }
