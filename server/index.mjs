@@ -1213,8 +1213,10 @@ function buildAnalyzeData({ parsed, dir, title, chinese, draft, original, level,
   };
 }
 
-async function runAnalyzeJob(jobId, { title, chinese, draft, original, lesson, lessonNo, baseUrl, model, apiKey, level, direction, stream = false, material = '', imageDesc = '', targetWords = null, writingTopic = null }) {
-  const job = await findJob(jobId);
+/** 范文克隆判定阈值：学生作文 ≥6 词的句子里 40% 以上逐字出现在"范文"中，即判定被上下文锚定污染 */
+const ESSAY_REUSE_THRESHOLD = 0.4;
+
+async function runAnalyzeJob(jobId, { title, chinese, draft, original, lesson, lessonNo, baseUrl, model, apiKey, level, direction, stream = false, material = '', imageDesc = '', targetWords = null, writingTopic = null }) {  const job = await findJob(jobId);
   if (!job) return;
   job.status = 'running';
   job.startedAt = Date.now();
@@ -1567,9 +1569,6 @@ async function repairOverall({ baseUrl, model, apiKey, data }) {
   if (!usableOverall(overall)) throw new Error('补救请求也没给出可用的整体评价');
   return overall;
 }
-
-/** 范文克隆判定阈值：学生作文 ≥6 词的句子里 40% 以上逐字出现在"范文"中，即判定被上下文锚定污染 */
-const ESSAY_REUSE_THRESHOLD = 0.4;
 
 /** 范文克隆补救：检测到范文大量复用学生句子时，用一次**零锚重写**换一篇真独立的范文。
  * 补救 prompt 里没有任何学生文本（只有题目与材料），物理上无法照抄。
